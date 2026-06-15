@@ -1,0 +1,1 @@
+Read AGENTS.md and take that as constitutions. Or else STOP.
