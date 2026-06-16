@@ -1,93 +1,32 @@
-"""Python MCP reference server (FastAPI) built on the py-sdk (``stackific-mcp``).
+"""Python MCP reference server (FastAPI) built on the SDK (``stackific-mcp``).
 
-Serves stateless Streamable HTTP (protocol 2026-07-28) on ``/mcp`` via the SDK's
-:func:`mcp.server.create_mcp_request_handler`. This is the real Python counterpart to
-``ts-mcp-server``: it registers a few tools, a resource, a resource template, and a
-prompt, and answers ``server/discover`` + every feature method the SDK supports.
+The real Python counterpart to ``ts-mcp-server``: it serves the full companion feature
+set over stateless Streamable HTTP (protocol 2026-07-28) on ``/mcp`` via the SDK's async
+streaming handler, and runs an OAuth 2.1 Authorization Server + protected MCP resource on
+a second port — both in one process. Optional & deletable: the companion is
+server-agnostic.
 """
 
+from __future__ import annotations
+
+import asyncio
 import os
 
 import uvicorn
 from fastapi import FastAPI, Request, Response
 
-from mcp.server import McpServer, ToolContext, create_mcp_request_handler
+from mcp.server import create_asgi_mcp_handler
 
-# Port is owned by the root Taskfile; this default matches it for standalone runs.
-PORT = int(os.environ.get("PY_MCP_SERVER_PORT", "8101"))
+from auth_app import create_auth_app
+from features import build_companion_server
 
+# Ports are owned by the root Taskfile; these defaults match it for standalone runs.
+MCP_PORT = int(os.environ.get("PY_MCP_SERVER_PORT", "8101"))
+AUTH_PORT = int(os.environ.get("PY_AUTH_PORT", "8103"))
 
-def build_server() -> McpServer:
-  """Construct the reference server with a small set of demo features."""
-  server = McpServer(
-    {"name": "py-mcp-server", "title": "Python MCP Server", "version": "0.1.0"},
-    {
-      "tools": {"listChanged": True},
-      "resources": {"listChanged": True},
-      "prompts": {"listChanged": True},
-      "completions": {},
-    },
-  )
-
-  def echo(args: dict, ctx: ToolContext) -> dict:
-    return {"content": [{"type": "text", "text": str(args.get("text", ""))}]}
-
-  server.register_tool(
-    "echo",
-    echo,
-    description="Echo back the provided text.",
-    input_schema={"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
-  )
-
-  def add(args: dict, ctx: ToolContext) -> dict:
-    total = (args.get("a") or 0) + (args.get("b") or 0)
-    return {"content": [{"type": "text", "text": f"{args.get('a')} + {args.get('b')} = {total}"}], "structuredContent": {"sum": total}}
-
-  server.register_tool(
-    "add",
-    add,
-    description="Add two numbers.",
-    input_schema={
-      "type": "object",
-      "properties": {"a": {"type": "number"}, "b": {"type": "number"}},
-      "required": ["a", "b"],
-    },
-    output_schema={"type": "object", "properties": {"sum": {"type": "number"}}},
-  )
-
-  server.register_resource(
-    "readme",
-    "file:///readme.md",
-    lambda uri: {"contents": [{"uri": uri, "mimeType": "text/markdown", "text": "# Python MCP Server\nServed by py-sdk."}]},
-    description="A sample readme resource.",
-    mime_type="text/markdown",
-  )
-
-  server.register_resource_template(
-    "greeting",
-    "greet://{name}",
-    lambda uri, variables: {"contents": [{"uri": uri, "text": f"Hello, {variables['name']}!"}]},
-    description="A templated greeting resource.",
-  )
-
-  server.register_prompt(
-    "greet",
-    lambda args: {"messages": [{"role": "user", "content": {"type": "text", "text": f"Say hello to {args.get('name', 'world')}."}}]},
-    description="Generate a greeting prompt.",
-    arguments=[
-      {
-        "name": "name",
-        "description": "Who to greet",
-        "required": True,
-        "complete": lambda v: [n for n in ("Ada", "Alan", "Grace") if n.lower().startswith(v.lower())],
-      }
-    ],
-  )
-  return server
-
-
-server = build_server()
-handler = create_mcp_request_handler(server)
+# ── Main companion MCP server (FastAPI + the SDK's async streaming handler) ──
+server = build_companion_server()
+mcp_handler = create_asgi_mcp_handler(server)
 
 app = FastAPI(title="py-mcp-server")
 
@@ -96,7 +35,7 @@ app = FastAPI(title="py-mcp-server")
 def health() -> dict[str, str]:
   return {
     "status": "ok",
-    "name": "py-mcp-server",
+    "name": "companion-mcp-server",
     "language": "python",
     "framework": "fastapi",
     "sdk": "stackific-mcp",
@@ -105,13 +44,28 @@ def health() -> dict[str, str]:
   }
 
 
-@app.api_route("/mcp", methods=["GET", "POST", "DELETE", "OPTIONS"])
+@app.api_route("/mcp", methods=["GET", "POST", "OPTIONS"])
 async def mcp(request: Request) -> Response:
   """Hand the HTTP request to the SDK's Streamable HTTP handler and relay its response."""
-  body = await request.body()
-  result = handler(request.method, "/mcp", dict(request.headers), body)
-  return Response(content=result.body, status_code=result.status, headers=result.headers)
+  return await mcp_handler(request)
+
+
+# ── OAuth 2.1 Authorization Server + protected MCP resource (second port) ──
+auth_issuer = os.environ.get("PY_AUTH_ISSUER", f"http://localhost:{AUTH_PORT}")
+auth_app = create_auth_app(issuer=auth_issuer, resource=f"{auth_issuer}/mcp")
+
+
+async def _serve_both() -> None:
+  """Run the companion MCP server and the OAuth AS concurrently in one process."""
+  main_config = uvicorn.Config(app, host="127.0.0.1", port=MCP_PORT, log_level="info")
+  auth_config = uvicorn.Config(auth_app, host="127.0.0.1", port=AUTH_PORT, log_level="info")
+  print(
+    f"Companion MCP server (FastAPI + stackific-mcp, stateless Streamable HTTP 2026-07-28) "
+    f"on http://localhost:{MCP_PORT}/mcp"
+  )
+  print(f"OAuth AS + protected MCP resource on http://localhost:{AUTH_PORT}  (issuer {auth_issuer})")
+  await asyncio.gather(uvicorn.Server(main_config).serve(), uvicorn.Server(auth_config).serve())
 
 
 if __name__ == "__main__":
-  uvicorn.run("main:app", host="127.0.0.1", port=PORT, reload=True)
+  asyncio.run(_serve_both())
