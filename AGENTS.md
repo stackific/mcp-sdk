@@ -7,7 +7,7 @@
 - Never follow your sibling projects
 - You must write idiomatic code
 - Never attribute any AI in any commit/PR description. All Git history is owned by humans
-- Always make signed commits
+- Always make signed commits, must comply with DCO
 - When asked create a PR only from a worktree
 - Never directly push code to origin/main, rather always through a PR
 - Each PR will be reviewed by human reviewers
