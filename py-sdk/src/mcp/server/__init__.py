@@ -4,6 +4,7 @@ transport-agnostic request processor.
 Re-exports the public surface of :mod:`mcp.server.server` and :mod:`mcp.server.runtime`.
 """
 
+from mcp.server.http import HttpResponse, create_mcp_request_handler
 from mcp.server.runtime import process_message
 from mcp.server.server import (
   LOG_LEVELS,
@@ -24,4 +25,6 @@ __all__ = [
   "LOG_LEVELS",
   "TASK_RESULT_TYPE",
   "process_message",
+  "HttpResponse",
+  "create_mcp_request_handler",
 ]
