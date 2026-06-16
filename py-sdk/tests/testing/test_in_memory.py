@@ -202,3 +202,137 @@ class TestSharedServerReference:
     # Register a new tool *after* the client connected; it must be reachable in-process.
     server.register_tool("late", lambda args, ctx: {"content": [{"type": "text", "text": "late!"}]})
     assert client.call_tool("late")["content"][0]["text"] == "late!"
+
+
+# ─── TS-test parity: discover → paginate → call → server→client elicitation ──────
+# The authoritative TS in-memory test (ts-sdk/src/__tests__/testing/in-memory.test.ts)
+# drives one end-to-end exchange: discover, paginate (pageSize 2 over 3 tools), call a
+# tool, and run a server→client elicitation. In this SDK a server→client interaction is
+# NOT a separate server-initiated request — it is embedded as an input request inside a
+# result and resolved by client retry (the §11 MRTR mechanism; spec §7.5 / §11). So the
+# Python harness exercises the same scenario through `request_with_input` over the single
+# synchronous `request()` call, with the elicitation answered by a registered handler.
+
+ELICIT_CLIENT_CAPS = {"tools": {}, "elicitation": {}}
+
+
+def build_mrtr_server(page_size: int = 2) -> McpServer:
+  """Mirror the TS ``buildServer``: an ``add``, an ``echo``, and an ``ask`` (elicitation).
+
+  ``ask`` solicits elicitation via ``ctx.elicit_input``; in the §11 model the server turns
+  the first unanswered solicitation into an ``input_required`` result, which the client's
+  ``request_with_input`` resolves through the registered ``elicitation/create`` handler and
+  retries. ``page_size`` (default 2) over the three tools forces two pages of ``tools/list``.
+  """
+  server = McpServer(SERVER_INFO, {"tools": {}}, page_size=page_size)
+
+  server.register_tool(
+    "add",
+    lambda args, ctx: {"content": [{"type": "text", "text": str(int(args["a"]) + int(args["b"]))}]},
+    description="Add two numbers.",
+  )
+  server.register_tool(
+    "echo",
+    lambda args, ctx: {"content": [{"type": "text", "text": "echo"}]},
+    description="Echo a fixed string.",
+  )
+
+  def ask_tool(args, ctx):
+    # Solicit elicitation; resolved by the client and supplied back as the response dict.
+    response = ctx.elicit_input({"mode": "form"})
+    return {"content": [{"type": "text", "text": str(response.get("action"))}]}
+
+  server.register_tool("ask", ask_tool, description="Ask the client to elicit input.")
+  return server
+
+
+class TestTsScenarioParity:
+  """The single TS in-memory scenario, end-to-end through the Python harness."""
+
+  def test_discovers_paginates_calls_and_elicits(self):
+    server = build_mrtr_server(page_size=2)
+    client = connect_in_memory(server, CLIENT_INFO, capabilities=ELICIT_CLIENT_CAPS)
+    # The elicitation handler the §11 loop invokes for an `elicitation/create` input request.
+    client.set_request_handler("elicitation/create", lambda params: {"action": "accept"})
+
+    # discover() ran in connect_in_memory; the negotiated revision matches the TS assertion.
+    assert client.negotiated_version == "2026-07-28"
+
+    # pagination: page_size 2 over 3 tools → two pages; collect every tool name across pages.
+    names: list[str] = []
+    page = client.list_tools()
+    names.extend(t["name"] for t in page["tools"])
+    assert "nextCursor" in page  # first page is full, more to come
+    page2 = client.list_tools(cursor=page["nextCursor"])
+    names.extend(t["name"] for t in page2["tools"])
+    assert sorted(names) == ["add", "ask", "echo"]
+    assert "nextCursor" not in page2  # the second page is the last
+
+    # tools/call: add(2, 3) → "5".
+    summed = client.call_tool("add", {"a": 2, "b": 3})
+    assert summed["content"][0]["text"] == "5"
+
+    # `ask` solicits elicitation → input_required, fulfilled by the handler + retried.
+    elicited = client.call_tool("ask")
+    assert elicited["content"][0]["text"] == "accept"
+
+
+class TestPaginationEndToEnd:
+  """tools/list pagination runs through the live server's cursor mechanism."""
+
+  def test_two_pages_cover_all_tools_without_overlap(self):
+    server = build_mrtr_server(page_size=2)
+    client = connect_in_memory(server, CLIENT_INFO, capabilities=ELICIT_CLIENT_CAPS)
+    first = client.list_tools()
+    assert len(first["tools"]) == 2
+    cursor = first["nextCursor"]
+    second = client.list_tools(cursor=cursor)
+    assert len(second["tools"]) == 1
+    first_names = {t["name"] for t in first["tools"]}
+    second_names = {t["name"] for t in second["tools"]}
+    assert first_names.isdisjoint(second_names)  # no tool appears on both pages
+    assert first_names | second_names == {"add", "ask", "echo"}
+
+  def test_single_page_when_page_size_covers_all(self):
+    # A page_size >= tool count yields exactly one page and no cursor.
+    server = build_mrtr_server(page_size=50)
+    client = connect_in_memory(server, CLIENT_INFO, capabilities=ELICIT_CLIENT_CAPS)
+    page = client.list_tools()
+    assert {t["name"] for t in page["tools"]} == {"add", "ask", "echo"}
+    assert "nextCursor" not in page
+
+
+class TestElicitationViaMrtr:
+  """A server→client elicitation resolved by the §11 input_required + retry loop."""
+
+  def test_elicitation_response_flows_back_into_the_tool(self):
+    server = build_mrtr_server()
+    client = connect_in_memory(server, CLIENT_INFO, capabilities=ELICIT_CLIENT_CAPS)
+    seen_params: list[dict] = []
+
+    def handler(params):
+      seen_params.append(params)
+      return {"action": "decline"}
+
+    client.set_request_handler("elicitation/create", handler)
+    result = client.call_tool("ask")
+    # The handler's response reached the tool, which echoed its `action`.
+    assert result["content"][0]["text"] == "decline"
+    # …and the tool's solicited params ({"mode": "form"}) reached the handler.
+    assert seen_params == [{"mode": "form"}]
+
+  def test_missing_elicitation_handler_raises_request_error(self):
+    # With no handler registered for the solicited kind, the §11 loop fails loudly.
+    server = build_mrtr_server()
+    client = connect_in_memory(server, CLIENT_INFO, capabilities=ELICIT_CLIENT_CAPS)
+    with pytest.raises(RequestError):
+      client.call_tool("ask")
+
+  def test_undeclared_elicitation_capability_surfaces_as_error(self):
+    # Without the `elicitation` capability declared, the input_required kind is gated off
+    # and discrimination yields an MRTR error rather than silently proceeding (R-11.5-k).
+    server = build_mrtr_server()
+    client = connect_in_memory(server, CLIENT_INFO, capabilities={"tools": {}})
+    client.set_request_handler("elicitation/create", lambda params: {"action": "accept"})
+    with pytest.raises(RequestError):
+      client.call_tool("ask")

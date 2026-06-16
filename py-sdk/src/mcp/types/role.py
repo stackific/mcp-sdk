@@ -11,5 +11,10 @@ ROLES = frozenset({"user", "assistant"})
 
 
 def is_role(value: object) -> bool:
-  """Return ``True`` when ``value`` is a valid ``Role`` (``"user"`` or ``"assistant"``)."""
-  return value in ROLES
+  """Return ``True`` when ``value`` is a valid ``Role`` (``"user"`` or ``"assistant"``).
+
+  Roles are strings, so any non-string value (including unhashable ones such as
+  ``list``/``dict``) is rejected before the set-membership test — mirroring the TS
+  ``typeof value === 'string'`` guard.
+  """
+  return isinstance(value, str) and value in ROLES

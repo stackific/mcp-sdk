@@ -6,14 +6,16 @@ single ``completion/complete`` request carries the closed ``ref`` union + the pa
 ``argument`` (+ optional sibling ``context``); the server returns a ranked, ≤100-item list.
 Gated by the ``completions`` capability.
 
-The client-side keystroke debouncer (a UI convenience) is deferred — Python's timing model
-differs from the JS ``setTimeout`` version; the protocol substance is here.
+The client-side keystroke debouncer (a UI convenience, §19.5 R-19.5-n) is provided by
+:func:`create_completion_debouncer`, a thread-timer analogue of the JS ``setTimeout`` version.
 """
 
 from __future__ import annotations
 
+import threading
+from concurrent.futures import Future
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Callable, Protocol, TypeVar
 
 from mcp.jsonrpc.payload import RESULT_TYPE_COMPLETE
 from mcp.protocol.capability_negotiation import SERVER_METHOD_CAPABILITY, may_client_invoke, server_declares
@@ -355,3 +357,57 @@ def resource_template_variable_names_of(template: dict, extract_variables) -> li
   (keep the §17.4 binding as the single source of template-variable parsing). (R-19.5-r)
   """
   return list(extract_variables(template["uriTemplate"]))
+
+
+# ─── Client-side request debouncing (§19.5, R-19.5-n — SHOULD) ─────────────────
+
+_T = TypeVar("_T")
+
+
+def create_completion_debouncer(run: Callable[[str], _T], wait_ms: int = 150) -> Callable[[str], "Future[_T]"]:
+  """Wrap a completion runner so rapid successive calls (one per keystroke) are coalesced into a
+  single in-flight ``completion/complete``: each call resets a ``wait_ms`` timer, and only the
+  final value after a quiet period is sent. All callers awaiting during a burst resolve with that
+  single result. (§19.5, R-19.5-n)
+
+  The thread-timer analogue of the TS ``setTimeout`` debouncer: each returned :class:`~concurrent.
+  futures.Future` is fulfilled when the coalesced ``run`` completes (or fails). ``run`` is invoked
+  off the calling thread on a :class:`threading.Timer`; a burst of calls within ``wait_ms`` fires
+  ``run`` exactly once, with the LAST supplied value.
+
+  :param run: Issues the actual ``completion/complete`` for an argument value.
+  :param wait_ms: Quiet period (milliseconds) before the coalesced call fires. Default 150.
+  """
+  lock = threading.Lock()
+  state: dict = {"timer": None, "waiters": []}
+
+  def debounced(value: str) -> "Future[_T]":
+    future: Future = Future()
+    with lock:
+      waiters: list = state["waiters"]
+      waiters.append(future)
+      timer = state["timer"]
+      if timer is not None:
+        timer.cancel()
+
+      def fire(value: str = value) -> None:
+        with lock:
+          batch = state["waiters"]
+          state["waiters"] = []
+          state["timer"] = None
+        try:
+          result = run(value)
+        except Exception as exc:  # noqa: BLE001 — propagate to every awaiting caller
+          for w in batch:
+            w.set_exception(exc)
+          return
+        for w in batch:
+          w.set_result(result)
+
+      new_timer = threading.Timer(wait_ms / 1000.0, fire)
+      new_timer.daemon = True
+      state["timer"] = new_timer
+      new_timer.start()
+    return future
+
+  return debounced

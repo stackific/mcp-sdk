@@ -205,6 +205,11 @@ def create_asgi_mcp_handler(
 
     if request.method == "OPTIONS":
       return Response(status_code=204, headers=cors_headers())
+    # A liveness probe, served on every runtime regardless of the MCP path or HTTP
+    # method (parity with the TS handler's `/health`). Checked BEFORE the path-mismatch
+    # 404 and the Origin/auth gates so a bare health check always succeeds.
+    if request.url.path == "/health":
+      return json_response(200, {"status": "ok", "name": server.info.get("name")})
     if request.url.path != path:
       return json_response(404, {"error": "not found"})
 

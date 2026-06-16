@@ -11,6 +11,7 @@ by that module). This port fills in the §21.1 pieces: capability shape, the ``R
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from urllib.parse import unquote, urlsplit
 
@@ -100,11 +101,36 @@ def is_valid_roots_list_input_request(value: object) -> bool:
 
 # ─── the Root entry (§21.1.5) ─────────────────────────────────────────────────
 
+#: Characters permitted anywhere in an RFC 3986 URI (unreserved + reserved + ``%`` for
+#: pct-encoding). A char outside this set (space, raw ``\``, control char, …) means the
+#: string is NOT a syntactically valid URI. Mirrors the WHATWG ``URL`` parser's rejection
+#: of such inputs (the TS SDK uses ``new URL(uri)`` for the RFC 3986 check). (R-21.1.5-d)
+_RFC3986_CHARS = re.compile(r"^[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]*$")
+#: A ``%`` NOT followed by exactly two hex digits — a malformed percent-escape. (R-21.1.5-d)
+_BAD_PCT_ENCODING = re.compile(r"%(?![0-9A-Fa-f]{2})")
+
+
+def _is_rfc3986_syntactically_valid(uri: str) -> bool:
+  """Return ``True`` when ``uri`` contains only RFC 3986-permitted characters and every
+  percent-escape is well-formed (``%`` followed by two hex digits). This is the RFC 3986
+  syntactic-validity gate the TS SDK gets from the WHATWG ``URL`` parser (which throws on
+  spaces, raw backslashes, control chars, and bad ``%`` escapes); ``urllib`` is lenient and
+  would otherwise accept such malformed inputs. (R-21.1.5-d)
+  """
+  if not _RFC3986_CHARS.match(uri):
+    return False
+  return _BAD_PCT_ENCODING.search(uri) is None
+
+
 def is_valid_file_uri(uri: object) -> bool:
-  """Return ``True`` when ``uri`` is a syntactically valid absolute URI using the ``file``
-  scheme (begins with ``file://``). (R-21.1.5-b/-d)
+  """Return ``True`` when ``uri`` is a syntactically valid absolute URI per RFC 3986 AND
+  uses the ``file`` scheme (begins with ``file://``). A non-``file`` scheme, a missing/empty
+  value, or a malformed URI (spaces, raw ``\\``, stray ``%``, control chars) all return
+  ``False``. (R-21.1.5-b/-d)
   """
   if not isinstance(uri, str) or uri == "" or not uri.startswith("file://"):
+    return False
+  if not _is_rfc3986_syntactically_valid(uri):
     return False
   try:
     return urlsplit(uri).scheme == "file"

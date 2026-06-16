@@ -18,10 +18,26 @@ from mcp.protocol.capability_negotiation import (
   may_client_invoke,
   server_declares,
 )
+from mcp.protocol.caching import is_valid_cache_scope
 from mcp.protocol.errors import INVALID_PARAMS_CODE
+from mcp.protocol.multi_round_trip import (
+  discriminate_result_type,
+  is_valid_input_required_result,
+)
+from mcp.protocol.pagination import is_valid_paginated_request_params
 from mcp.types.base_metadata import is_valid_base_metadata
 from mcp.types.content import is_valid_content_block
 from mcp.types.role import is_role
+
+# Re-export the canonical multi-round-trip "input_required" discriminator value and
+# input-required validator (the SAME S17 bindings) so prompt callers handling a
+# ``prompts/get`` retry need not reach into multi_round_trip directly. Mirrors the TS
+# ``MRTR_RESULT_TYPE`` / ``InputRequiredResultSchema`` re-exports from prompts.ts.
+#: The multi-round-trip ``input_required`` discriminator value. (§11, S17)
+MRTR_RESULT_TYPE_INPUT_REQUIRED = RESULT_TYPE_INPUT_REQUIRED
+#: Validator for a well-formed ``InputRequiredResult`` — the S17 binding a ``prompts/get``
+#: retry handler checks an ``input_required`` body against. (§11, S17)
+is_valid_prompts_input_required_result = is_valid_input_required_result
 
 PROMPTS_LIST_METHOD = "prompts/list"
 PROMPTS_GET_METHOD = "prompts/get"
@@ -110,6 +126,19 @@ def is_valid_prompt_message(value: object) -> bool:
 
 # ─── prompts/list (§18.2) ─────────────────────────────────────────────────────
 
+def is_valid_list_prompts_request_params(value: object) -> bool:
+  """Return ``True`` for valid ``prompts/list`` request ``params`` (§18.2).
+
+  This is the paginated request shape (S18): an OPTIONAL opaque ``cursor`` (``""`` is a
+  valid PRESENT cursor; a client MUST NOT construct/parse/modify it — it is echoed back
+  verbatim from a prior ``nextCursor``) and an OPTIONAL ``_meta`` object. The cursor MAY
+  be omitted entirely (a first-page request is ``{}``). Reuses
+  :func:`is_valid_paginated_request_params` rather than redefining the cursor field.
+  (R-18.2-a, R-18.2-b, R-18.2-c)
+  """
+  return is_valid_paginated_request_params(value)
+
+
 def resolve_list_prompts_result_type(result: dict) -> str:
   """Resolve a ``prompts/list`` result's ``resultType``, treating absent as ``"complete"``.
   (R-18.2-p)
@@ -133,7 +162,7 @@ def is_valid_list_prompts_result(value: object) -> bool:
   ttl = value.get("ttlMs")
   if not isinstance(ttl, int) or isinstance(ttl, bool) or ttl < 0:
     return False
-  if value.get("cacheScope") not in ("public", "private"):
+  if not is_valid_cache_scope(value.get("cacheScope")):
     return False
   return "_meta" not in value or isinstance(value["_meta"], dict)
 
@@ -170,6 +199,38 @@ def build_list_prompts_result(config: ListPromptsResultConfig) -> dict:
 
 
 # ─── prompts/get (§18.4) ──────────────────────────────────────────────────────
+
+def is_valid_get_prompt_request_params(value: object) -> bool:
+  """Return ``True`` for valid ``prompts/get`` request ``params`` (§18.4).
+
+  Field constraints (R-18.4-a – R-18.4-k):
+
+  * ``name`` REQUIRED string — the prompt to retrieve; matches a ``Prompt.name``.
+  * ``arguments`` OPTIONAL map<string,string> — values keyed by ``PromptArgument.name``;
+    each value MUST be a string.
+  * ``inputResponses`` OPTIONAL object — multi-round-trip retry responses (§11); omitted
+    on a first attempt.
+  * ``requestState`` OPTIONAL opaque string — echoed verbatim on retry; omitted on a
+    first attempt.
+  * ``_meta`` REQUIRED object — every client request carries per-request metadata (S04),
+    so it is modeled as required here (matching ``is_valid_request_params``).
+
+  Additional members are tolerated (the TS schema uses ``.passthrough()``).
+  """
+  if not isinstance(value, dict):
+    return False
+  if not isinstance(value.get("name"), str):
+    return False
+  if "arguments" in value:
+    args = value["arguments"]
+    if not isinstance(args, dict) or not all(isinstance(v, str) for v in args.values()):
+      return False
+  if "inputResponses" in value and not isinstance(value["inputResponses"], dict):
+    return False
+  if "requestState" in value and not isinstance(value["requestState"], str):
+    return False
+  return isinstance(value.get("_meta"), dict)
+
 
 def resolve_get_prompt_result_type(result: dict) -> str:
   """Resolve a ``prompts/get`` result's ``resultType``, treating absent as ``"complete"``.
@@ -230,20 +291,37 @@ class GetPromptResponseDiscrimination:
 
 def discriminate_get_prompt_response(response: object) -> GetPromptResponseDiscrimination:
   """Branch a ``prompts/get`` response on its ``resultType`` (§18.4/§11): ``"complete"``
-  (or absent) + a well-formed body → complete; ``"input_required"`` → input_required;
-  unrecognized or malformed → error. (R-18.4-q/-r)
+  (or absent) + a well-formed body → complete; ``"input_required"`` + a well-formed
+  ``InputRequiredResult`` → input_required; any unrecognized ``resultType`` or a body that
+  fails its schema → error. (R-18.4-q/-r)
+
+  Reuses :func:`discriminate_result_type` (S17) for the result-type branching so the
+  §3.6/§11.5 receiver rules (absent ⇒ complete; unrecognized ⇒ error; malformed
+  ``input_required`` ⇒ error) apply uniformly, then validates the completed body against
+  :func:`is_valid_get_prompt_result`.
   """
   if not isinstance(response, dict):
     return GetPromptResponseDiscrimination("error", reason="response is not an object", result_type=None)
-  rt = resolve_get_prompt_result_type(response)
-  if rt == RESULT_TYPE_INPUT_REQUIRED:
-    return GetPromptResponseDiscrimination("input_required", result=response)
-  if rt == RESULT_TYPE_COMPLETE:
-    normalized = {**response, "resultType": RESULT_TYPE_COMPLETE} if response.get("resultType") is None else response
-    if is_valid_get_prompt_result(normalized):
-      return GetPromptResponseDiscrimination("complete", result=normalized)
-    return GetPromptResponseDiscrimination("error", reason="Malformed GetPromptResult", result_type=RESULT_TYPE_COMPLETE)
-  return GetPromptResponseDiscrimination("error", reason=f"unrecognized resultType '{rt}'", result_type=rt)
+
+  branch = discriminate_result_type(response)
+  if branch.action == "input_required":
+    return GetPromptResponseDiscrimination("input_required", result=branch.result)
+  if branch.action == "error":
+    raw = response.get("resultType")
+    result_type = None if raw is None else str(raw)
+    return GetPromptResponseDiscrimination("error", reason=branch.reason, result_type=result_type)
+
+  # action == "complete" — default an absent resultType, then validate the body.
+  normalized = (
+    {**response, "resultType": RESULT_TYPE_COMPLETE}
+    if response.get("resultType") is None
+    else response
+  )
+  if is_valid_get_prompt_result(normalized):
+    return GetPromptResponseDiscrimination("complete", result=normalized)
+  return GetPromptResponseDiscrimination(
+    "error", reason="Malformed GetPromptResult", result_type=RESULT_TYPE_COMPLETE
+  )
 
 
 # ─── prompts/get error model + validation (§18.4) ─────────────────────────────
@@ -299,6 +377,19 @@ def validate_get_prompt_request(params: dict, offered) -> GetPromptRequestValida
 
 # ─── notifications/prompts/list_changed (§18.6) ───────────────────────────────
 
+def is_valid_prompt_list_changed_notification_params(value: object) -> bool:
+  """Return ``True`` for valid ``notifications/prompts/list_changed`` ``params`` (§18.6).
+
+  When present, the params object MAY carry ONLY a reserved ``_meta`` map (an object) and
+  no prompt data; the notification itself carries no prompt payload. Additional
+  forward-compatible members are tolerated (the TS schema uses ``.passthrough()``).
+  (R-18.6-c, AC-28.40)
+  """
+  if not isinstance(value, dict):
+    return False
+  return "_meta" not in value or isinstance(value["_meta"], dict)
+
+
 def is_valid_prompt_list_changed_notification(value: object) -> bool:
   """Return ``True`` for a well-formed ``notifications/prompts/list_changed`` (no ``id``;
   optional ``_meta``-only params). (§18.6)
@@ -307,7 +398,7 @@ def is_valid_prompt_list_changed_notification(value: object) -> bool:
     return False
   if value.get("method") != PROMPTS_LIST_CHANGED_METHOD or "id" in value:
     return False
-  return "params" not in value or isinstance(value["params"], dict)
+  return "params" not in value or is_valid_prompt_list_changed_notification_params(value["params"])
 
 
 def build_prompt_list_changed_notification(meta: dict | None = None) -> dict:

@@ -143,6 +143,33 @@ class TestProcessLine:
     # The final result response for id 6 is present.
     assert any(m.get("id") == 6 and "result" in m for m in written)
 
+  def test_tool_notifications_precede_the_final_response_in_order(self):
+    out = io.StringIO()
+    line = json.dumps({"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "noisy"}})
+    process_line(make_server(), line, out)
+    written = read_responses(out)
+    # The notification line is written strictly before the response line for the call.
+    notif_idx = next(i for i, m in enumerate(written) if m.get("method") == "notifications/message")
+    resp_idx = next(i for i, m in enumerate(written) if m.get("id") == 7 and "result" in m)
+    assert notif_idx < resp_idx
+
+  def test_server_error_for_unknown_tool_is_framed_with_its_code(self):
+    out = io.StringIO()
+    line = json.dumps({"jsonrpc": "2.0", "id": 8, "method": "tools/call", "params": {"name": "missing"}})
+    response = process_line(make_server(), line, out)
+    assert response is not None and "error" in response
+    [written] = read_responses(out)
+    assert written["id"] == 8
+    assert "error" in written
+
+  def test_return_value_matches_what_was_written(self):
+    # process_line returns the same dict it wrote, so callers can inspect it directly.
+    out = io.StringIO()
+    line = json.dumps({"jsonrpc": "2.0", "id": 9, "method": "ping"})
+    response = process_line(make_server(), line, out)
+    [written] = read_responses(out)
+    assert response == written
+
 
 # ─── serve_stdio loop ────────────────────────────────────────────────────────────
 
@@ -224,3 +251,25 @@ class TestServeStdio:
     serve_stdio(make_server(), input_stream=src, output_stream=out)
     [resp] = read_responses(out)
     assert resp["result"]["content"][0]["text"] == "héllo ☃"
+
+  def test_should_continue_false_at_start_writes_nothing(self):
+    # A predicate that is False before the first read ends the loop with no output.
+    src = io.StringIO(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}) + "\n")
+    out = io.StringIO()
+    serve_stdio(make_server(), input_stream=src, output_stream=out, should_continue=lambda: False)
+    assert out.getvalue() == ""
+
+  def test_interleaves_notifications_and_responses_across_multiple_calls(self):
+    lines = [
+      json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "noisy"}}),
+      json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "noisy"}}),
+    ]
+    src = io.StringIO("\n".join(lines) + "\n")
+    out = io.StringIO()
+    serve_stdio(make_server(), input_stream=src, output_stream=out)
+    written = read_responses(out)
+    # Two log notifications (one per call) and two result responses, all on the channel.
+    notifs = [m for m in written if m.get("method") == "notifications/message"]
+    results = [m for m in written if "result" in m]
+    assert len(notifs) == 2
+    assert {m["id"] for m in results} == {1, 2}

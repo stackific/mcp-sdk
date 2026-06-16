@@ -51,6 +51,19 @@ RESERVED_REQUEST_META_KEYS = (
 )
 
 
+# ─── MetaObject (§4.1) ────────────────────────────────────────────────────────
+
+def is_valid_meta_object(value: object) -> bool:
+  """Return ``True`` when ``value`` is a valid ``_meta`` container (§4.1).
+
+  Mirrors the TS ``MetaObjectSchema`` (``z.record(z.unknown())``): the value of
+  ``_meta`` is always a JSON object — never an array, scalar, or ``null`` (R-4.1-j).
+  An empty object is valid; member values may be any JSON value (R-4.1-b), so they are
+  not further inspected here. (R-4.1-i, R-4.1-j, AC-05.7)
+  """
+  return isinstance(value, dict)
+
+
 # ─── LoggingLevel (§4.3, deprecated) ──────────────────────────────────────────
 
 #: Log severity values, in ascending order (§4.3, R-4.3-d). The ``logLevel`` ``_meta``
@@ -65,6 +78,17 @@ LOGGING_LEVELS = (
   "alert",
   "emergency",
 )
+
+
+def is_valid_logging_level(value: object) -> bool:
+  """Return ``True`` when ``value`` is one of the eight recognised ``LoggingLevel`` strings.
+
+  Mirrors the TS ``LoggingLevelSchema``: exactly one of the ascending-severity level
+  names; any other string (e.g. ``"verbose"``), a number, ``None``, etc. is rejected.
+  (§4.3, R-4.3-d) The ``io.modelcontextprotocol/logLevel`` key that uses these is
+  **Deprecated** (§27.3).
+  """
+  return isinstance(value, str) and value in LOGGING_LEVELS
 
 
 def logging_level_index(level: str) -> int:
@@ -161,6 +185,59 @@ def validate_request_meta(meta: dict) -> RequestMetaValidationResult:
     )
 
   return RequestMetaValidationResult(True)
+
+
+# ─── RequestMetaObject structural validator (§4.3) ────────────────────────────
+
+#: The optional ``io.modelcontextprotocol/logLevel`` per-request key (Deprecated). (R-4.3-d)
+LOG_LEVEL_META_KEY = "io.modelcontextprotocol/logLevel"
+
+
+def _is_string_or_number(value: object) -> bool:
+  """Return ``True`` for a ``ProgressToken``: a string or a non-bool int/float (§15)."""
+  return isinstance(value, str) or (isinstance(value, (int, float)) and not isinstance(value, bool))
+
+
+def is_valid_request_meta_object(value: object) -> bool:
+  """Return ``True`` for a structurally valid per-request ``params._meta`` object (§4.3).
+
+  Mirrors the TS ``RequestMetaObjectSchema``. The three reserved keys are REQUIRED and
+  typed (R-4.3-a, R-4.3-b, R-4.3-c):
+
+  * ``io.modelcontextprotocol/protocolVersion`` — a string.
+  * ``io.modelcontextprotocol/clientInfo``      — a valid ``Implementation`` (name+version).
+  * ``io.modelcontextprotocol/clientCapabilities`` — a JSON object.
+
+  Optional keys, validated only when present (R-4.3-d, R-4.3-e):
+
+  * ``io.modelcontextprotocol/logLevel`` — a recognised, Deprecated ``LoggingLevel``.
+  * ``progressToken`` — a string or number progress-correlation token.
+  * ``traceparent`` / ``tracestate`` / ``baggage`` — OPAQUE strings; their contents are
+    never parsed or branched on by the receiver (§15.4.2, R-15.4.2-c, R-15.4.2-g). W3C
+    grammar validation is a SENDER concern (:mod:`mcp.json.meta_key`), never gated here.
+
+  Additional protocol-defined or vendor keys MAY appear and pass through unchanged
+  (Zod ``.passthrough()``). Unlike :func:`validate_request_meta` — the request *gate*
+  that returns a ``-32602`` outcome and additionally checks the ``YYYY-MM-DD`` format —
+  this is a pure structural predicate, the direct analogue of the Zod schema's
+  ``safeParse(...).success``. (§4.3, AC-05.17, AC-05.19, AC-05.20, AC-05.21)
+  """
+  if not isinstance(value, dict):
+    return False
+  if not isinstance(value.get(PROTOCOL_VERSION_META_KEY), str):
+    return False
+  if not is_valid_implementation(value.get(CLIENT_INFO_META_KEY)):
+    return False
+  if not isinstance(value.get(CLIENT_CAPABILITIES_META_KEY), dict):
+    return False
+  if LOG_LEVEL_META_KEY in value and not is_valid_logging_level(value[LOG_LEVEL_META_KEY]):
+    return False
+  if "progressToken" in value and not _is_string_or_number(value["progressToken"]):
+    return False
+  for trace_key in ("traceparent", "tracestate", "baggage"):
+    if trace_key in value and not isinstance(value[trace_key], str):
+      return False
+  return True
 
 
 # ─── Missing-capability error builder (§5, R-4.3-k) ───────────────────────────

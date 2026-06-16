@@ -13,8 +13,30 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+# ─── CacheScope (§13.3) ───────────────────────────────────────────────────────
+
 #: The two sharing-scope values for a cached result. (§13.3) Unknown/absent → "private".
+#:
+#: ``"public"`` — any client or shared intermediary MAY reuse the stored copy for any
+#: user, subject to the freshness interval. (R-13.3-a)
+#:
+#: ``"private"`` — may be stored and reused only within the single authorization context
+#: that made the request; a shared intermediary MUST NOT serve a stored ``"private"``
+#: copy to a different user. (R-13.3-b, R-13.3-c)
+#:
+#: Any unrecognized or absent value MUST be treated as ``"private"``. (R-13.1-e)
 CACHE_SCOPES = ("public", "private")
+
+
+def is_valid_cache_scope(value: object) -> bool:
+  """Return ``True`` only when ``value`` is exactly the case-sensitive string
+  ``"public"`` or ``"private"``. (§13.3, R-13.1-d)
+
+  This is the Python analogue of the TS ``CacheScopeSchema`` zod enum: it is strict
+  (``"PUBLIC"``, ``"shared"``, ``None``, etc. all fail). Use :func:`resolve_cache_scope`
+  when you want the privacy fallback instead of a boolean check.
+  """
+  return value in CACHE_SCOPES
 
 
 def _is_int(value: object) -> bool:
@@ -35,6 +57,36 @@ def has_both_or_neither_cache_hints(result: dict) -> bool:
   NOT emit exactly one without the other. (R-13.1-g)
   """
   return ("ttlMs" in result) == ("cacheScope" in result)
+
+
+# ─── CacheableResult (§13.1) ──────────────────────────────────────────────────
+
+def is_valid_cacheable_result(value: object) -> bool:
+  """Return ``True`` for a valid ``CacheableResult`` wire object. (§13.1)
+
+  Python analogue of the TS ``CacheableResultSchema``: the base ``Result`` shape (§3.6)
+  augmented with the two REQUIRED caching-hint fields, both of which MUST appear and be
+  valid:
+
+  * REQUIRED string ``resultType`` (the §3.6 / S04 base discriminator). (R-3.6-a)
+  * OPTIONAL object ``_meta``. (R-3.6-c)
+  * REQUIRED non-negative integer ``ttlMs`` (``0`` allowed; negatives / non-integers /
+    ``bool`` rejected). (R-13.1-a, R-13.2-a)
+  * REQUIRED ``cacheScope`` exactly ``"public"`` or ``"private"``. (R-13.1-d)
+
+  Method-specific payload members (e.g. ``tools`` / ``contents`` / ``nextCursor``) are
+  preserved — the TS schema uses ``.passthrough()``; here additional members are simply
+  tolerated. Both hint fields MUST be present together on a cacheable result. (R-13.1-g)
+  """
+  if not isinstance(value, dict):
+    return False
+  if not isinstance(value.get("resultType"), str):
+    return False
+  if "_meta" in value and not isinstance(value["_meta"], dict):
+    return False
+  if "ttlMs" not in value or "cacheScope" not in value:
+    return False
+  return is_cache_hint_valid(value["ttlMs"], value["cacheScope"])
 
 
 def resolve_cache_scope(scope: object) -> str:
@@ -74,7 +126,9 @@ def effective_cache_scope(scopes: list[str]) -> str:
   """
   if not has_consistent_cache_scope(scopes):
     return "private"
-  return resolve_cache_scope(scopes[0])
+  # An empty (but trivially consistent) list has no first element; TS reads
+  # ``scopes[0]`` as ``undefined`` and resolves to the safe ``"private"`` default.
+  return resolve_cache_scope(scopes[0] if scopes else None)
 
 
 #: Maps each cacheable method to the notification that invalidates its cached result. (§13.5)

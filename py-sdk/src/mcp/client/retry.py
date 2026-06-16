@@ -21,6 +21,15 @@ Backoff: attempt ``n`` (0-based) waits ``min(max_delay_ms, base_delay_ms * 2**n)
 milliseconds, optionally perturbed by jitter in ``[0, jitter_ratio]`` of that delay.
 A ``sleep`` and an RNG are injectable so tests are fully deterministic (no real time,
 no real randomness).
+
+Stable surface across the inner: the TS wrapper presents the same ``onMessage`` /
+``onError`` / ``onClose`` / ``send`` registration to the ``Client`` regardless of which
+inner is live (ts-sdk/src/client/retry.ts L126–L152). The Python ``Client`` has no
+message pump and instead *probes* the transport for the optional methods it uses —
+``set_on_message`` (inbound interim + server→client routing), ``send`` (server→client
+reply / one-way notification), and ``open_subscription`` (§10). So :class:`RetryTransport`
+**forwards** each of those to its inner transport (and only when the inner provides it),
+keeping the server→client path live through the wrapper exactly as the TS wrapper does.
 """
 
 from __future__ import annotations
@@ -219,3 +228,68 @@ class RetryTransport(ClientTransport):
   def close(self) -> None:
     """Release the inner transport's resources."""
     self._inner.close()
+
+  # ─── optional event surface passthrough ───────────────────────────────────────
+  # The TS ``createRetryingTransport`` presents a *stable* handler surface
+  # (``onMessage``/``onError``/``onClose``/``send``) to the :class:`~mcp.client.client.Client`
+  # across inner reconnects (ts-sdk/src/client/retry.ts L130–L152). The Python ``Client``
+  # has no message pump; instead it *probes* the transport for the optional methods it
+  # needs and uses them when present: ``set_on_message`` (inbound interim/server→client
+  # routing), ``send`` (replying to a server→client request, one-way notifications), and
+  # ``open_subscription`` (§10). A wrapper that swallowed those would silently break the
+  # server→client path the moment a transport were wrapped for retry. So this wrapper
+  # forwards each optional method to the inner transport — and *only* when the inner
+  # actually provides it, so wrapping a request/response-only transport adds nothing the
+  # inner does not already do. This is the faithful Python analog of TS's stable surface
+  # over the (here, single) inner. (§7.5, R-7.5-h)
+
+  def set_on_message(self, callback: Callable[[dict], None] | None) -> None:
+    """Forward the inbound-frame tap to the inner transport, when it supports one.
+
+    Mirrors the TS wrapper presenting a stable ``onMessage`` registration over the inner.
+    A no-op when the inner has no ``set_on_message`` (a pure request/response transport
+    delivers no interim/server→client frames, so there is nothing to tap).
+    """
+    setter = getattr(self._inner, "set_on_message", None)
+    if callable(setter):
+      setter(callback)
+
+  def send(self, message: dict) -> None:
+    """Forward a one-way ``send`` (server→client reply, notification) to the inner.
+
+    Used by the :class:`~mcp.client.client.Client` to answer a server→client request and
+    to emit best-effort notifications (e.g. ``notifications/cancelled``). Forwarded only
+    when the inner exposes ``send``; a transport without it never carries such frames.
+
+    :raises AttributeError: if the inner transport exposes no ``send`` — the same failure
+      a caller would see talking to that inner directly (the wrapper hides nothing).
+    """
+    sender = getattr(self._inner, "send", None)
+    if not callable(sender):
+      raise AttributeError("inner transport does not support send()")
+    sender(message)
+
+  def on_error(self, handler: Callable[[BaseException], object]) -> Callable[[], None]:
+    """Forward receiver-side error registration to the inner, when it supports it.
+
+    Mirrors the TS wrapper's stable ``onError`` registration. Returns the inner's
+    unsubscribe callable; when the inner has no ``on_error`` (a request/response-only
+    transport surfaces channel failures synchronously from :meth:`request` instead),
+    returns a no-op unsubscribe so callers need not special-case the wrapper.
+    """
+    register = getattr(self._inner, "on_error", None)
+    if callable(register):
+      return register(handler)
+    return lambda: None
+
+  def open_subscription(self, message: dict, on_ready: Callable[[], None]) -> object:
+    """Forward a ``subscriptions/listen`` open (§10) to the inner transport.
+
+    :raises AttributeError: if the inner transport does not support subscriptions — the
+      same failure the :class:`~mcp.client.client.Client` surfaces when a transport lacks
+      ``open_subscription`` (the wrapper adds nothing a bare transport would not).
+    """
+    opener = getattr(self._inner, "open_subscription", None)
+    if not callable(opener):
+      raise AttributeError("inner transport does not support open_subscription()")
+    return opener(message, on_ready)

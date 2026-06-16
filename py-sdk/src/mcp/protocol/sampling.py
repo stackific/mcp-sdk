@@ -22,7 +22,26 @@ from mcp.protocol.capability_negotiation import (
   may_use_sampling_tools,
 )
 from mcp.protocol.errors import INVALID_PARAMS_CODE
-from mcp.types.content import is_valid_audio_content, is_valid_image_content, is_valid_text_content
+from mcp.jsonrpc.payload import (
+  RESULT_TYPE_COMPLETE,
+  RESULT_TYPE_INPUT_REQUIRED,
+)
+from mcp.types.content import (
+  is_valid_audio_content,
+  is_valid_content_block,
+  is_valid_image_content,
+  is_valid_text_content,
+)
+
+# Re-export the reused bindings so the sampling surface is discoverable in one place
+# WITHOUT redefining them (same objects, not duplicates). ``INVALID_PARAMS_CODE`` is the
+# ``-32602`` code used for capability-gating rejections (S05); the ``RESULT_TYPE_*`` are
+# the S04 §3.6 result discriminators the §21.2.8 result carries.
+__all_reexports__ = (
+  "INVALID_PARAMS_CODE",
+  "RESULT_TYPE_COMPLETE",
+  "RESULT_TYPE_INPUT_REQUIRED",
+)
 
 SAMPLING_DEPRECATED = True
 SAMPLING_METHOD = "sampling/createMessage"
@@ -54,14 +73,20 @@ def is_tool_use_content(block: object) -> bool:
 
 
 def is_tool_result_content(block: object) -> bool:
-  """Return ``True`` for a ``tool_result`` block: ``toolUseId`` (str) + ``content`` (list).
-  (§21.2.6)
+  """Return ``True`` for a ``tool_result`` block: ``toolUseId`` (str) + ``content`` (an S14
+  ``ContentBlock`` array — text/image/audio/resource_link/embedded resource); OPTIONAL
+  boolean ``isError``, any-JSON ``structuredContent``, dict ``_meta``. (§21.2.6, R-21.2.6-d/-e/-f/-g/-h)
   """
   if not isinstance(block, dict) or block.get("type") != "tool_result":
     return False
-  if not isinstance(block.get("toolUseId"), str) or not isinstance(block.get("content"), list):
+  content = block.get("content")
+  if not isinstance(block.get("toolUseId"), str) or not isinstance(content, list):
     return False
-  return "isError" not in block or isinstance(block["isError"], bool)
+  if not all(is_valid_content_block(b) for b in content):
+    return False
+  if "isError" in block and not isinstance(block["isError"], bool):
+    return False
+  return "_meta" not in block or isinstance(block["_meta"], dict)
 
 
 def tool_result_is_error(block: dict) -> bool:
@@ -107,6 +132,15 @@ def is_valid_sampling_message(value: object) -> bool:
 
 # ─── ModelHint / ModelPreferences (§21.2.9) ───────────────────────────────────
 
+def is_valid_model_hint(value: object) -> bool:
+  """Return ``True`` for a ``ModelHint``: an object with an OPTIONAL string ``name``;
+  keys other than ``name`` are unspecified and pass through. (§21.2.9, R-21.2.9-f/-g)
+  """
+  if not isinstance(value, dict):
+    return False
+  return "name" not in value or isinstance(value["name"], str)
+
+
 def is_valid_model_preferences(value: object) -> bool:
   """Return ``True`` for ``ModelPreferences``: OPTIONAL ``hints`` (list of {name?}) and the
   three OPTIONAL 0–1 priorities. (§21.2.9)
@@ -115,11 +149,8 @@ def is_valid_model_preferences(value: object) -> bool:
     return False
   if "hints" in value:
     hints = value["hints"]
-    if not isinstance(hints, list):
+    if not isinstance(hints, list) or not all(is_valid_model_hint(h) for h in hints):
       return False
-    for h in hints:
-      if not isinstance(h, dict) or ("name" in h and not isinstance(h["name"], str)):
-        return False
   for key in ("costPriority", "speedPriority", "intelligencePriority"):
     if key in value and not (_is_number(value[key]) and 0 <= value[key] <= 1):
       return False
@@ -146,6 +177,16 @@ def select_first_hint_match(hints: list | None, available_models: list[str]) -> 
 
 TOOL_CHOICE_MODES = ("auto", "required", "none")
 DEFAULT_TOOL_CHOICE = {"mode": "auto"}
+
+
+def is_valid_tool_choice(value: object) -> bool:
+  """Return ``True`` for a ``ToolChoice``: an object with an OPTIONAL ``mode`` that, when
+  present, MUST be one of ``auto``/``required``/``none``. Extra members pass through.
+  (§21.2.5, R-21.2.4-p, R-21.2.5-a/-b)
+  """
+  if not isinstance(value, dict):
+    return False
+  return "mode" not in value or value["mode"] in TOOL_CHOICE_MODES
 
 
 def resolve_tool_choice(tool_choice: dict | None) -> dict:
@@ -190,12 +231,24 @@ def is_valid_create_message_request_params(value: object) -> bool:
     return False
   if "includeContext" in value and value["includeContext"] not in INCLUDE_CONTEXT_VALUES:
     return False
+  if "systemPrompt" in value and not isinstance(value["systemPrompt"], str):
+    return False
+  if "temperature" in value and not _is_number(value["temperature"]):
+    return False
+  if "stopSequences" in value:
+    seqs = value["stopSequences"]
+    if not isinstance(seqs, list) or not all(isinstance(s, str) for s in seqs):
+      return False
+  if "metadata" in value and not isinstance(value["metadata"], dict):
+    return False
   if "modelPreferences" in value and not is_valid_model_preferences(value["modelPreferences"]):
     return False
   if "tools" in value:
     tools = value["tools"]
     if not isinstance(tools, list) or not all(is_valid_sampling_tool(t) for t in tools):
       return False
+  if "toolChoice" in value and not is_valid_tool_choice(value["toolChoice"]):
+    return False
   return True
 
 
@@ -425,3 +478,20 @@ def unmet_required_consent_obligations(obligations: SamplingConsentObligations) 
 def within_tool_loop_limit(iteration: int, limit: int) -> bool:
   """Return ``True`` when another tool-loop iteration is permitted. (R-21.2.10-i)"""
   return iteration < limit
+
+
+# ─── S17 envelope reuse (§21.2.2, §21.2.4) ────────────────────────────────────
+
+def is_valid_sampling_input_request(value: object) -> bool:
+  """Return ``True`` for the S17 ``sampling/createMessage`` input request carried inside an
+  input-required result: ``method`` equals ``sampling/createMessage`` and ``params`` are a
+  valid :func:`is_valid_create_message_request_params`. (§21.2.2, §21.2.4)
+
+  This BUILDS ON the §11 multi-round-trip input-request envelope WITHOUT redefining it; the
+  ``CreateMessageResult`` is the §21.2.8 :func:`is_valid_sampling_create_message_result`,
+  which also satisfies the S17 result minimum (``role``/``content``/``model``). Both accept
+  the same wire objects.
+  """
+  if not isinstance(value, dict) or value.get("method") != SAMPLING_METHOD:
+    return False
+  return is_valid_create_message_request_params(value.get("params"))

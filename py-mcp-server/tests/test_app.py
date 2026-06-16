@@ -136,7 +136,11 @@ def test_subscriptions(base_url):
   recv = []
   c.set_frame_listener(lambda d, f: recv.append(f.get("method")) if d == "recv" else None)
   handle = c.subscribe({"toolsListChanged": True, "promptsListChanged": True})
-  assert handle["acknowledgedFilter"] == {"toolsListChanged": True, "promptsListChanged": True}
+  # subscribe() is non-blocking and returns a SubscriptionHandle; the honored filter
+  # lands once the server's acknowledgement arrives over the listen stream (the sync
+  # analogue of TS's awaited subscribe()).
+  assert handle.wait_acknowledged(timeout=5.0)
+  assert handle.acknowledged_filter == {"toolsListChanged": True, "promptsListChanged": True}
   mutator = make_client(base_url)
   mutator.call_tool("mutate_catalog", {})
   time.sleep(0.6)

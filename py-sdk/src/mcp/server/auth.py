@@ -1,44 +1,114 @@
-"""Authorization helpers for a protected MCP resource (§23, OAuth 2.1).
+"""Server-side authorization glue for a protected MCP resource (§23, OAuth 2.1).
 
 A protected MCP server validates a bearer token on every request and rejects an
-unauthenticated/invalid one with ``401`` + a ``WWW-Authenticate`` challenge that
-points at its Protected Resource Metadata (RFC 9728). The validated identity is
+unauthenticated/invalid one with ``401`` + a ``WWW-Authenticate`` challenge that points
+at its Protected Resource Metadata (RFC 9728); a valid token that lacks a required scope
+yields the ``403 insufficient_scope`` step-up challenge instead. The validated identity is
 threaded into the tool context as ``ctx.auth_info``.
 
-These helpers are transport-shaped to the :func:`mcp.server.asgi.create_asgi_mcp_handler`
-``auth_gate`` contract — ``gate(request) -> verdict`` — so a server only supplies a
-``validate(token) -> auth_info | None`` callback plus its resource/audience identity.
+This module is the Python counterpart of ``ts-sdk/src/server/auth.ts``: it turns a
+``validate(token) -> auth_info`` callback into an ``auth_gate`` for
+:func:`mcp.server.asgi.create_asgi_mcp_handler` — ``gate(request) -> verdict`` — emitting
+the spec-required challenges, and it builds the protected-resource metadata document. It
+deliberately reuses :func:`mcp.protocol.authorization.build_insufficient_scope_response`
+for the ``403`` so the wire shape matches the client-facing parser exactly.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from typing import Any
 
 from starlette.requests import Request
 
+from mcp.protocol.authorization import build_insufficient_scope_response
+
+# ─── §23.6 Audience binding helpers ───────────────────────────────────────────
+
+_TRAILING_SLASH_RE = re.compile(r"/+$")
+
+
+def _audience_covers(token_audience: str | list[str], resource: str) -> bool:
+  """Return ``True`` when a token's audience covers ``resource``. (§23.6, R-23.6-g)
+
+  Only a trailing-slash difference is tolerated; the comparison is otherwise exact. The
+  audience may be a single string or an array — covering holds if ANY entry matches.
+  Inlined (rather than importing the protocol-layer validator) to keep this server module
+  edge-safe.
+  """
+  def norm(u: str) -> str:
+    return _TRAILING_SLASH_RE.sub("", u)
+
+  target = norm(resource)
+  candidates = token_audience if isinstance(token_audience, list) else [token_audience]
+  return any(norm(a) == target for a in candidates)
+
+
+def _audience_of(auth_info: Any) -> str | list[str] | None:
+  """Read the token audience (``aud`` or ``audience``) from a validated authInfo object."""
+  if not isinstance(auth_info, dict):
+    return None
+  aud = auth_info.get("aud", auth_info.get("audience"))
+  return aud if isinstance(aud, (str, list)) else None
+
+
+def _scopes_of(auth_info: Any) -> list[str]:
+  """Read the granted scopes (``scopes`` array or space-delimited ``scope``) from authInfo."""
+  if not isinstance(auth_info, dict):
+    return []
+  scopes = auth_info.get("scopes")
+  if isinstance(scopes, list):
+    return [s for s in scopes if isinstance(s, str)]
+  scope = auth_info.get("scope")
+  if isinstance(scope, str):
+    return [s for s in re.split(r"\s+", scope) if s]
+  return []
+
+
+# ─── §23.2 Protected Resource Metadata (RFC 9728) ─────────────────────────────
 
 def build_protected_resource_metadata(
   *,
   resource: str,
   authorization_servers: list[str],
-  scopes: list[str],
+  scopes: list[str] | None = None,
+  bearer_methods: list[str] | None = None,
 ) -> dict:
-  """Build RFC 9728 Protected Resource Metadata for a protected MCP resource. (§23.4)"""
-  return {
+  """Build an RFC 9728 Protected Resource Metadata document. (§23.2)
+
+  * ``resource`` is the canonical resource identifier (the MCP endpoint URL); it MUST
+    equal the server's canonical resource identifier.
+  * ``authorization_servers`` MUST contain at least one issuer URL protecting the resource.
+  * ``scopes`` (OPTIONAL) — the scopes the resource recognizes; ``scopes_supported`` is
+    emitted only when supplied.
+  * ``bearer_methods`` (OPTIONAL) — supported bearer-token delivery methods, defaulting to
+    ``["header"]``.
+  """
+  metadata: dict = {
     "resource": resource,
     "authorization_servers": list(authorization_servers),
-    "scopes_supported": list(scopes),
-    "bearer_methods_supported": ["header"],
+    "bearer_methods_supported": list(bearer_methods) if bearer_methods is not None else ["header"],
   }
+  if scopes is not None:
+    metadata["scopes_supported"] = list(scopes)
+  return metadata
 
 
-def _challenge(resource_metadata_url: str, description: str) -> dict:
-  """Build a ``401`` verdict carrying the ``WWW-Authenticate`` bearer challenge. (§23.3)"""
-  www = (
-    f'Bearer resource_metadata="{resource_metadata_url}", '
-    f'error="invalid_token", error_description="{description}"'
-  )
+# ─── §23.1 401 invalid_token challenge ────────────────────────────────────────
+
+def _challenge_401(resource_metadata_url: str | None, description: str) -> dict:
+  """Build a ``401 invalid_token`` verdict carrying the ``WWW-Authenticate`` challenge.
+
+  The ``resource_metadata`` parameter leads when a metadata URL is configured, followed by
+  ``error="invalid_token"`` and ``error_description``. (§23.1, R-23.1-t – R-23.1-v)
+  """
+  parts = [
+    f'resource_metadata="{resource_metadata_url}"' if resource_metadata_url else "",
+    'error="invalid_token"',
+    f'error_description="{description}"',
+  ]
+  www = "Bearer " + ", ".join(p for p in parts if p)
   return {
     "ok": False,
     "status": 401,
@@ -47,34 +117,69 @@ def _challenge(resource_metadata_url: str, description: str) -> dict:
   }
 
 
+# ─── §23.8 Bearer auth gate ───────────────────────────────────────────────────
+
 def bearer_auth_gate(
   *,
-  resource_metadata_url: str,
-  expected_audience: str | None,
-  validate: Callable[[str], dict | None],
+  resource_metadata_url: str | None = None,
+  expected_audience: str | None = None,
+  required_scopes: list[str] | None = None,
+  validate: Callable[[str], Any],
 ) -> Callable[[Request], dict]:
-  """Build an ``auth_gate`` that enforces a valid, audience-bound bearer token.
+  """Build an ``auth_gate`` that requires a valid, audience-bound ``Bearer`` token. (§23.8)
 
-  * ``validate(token)`` returns the caller's ``auth_info`` (e.g.
-    ``{"clientId", "scopes", "aud", "expiresAt"}``) or ``None`` for an invalid token.
-  * ``expected_audience`` binds the token's audience to this resource (§23.6); a
-    mismatch is rejected as ``invalid_token``.
+  * ``validate(token)`` returns the caller's ``auth_info`` (threaded into ``ctx.auth_info``)
+    or a falsey value (``None``/``False``) to reject. When audience/scope enforcement is
+    enabled it should expose the token's ``aud``/``audience`` and ``scope`` (space-delimited
+    string) / ``scopes`` (array) so they can be checked.
+  * ``resource_metadata_url`` (OPTIONAL) — advertised via ``resource_metadata`` in the
+    challenge. REQUIRED in practice when ``required_scopes`` is set (the ``403`` step-up
+    challenge MUST carry ``resource_metadata``). (§23.18, R-23.1-ab)
+  * ``expected_audience`` (OPTIONAL) — when set, the validated token's audience MUST include
+    it or the request is rejected ``401 invalid_token``; a server MUST reject a token not
+    issued for it and never forward it. (§23.6/§23.8/§23.19)
+  * ``required_scopes`` (OPTIONAL) — scopes this resource requires; a token missing any is
+    rejected with a ``403 insufficient_scope`` step-up challenge. (§23.18)
 
-  The returned verdict is consumed by the ASGI handler: ``{"ok": True, "authInfo"}``
-  on success, or a ``401`` challenge otherwise.
+  On a missing / invalid / wrong-audience token the verdict is the ``401`` challenge; on a
+  missing required scope it is the ``403 insufficient_scope`` step-up challenge; otherwise
+  ``{"ok": True, "authInfo": <auth_info>}``. Consumed by the ASGI handler. (§23.1, §23.6,
+  §23.18)
   """
 
   def gate(request: Request) -> dict:
     header = request.headers.get("authorization") or ""
-    token = header[7:].strip() if header.lower().startswith("bearer ") else ""
-    if not token:
-      return _challenge(resource_metadata_url, "missing bearer token")
-    info = validate(token)
-    if info is None:
-      return _challenge(resource_metadata_url, "invalid or expired token")
-    aud: Any = info.get("aud") if isinstance(info, dict) else None
-    if expected_audience is not None and aud is not None and aud != expected_audience:
-      return _challenge(resource_metadata_url, "token audience does not bind to this resource")
-    return {"ok": True, "authInfo": info}
+    token = header[len("Bearer "):].strip() if header.startswith("Bearer ") else ""
+    auth_info = validate(token) if token else None
+    if not auth_info:
+      return _challenge_401(resource_metadata_url, "Missing or invalid access token")
+
+    # Audience binding (§23.6/§23.8/§23.19): reject a token not issued for this resource.
+    if expected_audience is not None:
+      aud = _audience_of(auth_info)
+      if aud is None or not _audience_covers(aud, expected_audience):
+        return _challenge_401(resource_metadata_url, "Access token was not issued for this resource")
+
+    # Step-up (§23.18): a missing required scope yields a 403 insufficient_scope challenge.
+    if required_scopes:
+      granted = _scopes_of(auth_info)
+      missing = [s for s in required_scopes if s not in granted]
+      if missing:
+        step_up = build_insufficient_scope_response(
+          scope=" ".join(required_scopes),
+          resource_metadata=resource_metadata_url or "",
+          error_description=f"Missing required scope(s): {' '.join(missing)}",
+        )
+        return {
+          "ok": False,
+          "status": step_up.status,
+          "wwwAuthenticate": step_up.headers["WWW-Authenticate"],
+          "body": {
+            "error": "insufficient_scope",
+            "error_description": f"Missing scope(s): {' '.join(missing)}",
+          },
+        }
+
+    return {"ok": True, "authInfo": auth_info}
 
   return gate

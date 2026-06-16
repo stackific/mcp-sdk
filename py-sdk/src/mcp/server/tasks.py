@@ -1,9 +1,9 @@
 """An in-memory Tasks runtime for the server (§25).
 
 Implements the task-store surface the :class:`~mcp.server.server.McpServer`
-dispatcher consumes (``get`` / ``get_detailed`` / ``cancel`` / ``apply_input``)
-plus the lifecycle helpers a task-augmented tool drives
-(``create_task`` / ``update_status`` / ``store_result`` / ``store_error``).
+dispatcher consumes (``get`` / ``get_detailed`` / ``get_result`` / ``list`` /
+``cancel`` / ``apply_input``) plus the lifecycle helpers a task-augmented tool
+drives (``create_task`` / ``update_status`` / ``store_result`` / ``store_error``).
 
 Conformance: it mints spec-shaped task objects (incl. ``createdAt``,
 ``lastUpdatedAt``, ``ttlMs``), enforces the legal status transitions (§25.5),
@@ -102,9 +102,9 @@ class InMemoryTaskStore:
 
   def store_result(self, task_id: str, result: dict, status: str = "completed") -> dict:
     """Store a terminal payload and move the task to a terminal status (default ``completed``)."""
+    entry = self._require(task_id)
     if not is_terminal_task_status(status):
       raise ServerError(INTERNAL_ERROR_CODE, f'store_result requires a terminal status, got "{status}"')
-    entry = self._require(task_id)
     entry.result = result
     return self.update_status(task_id, status)
 
@@ -161,6 +161,23 @@ class InMemoryTaskStore:
     entry.input_responses = input_responses
     entry.input_requests = None
     return self.update_status(task_id, "working")
+
+  def get_result(self, task_id: str) -> dict:
+    """``tasks/result`` — terminal payload; ``-32602`` if unknown/expired or not finished. (§25.7)
+
+    Returns the stored terminal ``result`` (an empty object when none was stored)
+    augmented with the task's ``taskId`` and final ``status``.
+
+    :raises ServerError: ``-32602`` (``INVALID_PARAMS_CODE``) when the task is unknown,
+      has expired, or has not yet reached a terminal status.
+    """
+    entry = self._live(task_id)
+    if not is_terminal_task_status(entry.task["status"]):
+      raise ServerError(
+        INVALID_PARAMS_CODE,
+        f'Task "{task_id}" is not finished (status: {entry.task["status"]})',
+      )
+    return {**(entry.result or {}), "taskId": entry.task["taskId"], "status": entry.task["status"]}
 
   def cancel(self, task_id: str) -> dict:
     """``tasks/cancel`` — move a non-terminal task to ``cancelled``; terminal unchanged. (§25.9)"""

@@ -399,6 +399,33 @@ def build_list_tools_result(config: ListToolsResultConfig) -> dict:
   return result
 
 
+def is_valid_list_tools_request_params(value: object) -> bool:
+  """Return ``True`` for a valid ``tools/list`` ``params`` object (§16.2): OPTIONAL opaque
+  string ``cursor`` and OPTIONAL ``_meta`` map; extra members tolerated. A first-page
+  request MAY omit ``cursor`` (so ``{}`` is valid). (R-16.2-a; mirrors the S18 Cursor shape.)
+  """
+  if not isinstance(value, dict):
+    return False
+  if "cursor" in value and not isinstance(value["cursor"], str):
+    return False
+  return "_meta" not in value or isinstance(value["_meta"], dict)
+
+
+def is_valid_list_tools_request(value: object) -> bool:
+  """Return ``True`` for a well-formed ``tools/list`` request envelope (§16.2): ``jsonrpc``
+  ``"2.0"``, a request ``id``, ``method`` ``"tools/list"``, and OPTIONAL ``params`` (a valid
+  :func:`is_valid_list_tools_request_params`). Omitting ``params`` entirely requests the
+  first page. (R-16.2-a)
+  """
+  if not isinstance(value, dict):
+    return False
+  if value.get("jsonrpc") != "2.0" or "id" not in value:
+    return False
+  if value.get("method") != TOOLS_LIST_METHOD:
+    return False
+  return "params" not in value or is_valid_list_tools_request_params(value["params"])
+
+
 def build_list_tools_request(id_: str | int, cursor: str | None = None, extra_meta: dict | None = None) -> dict:
   """Build a ``tools/list`` request. A supplied ``cursor`` is passed VERBATIM (opaque);
   omitting it requests the first page. (§16.2, R-16.2-a/-d/-e/-f)

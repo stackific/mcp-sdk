@@ -7,7 +7,7 @@ from mcp.protocol.errors import (
   METHOD_NOT_FOUND_CODE,
 )
 from mcp.server.runtime import process_message
-from mcp.server.server import McpServer
+from mcp.server.server import McpServer, ServerRequestContext
 from mcp.transport.in_memory import create_in_memory_transport_pair
 
 INFO = {"name": "srv", "version": "1.0"}
@@ -82,3 +82,54 @@ class TestEndToEndOverTransport:
     assert len(responses) == 1
     assert responses[0]["id"] == 1
     assert is_discover_result(responses[0]["result"])
+
+
+class TestSubscriberFanOut:
+  """ctx.notify_subscribers + set_task_notifier — the shared subscription plumbing both
+  transports build on (mirrors the TS ``notifySubscribers`` / ``setTaskNotifier`` wiring).
+  """
+
+  def test_tool_notify_subscribers_reaches_the_sink(self):
+    s = server()
+    fanned: list[dict] = []
+
+    def emitter(_a: dict, c) -> dict:
+      c.notify_subscribers({"method": "notifications/resources/updated", "params": {"uri": "file:///x"}})
+      return {"content": []}
+
+    s.register_tool("t", emitter)
+    ctx = ServerRequestContext(
+      protocol_version="2026-07-28", request_id=1, meta={}, notify_subscribers=fanned.append
+    )
+    s.dispatch("tools/call", {"name": "t", "arguments": {}}, ctx)
+    assert fanned == [{"method": "notifications/resources/updated", "params": {"uri": "file:///x"}}]
+
+  def test_set_task_notifier_relays_task_updates(self):
+    s = server()
+    pushed: list[dict] = []
+    s.set_task_notifier(pushed.append)
+
+    class _Store:
+      def __init__(self) -> None:
+        self.listener = None
+
+      def set_update_listener(self, listener) -> None:
+        self.listener = listener
+
+    store = _Store()
+    s.set_task_store(store)
+    # A status change drives the listener → a notifications/tasks push on the notifier.
+    store.listener({"taskId": "t1", "status": "completed"})
+    assert pushed == [{"method": "notifications/tasks", "params": {"taskId": "t1", "status": "completed"}}]
+
+  def test_task_notifier_is_noop_without_wiring(self):
+    # A server with a store but no notifier silently drops the push (no crash).
+    s = server()
+
+    class _Store:
+      def set_update_listener(self, listener) -> None:
+        self.listener = listener
+
+    store = _Store()
+    s.set_task_store(store)
+    store.listener({"taskId": "t1", "status": "working"})  # must not raise

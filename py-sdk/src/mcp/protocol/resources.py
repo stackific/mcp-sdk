@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 from mcp.protocol.capability_negotiation import client_should_expect_notification, server_declares
 from mcp.types.annotations import is_valid_annotations
@@ -78,18 +79,46 @@ def may_emit_resource_updated(server_caps: dict) -> bool:
 
 _URI_SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.\-]*:")
 
+#: WHATWG-URL "special" schemes whose authority MUST carry a non-empty host (mirrors
+#: the cases the TS ``new URL()`` parser rejects). ``file`` is special too but permits
+#: an empty host, so it is NOT in this set. (§17.4, R-17.4-b)
+_SPECIAL_HOST_SCHEMES = frozenset({"http", "https", "ws", "wss", "ftp"})
+
 
 def is_resource_uri(value: object) -> bool:
-  """Return ``True`` when ``value`` is an absolute RFC3986 URI usable as a ``Resource.uri``
-  — a conformant scheme plus at least one further character. A relative reference (no
-  scheme) is rejected. (§17.4, R-17.4-a/-b)
+  """Return ``True`` when ``value`` is a string in URI format [RFC3986] usable as a
+  concrete ``Resource.uri`` — it carries a conformant scheme and parses as an absolute
+  URI. A relative reference (no scheme) is rejected. (§17.4, R-17.4-a/-b)
+
+  Ports the TS ``isResourceUri`` exactly: a conformant-scheme check followed by an
+  absolute-URI parse. The WHATWG ``URL`` parser the TS SDK uses rejects a "special"
+  scheme (``http``/``https``/``ws``/``wss``/``ftp``) with an empty host — e.g.
+  ``"http://"``, ``"https://"``, ``"https:"`` are all invalid — while accepting
+  ``"file:"``, ``"db://"``, ``"urn:isbn:…"`` and any custom scheme. Python's
+  :func:`urllib.parse.urlsplit` alone is more permissive, so the special-scheme
+  empty-host cases are checked explicitly to keep byte-for-byte parity with TS.
   """
   if not isinstance(value, str) or value == "":
     return False
   if not _URI_SCHEME_RE.match(value):
     return False
-  after = value.split(":", 1)
-  return len(after) == 2 and after[1] != ""
+  try:
+    parts = urlsplit(value)
+  except ValueError:
+    return False
+  if parts.scheme == "":
+    return False
+  if parts.scheme in _SPECIAL_HOST_SCHEMES:
+    # A non-``file`` special scheme MUST resolve to a non-empty host. WHATWG re-parses
+    # a host-less form like ``https:x`` so that ``x`` becomes the host (``urlsplit``
+    # instead leaves it in the path), so reconstruct that decision from the raw tail.
+    if parts.netloc:
+      return True
+    rest = value[len(parts.scheme) + 1 :]
+    if rest.startswith("//"):
+      return False  # ``https://`` — empty authority → empty host → invalid
+    return rest != "" and not rest.startswith("/")  # ``https:`` invalid; ``https:x`` → host x
+  return True
 
 
 # ─── URI-template validation (§17.4, RFC6570) ─────────────────────────────────
@@ -216,6 +245,47 @@ def resource_display_name(resource: dict) -> str:
 def resource_template_display_name(template: dict) -> str:
   """User-facing label for a ``ResourceTemplate``: prefer ``title``, fall back to ``name``."""
   return resolve_display_name(template["name"], template.get("title"))
+
+
+# ─── list request params + envelopes (§17.2, §17.3) ───────────────────────────
+
+def _is_valid_paginated_request_params(value: object) -> bool:
+  """Return ``True`` for a well-formed paginated-request ``params`` (the shape shared by
+  ``resources/list`` and ``resources/templates/list``): an OPTIONAL opaque string
+  ``cursor`` and an OPTIONAL ``_meta`` map; both fields optional, an empty ``{}`` valid.
+  (§17.2, R-17.2-a/-i; §17.3, R-17.3-a) Mirrors the TS ``PaginatedRequestParamsSchema``.
+  """
+  if not isinstance(value, dict):
+    return False
+  if "cursor" in value and not isinstance(value["cursor"], str):
+    return False
+  return "_meta" not in value or isinstance(value["_meta"], dict)
+
+
+#: Validator for ``resources/list`` request ``params`` (the paginated shape). (§17.2)
+is_valid_list_resources_request_params = _is_valid_paginated_request_params
+#: Validator for ``resources/templates/list`` request ``params``. (§17.3)
+is_valid_list_resource_templates_request_params = _is_valid_paginated_request_params
+
+
+def _is_valid_list_request(value: object, method: str) -> bool:
+  if not isinstance(value, dict) or value.get("method") != method:
+    return False
+  return "params" not in value or _is_valid_paginated_request_params(value["params"])
+
+
+def is_valid_list_resources_request(value: object) -> bool:
+  """Return ``True`` for a well-formed ``resources/list`` request envelope: the literal
+  ``method`` plus OPTIONAL paginated ``params``. (§17.2) Mirrors ``ListResourcesRequestSchema``.
+  """
+  return _is_valid_list_request(value, RESOURCES_LIST_METHOD)
+
+
+def is_valid_list_resource_templates_request(value: object) -> bool:
+  """Return ``True`` for a well-formed ``resources/templates/list`` request envelope. (§17.3)
+  Mirrors ``ListResourceTemplatesRequestSchema``.
+  """
+  return _is_valid_list_request(value, RESOURCES_TEMPLATES_LIST_METHOD)
 
 
 # ─── list results (§17.2, §17.3) ──────────────────────────────────────────────

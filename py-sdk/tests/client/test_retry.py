@@ -264,3 +264,142 @@ class TestRetryTransportPlumbing:
 
   def test_is_a_client_transport(self):
     assert isinstance(RetryTransport(ScriptedTransport(OK_RESPONSE)), ClientTransport)
+
+
+class _EventInner(ClientTransport):
+  """A fake inner exposing the *optional* event surface the Client probes for.
+
+  Mirrors the methods :class:`~mcp.client.client.Client` looks up by name on a transport:
+  ``set_on_message`` (inbound interim + server→client routing), ``send`` (server→client
+  reply / one-way notification), ``on_error`` (receiver-side fault registration), and
+  ``open_subscription`` (§10). Records what it was asked to do so a wrapper can be checked
+  for faithful forwarding. This is the Python analog of the TS ``FakeInner``, whose
+  ``onMessage``/``send``/``onClose`` the retry wrapper must keep live across the inner.
+  """
+
+  def __init__(self):
+    self.on_message = None
+    self.sent = []
+    self.error_handlers = []
+    self.subscriptions = []
+    self.closed = False
+
+  def request(self, message: dict) -> dict:  # pragma: no cover — not exercised here
+    return OK_RESPONSE
+
+  def set_on_message(self, callback) -> None:
+    self.on_message = callback
+
+  def send(self, message: dict) -> None:
+    self.sent.append(message)
+
+  def on_error(self, handler):
+    self.error_handlers.append(handler)
+    return lambda: self.error_handlers.remove(handler)
+
+  def open_subscription(self, message: dict, on_ready):
+    self.subscriptions.append((message, on_ready))
+    return ("sub", message)
+
+  def close(self) -> None:
+    self.closed = True
+
+
+class TestRetryTransportEventSurfacePassthrough:
+  """The wrapper forwards the optional event surface to its inner (TS stable surface).
+
+  The TS ``createRetryingTransport`` keeps ``onMessage``/``send``/``onError`` live across
+  reconnects so the ``Client`` never re-registers. The Python ``Client`` instead probes
+  the transport for these methods, so :class:`RetryTransport` must forward each to the
+  inner — otherwise wrapping a transport for retry would silently break inbound routing,
+  server→client replies, notifications, and subscriptions.
+  """
+
+  def test_set_on_message_is_forwarded_to_inner(self):
+    inner = _EventInner()
+    rt = RetryTransport(inner)
+
+    def tap(_frame):  # the Client's _on_inbound, in spirit
+      pass
+
+    rt.set_on_message(tap)
+    assert inner.on_message is tap  # the inbound tap reached the live inner
+
+  def test_send_is_forwarded_to_inner(self):
+    # Mirrors the TS "routes future sends to the inner": a server→client reply / one-way
+    # notification the Client emits via send() must reach the inner transport.
+    inner = _EventInner()
+    rt = RetryTransport(inner)
+    reply = {"jsonrpc": "2.0", "id": 7, "result": {}}
+    rt.send(reply)
+    assert inner.sent == [reply]
+
+  def test_on_error_registration_is_forwarded_and_unsubscribable(self):
+    inner = _EventInner()
+    rt = RetryTransport(inner)
+
+    def handler(_e):
+      pass
+
+    unsubscribe = rt.on_error(handler)
+    assert inner.error_handlers == [handler]  # registration reached the inner
+    unsubscribe()
+    assert inner.error_handlers == []  # the inner's unsubscribe was returned and works
+
+  def test_open_subscription_is_forwarded_to_inner(self):
+    inner = _EventInner()
+    rt = RetryTransport(inner)
+    msg = {"jsonrpc": "2.0", "id": 1, "method": "subscriptions/listen", "params": {}}
+    ready = lambda: None
+    handle = rt.open_subscription(msg, ready)
+    assert inner.subscriptions == [(msg, ready)]
+    assert handle == ("sub", msg)  # the inner's handle is returned verbatim
+
+  def test_set_on_message_is_noop_when_inner_lacks_it(self):
+    # A request/response-only inner delivers no interim frames; forwarding is a safe no-op.
+    rt = RetryTransport(ScriptedTransport(OK_RESPONSE))
+    rt.set_on_message(lambda _f: None)  # must not raise
+
+  def test_on_error_returns_noop_unsubscribe_when_inner_lacks_it(self):
+    # Without an inner on_error, callers still get a callable unsubscribe (no special-casing).
+    rt = RetryTransport(ScriptedTransport(OK_RESPONSE))
+    unsubscribe = rt.on_error(lambda _e: None)
+    assert callable(unsubscribe)
+    unsubscribe()  # must not raise
+
+  def test_send_raises_when_inner_lacks_send(self):
+    # The wrapper hides nothing: a missing send() surfaces the same failure as the bare inner.
+    rt = RetryTransport(ScriptedTransport(OK_RESPONSE))
+    with pytest.raises(AttributeError):
+      rt.send({"jsonrpc": "2.0", "method": "notifications/cancelled"})
+
+  def test_open_subscription_raises_when_inner_lacks_it(self):
+    rt = RetryTransport(ScriptedTransport(OK_RESPONSE))
+    with pytest.raises(AttributeError):
+      rt.open_subscription({"jsonrpc": "2.0", "id": 1, "method": "subscriptions/listen"}, lambda: None)
+
+  def test_request_passthrough_still_retries_over_event_inner(self):
+    # The retry semantics are unaffected by the event surface: a transient failure on an
+    # event-capable inner is still retried (the inner exposes both request() and send()).
+    class FlakyEventInner(_EventInner):
+      def __init__(self, *outcomes):
+        super().__init__()
+        self._outcomes = list(outcomes)
+        self.calls = 0
+
+      def request(self, message: dict) -> dict:
+        self.calls += 1
+        outcome = self._outcomes.pop(0)
+        if isinstance(outcome, BaseException):
+          raise outcome
+        return outcome
+
+    inner = FlakyEventInner(ClientTransportError("drop"), OK_RESPONSE)
+    clock = _Clock()
+    rt = RetryTransport(inner, _no_jitter_policy(base_delay_ms=100), sleep=clock)
+    assert rt.request(REQUEST) == OK_RESPONSE
+    assert inner.calls == 2
+    assert clock.slept == [0.1]
+    # …and the event surface on the same wrapper still forwards.
+    rt.set_on_message(lambda _f: None)
+    assert inner.on_message is not None

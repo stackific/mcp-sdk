@@ -13,8 +13,74 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from mcp.jsonrpc.payload import is_cursor
+
 # Error code for an invalid / unrecognized cursor. (R-12.4-c) — same value as -32602.
 INVALID_CURSOR_CODE = -32602
+
+
+# ─── Cursor (re-export) ───────────────────────────────────────────────────────
+# The ``Cursor`` opaque-string type is canonical in S04 (§3.7); :func:`is_cursor`
+# is its validator. Pagination re-exports it so callers can validate a cursor token
+# without reaching into :mod:`mcp.jsonrpc.payload` (parity with the TS
+# ``CursorSchema`` re-export from ``pagination.ts``).
+__all__ = [
+  "INVALID_CURSOR_CODE",
+  "PAGINATED_METHODS",
+  "OffsetPaginator",
+  "PaginatorPage",
+  "build_invalid_cursor_error",
+  "has_next_cursor",
+  "is_cursor",
+  "is_cursor_present",
+  "is_last_page",
+  "is_paginated_method",
+  "is_valid_paginated_request_params",
+  "is_valid_paginated_result",
+  "pagination_cache_key",
+]
+
+
+# ─── PaginatedRequestParams / PaginatedResult structural validators ───────────
+
+def is_valid_paginated_request_params(value: object) -> bool:
+  """Return ``True`` for valid base paginated-request ``params``. (§12, §6 / S18)
+
+  ``cursor`` is OPTIONAL; when present it MUST be an opaque string (``""`` is a valid
+  PRESENT cursor, R-12.1-a). ``_meta`` when present MUST be an object. Method-specific
+  members are tolerated (the TS schema uses ``.passthrough()``). (R-12.2-a, R-12.2-b)
+
+  Note: this validates only the S18-owned base shape. The per-request ``_meta``
+  REQUIRED-key constraint (§4.3 / S05) is enforced by ``is_valid_request_params``
+  when this shape rides a client request — it is intentionally not duplicated here so
+  that a first-page request (``{}``) parses as valid against the abstract §12 shape.
+  """
+  if not isinstance(value, dict):
+    return False
+  if "cursor" in value and not is_cursor(value["cursor"]):
+    return False
+  if "_meta" in value and not isinstance(value["_meta"], dict):
+    return False
+  return True
+
+
+def is_valid_paginated_result(value: object) -> bool:
+  """Return ``True`` for a valid base paginated ``result`` shape. (§12 / S18)
+
+  REQUIRED string ``resultType`` (the §3.6 discriminator); OPTIONAL opaque-string
+  ``nextCursor`` (``""`` is valid and signals continuation, NOT end — R-12.3-d);
+  OPTIONAL object ``_meta``. Method-specific list members (``tools`` / ``resources`` /
+  …) are tolerated. (R-12.2-c, R-12.2-d)
+  """
+  if not isinstance(value, dict):
+    return False
+  if not isinstance(value.get("resultType"), str):
+    return False
+  if "nextCursor" in value and not is_cursor(value["nextCursor"]):
+    return False
+  if "_meta" in value and not isinstance(value["_meta"], dict):
+    return False
+  return True
 
 
 def has_next_cursor(result: dict) -> bool:

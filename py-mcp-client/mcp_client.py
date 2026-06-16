@@ -227,7 +227,28 @@ class _Api:
     return _with_trace("tasks/get", lambda: _state["client"].get_task(task_id))
 
   def subscribe(self, notifications: dict) -> dict:
-    return _with_trace("subscriptions/listen", lambda: _state["client"].subscribe(notifications))
+    # The SDK's subscribe() is non-blocking and returns a SubscriptionHandle (not a
+    # JSON-serialisable value). Mirror the TS host: keep a single active handle, wait
+    # for the server's acknowledgement, then return the honored filter as a plain dict.
+    # Change notifications ride the wire tap to /debug/stream, so no per-delivery
+    # callback is needed here.
+    def _do() -> dict:
+      prior = _state.get("subscription")
+      if prior is not None:
+        try:
+          prior.unsubscribe()
+        except Exception:
+          pass
+        _state["subscription"] = None
+      handle = _state["client"].subscribe(notifications)
+      handle.wait_acknowledged(timeout=5.0)
+      _state["subscription"] = handle
+      return {
+        "subscriptionId": handle.subscription_id,
+        "acknowledgedFilter": handle.acknowledged_filter,
+      }
+
+    return _with_trace("subscriptions/listen", _do)
 
   def list_resources(self) -> dict:
     return _with_trace("resources/list", lambda: _state["client"].list_resources())

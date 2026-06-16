@@ -51,6 +51,12 @@ __all__ = [
 
 
 def _is_object(value: object) -> bool:
+  """Return ``True`` for a non-``None`` mapping (the Python analogue of TS ``isObject``).
+
+  JSON objects map to ``dict``; arrays map to ``list`` and are intentionally excluded so a
+  list never masquerades as a capability object. Mirrors the Zod ``z.record``/``z.object``
+  ``typeof === 'object' && !Array.isArray`` discipline of the TS schemas.
+  """
   return isinstance(value, dict)
 
 
@@ -59,18 +65,102 @@ def _nested(obj: dict, key: str) -> dict | None:
   return v if isinstance(v, dict) else None
 
 
-# ─── Declaration validators (§6.1, §6.2) ──────────────────────────────────────
+def _is_record_of_objects(value: object) -> bool:
+  """Mirror ``z.record(z.record(z.unknown()))``: an object whose every value is an object.
+
+  Used for the ``experimental`` / ``extensions`` maps, whose keys are arbitrary capability
+  identifiers and whose values are settings objects of arbitrary structure. (§6.2, §6.3)
+  """
+  return isinstance(value, dict) and all(isinstance(v, dict) for v in value.values())
+
+
+def _optional_object_subflags(value: object, subflags: tuple[str, ...]) -> bool:
+  """Mirror ``z.object({ <subflag>: z.record(z.unknown()).optional() }).passthrough()``.
+
+  The capability value MUST be an object; each named sub-flag, when present, MUST be an
+  object (an empty ``{}`` declares the mode with no settings). Unknown extra keys pass
+  through (``.passthrough()``) and are ignored. (§6.2: ``elicitation``, ``sampling``)
+  """
+  if not isinstance(value, dict):
+    return False
+  return all(k not in value or isinstance(value[k], dict) for k in subflags)
+
+
+def _optional_boolean_subflags(value: object, subflags: tuple[str, ...]) -> bool:
+  """Mirror ``z.object({ <subflag>: z.boolean().optional() }).passthrough()``.
+
+  The capability value MUST be an object; each named sub-flag, when present, MUST be a
+  ``bool`` (note ``bool`` is the only JSON boolean — ``0``/``1`` are NOT accepted, matching
+  Zod's strict ``z.boolean()``). Unknown extra keys pass through. (§6.3: ``prompts``,
+  ``resources``, ``tools``)
+  """
+  if not isinstance(value, dict):
+    return False
+  return all(
+    k not in value or (isinstance(value[k], bool))
+    for k in subflags
+  )
+
+
+# ─── Declaration validators (§6.1, §6.2, §6.3) ────────────────────────────────
 
 def is_valid_client_capabilities(value: object) -> bool:
-  """Return ``True`` for a valid ``ClientCapabilities`` object (an empty ``{}`` is valid;
-  all fields optional and forward-compatible). (§6.1, R-6.2-s)
+  """Return ``True`` for a structurally valid ``ClientCapabilities`` object (§6.2, R-6.2-s).
+
+  The Python analogue of the TS ``ClientCapabilitiesSchema`` (a Zod ``.passthrough()`` object).
+  An empty ``{}`` is valid (declares no optional behaviors), all fields are OPTIONAL, and
+  unknown top-level keys are tolerated (forward-compatible §2.6). When present, each known
+  field MUST have the right shape:
+
+  * ``experimental`` / ``extensions`` — an object map whose every value is an object.
+  * ``elicitation`` — an object; optional ``form`` / ``url`` sub-flags are objects.
+  * ``sampling`` (Deprecated) — an object; optional ``context`` / ``tools`` sub-flags are objects.
+  * ``roots`` (Deprecated) — an object (``{}``).
   """
-  return isinstance(value, dict)
+  if not isinstance(value, dict):
+    return False
+  if "experimental" in value and not _is_record_of_objects(value["experimental"]):
+    return False
+  if "extensions" in value and not _is_record_of_objects(value["extensions"]):
+    return False
+  if "elicitation" in value and not _optional_object_subflags(value["elicitation"], ("form", "url")):
+    return False
+  if "sampling" in value and not _optional_object_subflags(value["sampling"], ("context", "tools")):
+    return False
+  if "roots" in value and not isinstance(value["roots"], dict):
+    return False
+  return True
 
 
 def is_valid_server_capabilities(value: object) -> bool:
-  """Return ``True`` for a valid ``ServerCapabilities`` object (empty ``{}`` valid). (§6.2)"""
-  return isinstance(value, dict)
+  """Return ``True`` for a structurally valid ``ServerCapabilities`` object (§6.3, R-6.3-s).
+
+  The Python analogue of the TS ``ServerCapabilitiesSchema`` (a Zod ``.passthrough()`` object).
+  An empty ``{}`` is valid, all fields are OPTIONAL, and unknown top-level keys are tolerated.
+  When present, each known field MUST have the right shape:
+
+  * ``experimental`` / ``extensions`` — an object map whose every value is an object.
+  * ``completions`` / ``logging`` (Deprecated) — an object.
+  * ``prompts`` / ``tools`` — an object; optional ``listChanged`` sub-flag is a ``bool``.
+  * ``resources`` — an object; optional ``subscribe`` / ``listChanged`` sub-flags are ``bool``.
+  """
+  if not isinstance(value, dict):
+    return False
+  if "experimental" in value and not _is_record_of_objects(value["experimental"]):
+    return False
+  if "extensions" in value and not _is_record_of_objects(value["extensions"]):
+    return False
+  if "completions" in value and not isinstance(value["completions"], dict):
+    return False
+  if "logging" in value and not isinstance(value["logging"], dict):
+    return False
+  if "prompts" in value and not _optional_boolean_subflags(value["prompts"], ("listChanged",)):
+    return False
+  if "resources" in value and not _optional_boolean_subflags(value["resources"], ("subscribe", "listChanged")):
+    return False
+  if "tools" in value and not _optional_boolean_subflags(value["tools"], ("listChanged",)):
+    return False
+  return True
 
 
 # ─── Deprecated capabilities (§6.1, §6.2) ─────────────────────────────────────

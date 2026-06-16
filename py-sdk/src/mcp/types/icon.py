@@ -7,13 +7,21 @@ Security model (§14.2): only ``https:`` URLs and ``data:`` URIs are accepted (R
 unsafe schemes are rejected (R-14.2-n); MIME type is detected from magic bytes, not the
 declared type (R-14.2-s); only allowlisted image types render (R-14.2-u).
 
-The secure network fetch (``fetchIcon`` in the TS SDK) is deferred to a later cluster
-with an injectable-fetch design; this module covers the synchronous validation core.
+The secure network fetch (:func:`fetch_icon`, the TS SDK's ``fetchIcon``) follows the
+same rules: it manually handles redirects, refusing any scheme change or cross-origin
+hop (R-14.2-p), and sends a credential-free request (R-14.2-q). The HTTP client is
+injectable for testing via the ``fetch`` parameter; the default uses ``httpx`` (the
+same dependency :mod:`mcp.client.http` relies on).
 """
 
 from __future__ import annotations
 
+import base64
+import binascii
 import re
+import urllib.parse
+from dataclasses import dataclass
+from typing import Callable, Protocol, runtime_checkable
 
 #: Background themes an icon may target (§14.2). Closed set.
 ICON_THEMES = frozenset({"light", "dark"})
@@ -37,6 +45,19 @@ def is_valid_icon(value: object) -> bool:
   if "theme" in value and value["theme"] not in ICON_THEMES:
     return False
   return True
+
+
+def is_valid_icons(value: object) -> bool:
+  """Return ``True`` for a valid ``Icons`` mixin (§14.2): an object with an OPTIONAL
+  ``icons`` array of valid :func:`is_valid_icon` entries. An absent or empty array is
+  valid; extra members are tolerated. (R-14.2-b, R-14.2-v)
+  """
+  if not isinstance(value, dict):
+    return False
+  if "icons" not in value:
+    return True
+  icons = value["icons"]
+  return isinstance(icons, list) and all(is_valid_icon(i) for i in icons)
 
 
 #: MIME types a consumer MUST support when rendering icons. (R-14.2-l)
@@ -131,3 +152,143 @@ def validate_icon_bytes(
         "(bytes)", f"MIME type mismatch: declared '{declared_mime_type}', detected '{detected}'"
       )
   return detected
+
+
+# ─── Secure icon fetch (§14.2) ────────────────────────────────────────────────
+
+#: HTTP status codes that denote a redirect (the TS SDK's ``isRedirectStatus``).
+_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+
+
+def is_redirect_status(status: int) -> bool:
+  """Return ``True`` when ``status`` is an HTTP redirect (301/302/303/307/308)."""
+  return status in _REDIRECT_STATUSES
+
+
+@runtime_checkable
+class FetchResponse(Protocol):
+  """The minimal HTTP response surface :func:`fetch_icon` consumes.
+
+  Satisfied by ``httpx.Response`` (``status_code``, ``headers``, ``content``); a test
+  fetcher need only supply these three members.
+  """
+
+  @property
+  def status_code(self) -> int: ...
+
+  @property
+  def headers(self) -> dict: ...
+
+  @property
+  def content(self) -> bytes: ...
+
+
+#: A ``fetch`` callable: takes a URL, returns a :class:`FetchResponse`. Redirects MUST be
+#: surfaced (not auto-followed) so :func:`fetch_icon` can enforce R-14.2-p itself.
+Fetch = Callable[[str], FetchResponse]
+
+
+@dataclass(frozen=True)
+class FetchIconResult:
+  """The validated outcome of :func:`fetch_icon`."""
+
+  bytes: bytes  #: The fetched image bytes.
+  mime_type: str  #: The MIME type detected from magic bytes. (R-14.2-s)
+  final_url: str  #: The URL the bytes were ultimately read from (same origin as ``src``).
+
+
+def _decode_data_uri(uri: str) -> bytes:
+  """Decode a ``data:`` URI payload to bytes (Base64 or percent-encoded).
+
+  :raises IconValidationError: when the URI is malformed.
+  """
+  comma = uri.find(",")
+  if comma == -1:
+    raise IconValidationError(uri, "malformed data: URI (missing comma)")
+  meta = uri[len("data:"):comma]
+  payload = uri[comma + 1:]
+  if re.search(r";base64$", meta, re.IGNORECASE):
+    try:
+      return base64.b64decode(payload, validate=True)
+    except (binascii.Error, ValueError) as exc:
+      raise IconValidationError(uri, f"malformed base64 data: URI payload ({exc})") from exc
+  return urllib.parse.unquote_to_bytes(payload)
+
+
+def _default_fetch(url: str) -> FetchResponse:
+  """The default credential-free, no-auto-redirect fetcher, backed by ``httpx``.
+
+  Imported lazily so the synchronous validation core has no import-time network dependency.
+  """
+  import httpx
+
+  return httpx.get(
+    url,
+    follow_redirects=False,  # R-14.2-p: redirects are vetted manually below.
+    headers={},  # R-14.2-q: no Authorization / Cookie header.
+    # httpx sends no cookies unless a cookie jar is supplied — this request carries none.
+  )
+
+
+def fetch_icon(
+  src: str,
+  *,
+  fetch: Fetch | None = None,
+  allowed_types: frozenset[str] | set[str] = DEFAULT_IMAGE_ALLOWLIST,
+  max_redirects: int = 5,
+) -> FetchIconResult:
+  """Securely fetch and validate an icon (§14.2), enforcing the consumer security rules.
+
+  * ``src`` MUST be ``https:`` or ``data:`` (R-14.2-o, via :func:`validate_icon_src`).
+  * Redirects are followed manually; a redirect that changes the scheme or moves to a
+    different origin MUST NOT be followed and is rejected (R-14.2-p, TV-20.12).
+  * The request is credential-free — no ``Authorization`` or ``Cookie`` header is sent
+    (R-14.2-q, TV-20.13).
+  * The returned bytes are validated against the allowlist by magic bytes, ignoring any
+    declared type (R-14.2-r–R-14.2-u, via :func:`validate_icon_bytes`).
+
+  ``data:`` icons carry their bytes inline, so no network request is made.
+
+  :raises IconValidationError: on a disallowed scheme, a cross-origin/scheme-change
+    redirect, a non-2xx status, too many redirects, or invalid image bytes.
+  """
+  validate_icon_src(src)  # R-14.2-o: only https: or data:
+
+  # `data:` icons carry their bytes inline — no network request, nothing to redirect.
+  if src.lower().startswith("data:"):
+    data = _decode_data_uri(src)
+    return FetchIconResult(data, validate_icon_bytes(data, None, allowed_types), src)
+
+  fetcher = fetch or _default_fetch
+  origin = urllib.parse.urlsplit(src)
+  current = src
+
+  for _ in range(max_redirects + 1):
+    response = fetcher(current)  # R-14.2-q: credential-free request (see fetcher contract).
+    status = response.status_code
+    if is_redirect_status(status):
+      location = response.headers.get("location") if hasattr(response.headers, "get") else None
+      if not location:
+        raise IconValidationError(src, f"redirect {status} without a Location header")
+      next_url = urllib.parse.urljoin(current, location)
+      nxt = urllib.parse.urlsplit(next_url)
+      if nxt.scheme != origin.scheme:
+        raise IconValidationError(
+          src, f"refusing redirect with scheme change '{origin.scheme}' → '{nxt.scheme}'"
+        )
+      if (nxt.scheme, nxt.netloc) != (origin.scheme, origin.netloc):
+        raise IconValidationError(
+          src,
+          f"refusing cross-origin redirect '{origin.scheme}://{origin.netloc}' → "
+          f"'{nxt.scheme}://{nxt.netloc}'",
+        )
+      current = next_url
+      continue
+
+    if 200 <= status < 300:
+      data = bytes(response.content)
+      return FetchIconResult(data, validate_icon_bytes(data, None, allowed_types), current)
+
+    raise IconValidationError(src, f"icon fetch failed with HTTP {status}")
+
+  raise IconValidationError(src, f"too many redirects (more than {max_redirects})")

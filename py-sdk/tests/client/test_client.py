@@ -1,18 +1,34 @@
-"""Tests for the Client over an in-process direct transport (server bridged via
-process_message), exercising discovery, the _meta envelope, and feature methods.
+"""Tests for the Client host (2026-07-28).
+
+Two harnesses are used, mirroring the TS client tests:
+
+* a real in-process bridge to an :class:`McpServer` via ``process_message`` — covers
+  discovery, the ``_meta`` envelope, and the feature methods end-to-end;
+* a controllable :class:`StubTransport` that records sends and lets a test inject inbound
+  frames — covers inbound server→client request routing, notifications + progress
+  correlation, cancellation, the §11 MRTR driver, §10 subscriptions, and the
+  ``Mcp-Param-*`` param-header resolver — the synchronous analogue of the TS
+  ``StubTransport`` that drives the message-pump client.
 """
 
 import pytest
 
-from mcp.client.client import Client, RequestError
+from mcp.client.client import Client, RequestError, SubscriptionHandle
 from mcp.client.transport import ClientTransport
-from mcp.protocol.meta import PROTOCOL_VERSION_META_KEY
+from mcp.protocol.meta import (
+  CLIENT_CAPABILITIES_META_KEY,
+  CLIENT_INFO_META_KEY,
+  PROTOCOL_VERSION_META_KEY,
+)
 from mcp.server.runtime import process_message
 from mcp.server.server import McpServer
 
 INFO = {"name": "srv", "version": "1.0"}
 CLIENT = {"name": "cli", "version": "0.1"}
 CAPS = {"tools": {}, "resources": {}, "prompts": {}}
+
+
+# ─── In-process server bridge harness ─────────────────────────────────────────
 
 
 class DirectClientTransport(ClientTransport):
@@ -39,6 +55,87 @@ def build_client() -> Client:
   return Client(DirectClientTransport(build_server()), CLIENT, capabilities={"tools": {}})
 
 
+# ─── Controllable stub transport harness ──────────────────────────────────────
+
+
+class StubTransport(ClientTransport):
+  """A controllable in-process transport mirroring the TS ``StubTransport``.
+
+  Records every outbound ``request``/``send`` in :attr:`sent`. A test supplies ``on_request``
+  to answer a request synchronously (returning the response envelope) and ``on_send`` to
+  observe notifications / replies. Inbound interim frames are injected via :meth:`inject`,
+  which calls the ``set_on_message`` tap the :class:`Client` installs.
+  """
+
+  def __init__(self) -> None:
+    self.sent: list[dict] = []
+    self.closed = False
+    self._on_message = None
+    self._param_resolver = None
+    #: Set by a test to answer a request: ``on_request(message) -> response dict | None``.
+    self.on_request = None
+    #: Set by a test to observe a notification / reply: ``on_send(message)``.
+    self.on_send = None
+    #: Set by a test to drive a subscription: ``on_subscribe(message)``.
+    self.on_subscribe = None
+
+  # Hooks the Client wires.
+  def set_on_message(self, callback) -> None:
+    self._on_message = callback
+
+  def set_param_header_resolver(self, resolver) -> None:
+    self._param_resolver = resolver
+
+  def resolve_param_headers(self, method: str, params: dict | None) -> dict:
+    """Test helper: invoke the resolver the Client installed (for §9.5.2 assertions)."""
+    return self._param_resolver(method, params) if self._param_resolver else {}
+
+  # The request/response channel.
+  def request(self, message: dict, *, timeout_ms: int | None = None) -> dict:
+    self.sent.append(message)
+    if self.on_request is not None:
+      response = self.on_request(message)
+      if response is not None:
+        return response
+    return {"jsonrpc": "2.0", "id": message["id"], "result": {"resultType": "complete"}}
+
+  def send(self, message: dict) -> None:
+    self.sent.append(message)
+    if self.on_send is not None:
+      self.on_send(message)
+
+  def open_subscription(self, message: dict, on_ready):
+    self.sent.append(message)
+    on_ready()
+    if self.on_subscribe is not None:
+      self.on_subscribe(message)
+    return _FakeStream()
+
+  def close(self) -> None:
+    self.closed = True
+
+  # Test driver: deliver an inbound frame to the Client.
+  def inject(self, frame: dict) -> None:
+    assert self._on_message is not None, "Client did not install set_on_message"
+    self._on_message(frame)
+
+
+class _FakeStream:
+  def __init__(self) -> None:
+    import threading
+
+    self.closed = threading.Event()
+
+
+def stub_client(capabilities: dict | None = None) -> tuple[Client, StubTransport]:
+  transport = StubTransport()
+  client = Client(transport, CLIENT, capabilities=capabilities)
+  return client, transport
+
+
+# ─── Discovery (§5.3–§5.4) ────────────────────────────────────────────────────
+
+
 class TestDiscovery:
   def test_discover_negotiates_and_caches(self):
     c = build_client()
@@ -55,6 +152,47 @@ class TestDiscovery:
     status = c.status()
     assert status["connected"] and status["negotiatedVersion"] == "2026-07-28"
 
+  def test_discover_caches_instructions_and_accessors(self):
+    client, transport = stub_client()
+    transport.on_request = lambda m: {
+      "jsonrpc": "2.0",
+      "id": m["id"],
+      "result": {
+        "resultType": "complete",
+        "supportedVersions": ["2026-07-28"],
+        "capabilities": {"tools": {}, "resources": {}},
+        "serverInfo": {"name": "fake-server", "version": "2.0.0"},
+        "instructions": "be nice",
+      },
+    }
+    result = client.discover()
+    assert result["serverInfo"]["name"] == "fake-server"
+    assert client.get_negotiated_version() == "2026-07-28"
+    assert client.get_server_capabilities() == {"tools": {}, "resources": {}}
+    assert client.get_server_version() == {"name": "fake-server", "version": "2.0.0"}
+    assert client.get_instructions() == "be nice"
+    # The discover request itself carried the envelope.
+    assert transport.sent[0]["params"]["_meta"][CLIENT_INFO_META_KEY] == CLIENT
+
+  def test_protocol_version_before_and_after_discover(self):
+    client, transport = stub_client()
+    assert client.protocol_version() == "2026-07-28"  # most-preferred default
+    transport.on_request = lambda m: {
+      "jsonrpc": "2.0",
+      "id": m["id"],
+      "result": {
+        "resultType": "complete",
+        "supportedVersions": ["2026-07-28"],
+        "capabilities": {},
+        "serverInfo": INFO,
+      },
+    }
+    client.discover()
+    assert client.protocol_version() == "2026-07-28"  # negotiated
+
+
+# ─── Outgoing request envelope (§4.3) ─────────────────────────────────────────
+
 
 class TestEnvelope:
   def test_meta_envelope_reaches_server(self):
@@ -64,6 +202,210 @@ class TestEnvelope:
     assert meta[PROTOCOL_VERSION_META_KEY] == "2026-07-28"
     assert "io.modelcontextprotocol/clientInfo" in meta
     assert "io.modelcontextprotocol/clientCapabilities" in meta
+
+  def test_stamps_three_required_meta_keys(self):
+    client, transport = stub_client(capabilities={"sampling": {}, "elicitation": {}})
+    client.request("tools/list")
+    meta = transport.sent[0]["params"]["_meta"]
+    assert meta[PROTOCOL_VERSION_META_KEY] == "2026-07-28"
+    assert meta[CLIENT_INFO_META_KEY] == CLIENT
+    assert meta[CLIENT_CAPABILITIES_META_KEY] == {"sampling": {}, "elicitation": {}}
+
+  def test_preserves_caller_meta_alongside_reserved_keys(self):
+    client, transport = stub_client()
+    client.request("ping", {"_meta": {"traceparent": "00-abc-def-01"}})
+    meta = transport.sent[0]["params"]["_meta"]
+    assert meta["traceparent"] == "00-abc-def-01"
+    assert meta[PROTOCOL_VERSION_META_KEY] == "2026-07-28"
+
+
+# ─── Correlation and errors (§7.5) ────────────────────────────────────────────
+
+
+class TestCorrelationAndErrors:
+  def test_resolves_with_result_on_success(self):
+    client, transport = stub_client()
+    transport.on_request = lambda m: {"jsonrpc": "2.0", "id": m["id"], "result": {"value": 42}}
+    assert client.request("tools/list")["value"] == 42
+
+  def test_raises_request_error_on_delivered_error(self):
+    client, transport = stub_client()
+    transport.on_request = lambda m: {
+      "jsonrpc": "2.0",
+      "id": m["id"],
+      "error": {"code": -32602, "message": "Invalid params", "data": {"field": "x"}},
+    }
+    with pytest.raises(RequestError) as exc:
+      client.request("tools/call", {"name": "add"})
+    assert exc.value.name == "RequestError"
+    assert exc.value.code == -32602
+    assert exc.value.data == {"field": "x"}
+
+  def test_non_object_response_raises(self):
+    client, transport = stub_client()
+    transport.on_request = lambda m: "not-a-dict"  # type: ignore[return-value]
+    with pytest.raises(RequestError):
+      client.request("ping")
+
+
+# ─── Inbound server→client requests (§20–§21) ─────────────────────────────────
+
+
+class TestInboundServerRequests:
+  def test_routes_to_handler_and_posts_result_back(self):
+    client, transport = stub_client(capabilities={"elicitation": {}})
+    seen = []
+
+    def handler(params):
+      seen.append(params)
+      return {"action": "accept", "content": {"name": "Ada"}}
+
+    client.set_request_handler("elicitation/create", handler)
+    transport.inject({"jsonrpc": "2.0", "id": "srv-1", "method": "elicitation/create", "params": {"mode": "form"}})
+
+    assert seen == [{"mode": "form"}]
+    reply = transport.sent[-1]
+    assert reply["id"] == "srv-1"
+    assert reply["result"] == {"action": "accept", "content": {"name": "Ada"}}
+
+  def test_replies_method_not_found_without_handler(self):
+    client, transport = stub_client()
+    transport.inject({"jsonrpc": "2.0", "id": "srv-2", "method": "sampling/createMessage", "params": {}})
+    assert transport.sent[-1]["error"]["code"] == -32601
+
+  def test_handler_raising_request_error_maps_to_error_response(self):
+    client, transport = stub_client()
+
+    def handler(params):
+      raise RequestError(-32000, "denied", {"why": "policy"})
+
+    client.set_request_handler("roots/list", handler)
+    transport.inject({"jsonrpc": "2.0", "id": "srv-3", "method": "roots/list", "params": {}})
+    error = transport.sent[-1]["error"]
+    assert error["code"] == -32000
+    assert error["data"] == {"why": "policy"}
+
+  def test_handler_raising_other_error_maps_to_internal_error(self):
+    client, transport = stub_client()
+    client.set_request_handler("roots/list", lambda p: (_ for _ in ()).throw(RuntimeError("boom")))
+    transport.inject({"jsonrpc": "2.0", "id": "srv-4", "method": "roots/list", "params": {}})
+    assert transport.sent[-1]["error"]["code"] == -32603
+
+  def test_remove_request_handler(self):
+    client, transport = stub_client()
+    client.set_request_handler("roots/list", lambda p: {"roots": []})
+    client.remove_request_handler("roots/list")
+    transport.inject({"jsonrpc": "2.0", "id": "srv-5", "method": "roots/list", "params": {}})
+    assert transport.sent[-1]["error"]["code"] == -32601
+
+
+# ─── Notifications and progress (§15.1) ───────────────────────────────────────
+
+
+class TestNotificationsAndProgress:
+  def test_routes_notifications_to_handler(self):
+    client, transport = stub_client()
+    logged = []
+    client.set_notification_handler("notifications/message", logged.append)
+    transport.inject({"jsonrpc": "2.0", "method": "notifications/message", "params": {"level": "info", "data": "hi"}})
+    assert logged == [{"level": "info", "data": "hi"}]
+
+  def test_remove_notification_handler(self):
+    client, transport = stub_client()
+    logged = []
+    client.set_notification_handler("notifications/message", logged.append)
+    client.remove_notification_handler("notifications/message")
+    transport.inject({"jsonrpc": "2.0", "method": "notifications/message", "params": {}})
+    assert logged == []
+
+  def test_correlates_progress_by_token(self):
+    client, transport = stub_client()
+    progress_seen = []
+
+    def on_request(message):
+      token = message["params"]["_meta"]["progressToken"]
+      # Emit a correlated progress notification before the final result.
+      transport.inject({
+        "jsonrpc": "2.0",
+        "method": "notifications/progress",
+        "params": {"progressToken": token, "progress": 0.5},
+      })
+      return {"jsonrpc": "2.0", "id": message["id"], "result": {"resultType": "complete"}}
+
+    transport.on_request = on_request
+    client.request("tools/call", {"name": "slow"}, on_progress=progress_seen.append)
+    assert len(progress_seen) == 1
+    assert progress_seen[0]["progress"] == 0.5
+
+  def test_progress_handler_removed_after_request(self):
+    client, transport = stub_client()
+    seen = []
+    transport.on_request = lambda m: {"jsonrpc": "2.0", "id": m["id"], "result": {}}
+    client.request("ping", on_progress=seen.append)
+    # After the request settles, a stray progress notification with the same token is ignored.
+    transport.inject({"jsonrpc": "2.0", "method": "notifications/progress", "params": {"progressToken": 1, "progress": 1}})
+    assert seen == []
+
+  def test_progress_token_string_and_number_do_not_collide(self):
+    client, transport = stub_client()
+    seen = []
+    transport.on_request = lambda m: {"jsonrpc": "2.0", "id": m["id"], "result": {}}
+    client.request("ping", progress_token="1", on_progress=seen.append)
+    # A numeric-token progress notification must NOT reach the string-token handler.
+    transport.inject({"jsonrpc": "2.0", "method": "notifications/progress", "params": {"progressToken": 1, "progress": 1}})
+    assert seen == []
+
+
+# ─── Cancellation (§15.2) ─────────────────────────────────────────────────────
+
+
+class TestCancellation:
+  def test_cancel_sends_cancelled_notification(self):
+    client, transport = stub_client()
+    cancelled = []
+    transport.on_send = cancelled.append
+
+    # Drive a cancellable request whose handler cancels mid-flight by cancel_id.
+    def on_request(message):
+      client.cancel("op-1")  # sends notifications/cancelled referencing this request id
+      return {"jsonrpc": "2.0", "id": message["id"], "result": {}}
+
+    transport.on_request = on_request
+    client.request("tools/call", {"name": "forever"}, cancel_id="op-1")
+    note = next(m for m in cancelled if m.get("method") == "notifications/cancelled")
+    assert note["params"]["requestId"] == transport.sent[0]["id"]
+
+  def test_cancel_unknown_id_returns_false(self):
+    client, _ = stub_client()
+    assert client.cancel("nope") is False
+
+
+# ─── Capability guards (§6) ───────────────────────────────────────────────────
+
+
+class TestCapabilityGuards:
+  def test_server_supports_and_assert(self):
+    client, transport = stub_client()
+    transport.on_request = lambda m: {
+      "jsonrpc": "2.0",
+      "id": m["id"],
+      "result": {
+        "resultType": "complete",
+        "supportedVersions": ["2026-07-28"],
+        "capabilities": {"tools": {}, "resources": {}},
+        "serverInfo": {"name": "s", "version": "1"},
+      },
+    }
+    client.discover()
+    assert client.server_supports("tools") is True
+    assert client.server_supports("prompts") is False
+    client.assert_server_capability("tools")  # does not raise
+    with pytest.raises(RequestError) as exc:
+      client.assert_server_capability("prompts")
+    assert exc.value.code == -32003
+
+
+# ─── Feature methods + pagination ─────────────────────────────────────────────
 
 
 class TestFeatureMethods:
@@ -88,3 +430,342 @@ class TestFeatureMethods:
     with pytest.raises(RequestError) as exc:
       c.call_tool("nope")
     assert exc.value.code == -32602
+
+  def test_convenience_methods_send_correct_methods(self):
+    client, transport = stub_client(capabilities={"elicitation": {}})
+
+    def on_request(message):
+      if message["method"] == "tools/list":
+        return {"jsonrpc": "2.0", "id": message["id"], "result": {"resultType": "complete", "tools": [{"name": "add"}]}}
+      return {"jsonrpc": "2.0", "id": message["id"], "result": {"resultType": "complete"}}
+
+    transport.on_request = on_request
+
+    tools = client.list_tools()
+    assert tools["tools"] == [{"name": "add"}]
+    client.read_resource("docs://x")
+    client.get_prompt("greeting", {"name": "Ada"})
+    client.complete({"type": "ref/prompt", "name": "greeting"}, {"name": "language", "value": "en"})
+    client.set_logging_level("debug")
+    client.ping()
+
+    methods = [m["method"] for m in transport.sent]
+    assert methods == [
+      "tools/list",
+      "resources/read",
+      "prompts/get",
+      "completion/complete",
+      "logging/setLevel",
+      "ping",
+    ]
+    assert transport.sent[2]["params"]["name"] == "greeting"
+    assert transport.sent[2]["params"]["arguments"] == {"name": "Ada"}
+
+  def test_complete_with_context(self):
+    client, transport = stub_client()
+    client.complete({"type": "ref/prompt"}, {"name": "x"}, {"arguments": {"y": "1"}})
+    assert transport.sent[0]["params"]["context"] == {"arguments": {"y": "1"}}
+
+
+class TestPagination:
+  def test_list_all_tools_follows_next_cursor(self):
+    client, transport = stub_client()
+
+    def on_request(message):
+      cursor = message["params"].get("cursor")
+      if not cursor:
+        result = {"resultType": "complete", "tools": [{"name": "a"}, {"name": "b"}], "nextCursor": "p2"}
+      else:
+        result = {"resultType": "complete", "tools": [{"name": "c"}]}
+      return {"jsonrpc": "2.0", "id": message["id"], "result": result}
+
+    transport.on_request = on_request
+    names = [t["name"] for t in client.list_all_tools()]
+    assert names == ["a", "b", "c"]
+
+  def test_paginate_stops_when_no_next_cursor(self):
+    client, transport = stub_client()
+    transport.on_request = lambda m: {
+      "jsonrpc": "2.0",
+      "id": m["id"],
+      "result": {"resultType": "complete", "resources": [{"uri": "a"}]},
+    }
+    items = list(client.list_all_resources())
+    assert items == [{"uri": "a"}]
+
+
+# ─── M1 — invalid x-mcp-header tool filtering (§9.5.1) + Mcp-Param-* (§9.5.2) ──
+
+
+class TestParamHeaderRouting:
+  def test_drops_tool_with_invalid_x_mcp_header_keeps_valid(self):
+    client, transport = stub_client()
+    transport.on_request = lambda m: {
+      "jsonrpc": "2.0",
+      "id": m["id"],
+      "result": {
+        "resultType": "complete",
+        "tools": [
+          {"name": "good", "inputSchema": {"type": "object"}},
+          {
+            "name": "bad",
+            "inputSchema": {"type": "object", "properties": {"x": {"type": "object", "x-mcp-header": "X"}}},
+          },
+        ],
+      },
+    }
+    result = client.list_tools()
+    assert [t["name"] for t in result["tools"]] == ["good"]
+
+  def test_learns_schema_and_resolves_param_headers(self):
+    client, transport = stub_client()
+    transport.on_request = lambda m: {
+      "jsonrpc": "2.0",
+      "id": m["id"],
+      "result": {
+        "resultType": "complete",
+        "tools": [
+          {
+            "name": "search",
+            "inputSchema": {"type": "object", "properties": {"region": {"type": "string", "x-mcp-header": "Region"}}},
+          }
+        ],
+      },
+    }
+    client.list_tools()  # learns the x-mcp-header annotation
+    headers = transport.resolve_param_headers("tools/call", {"name": "search", "arguments": {"region": "us-east"}})
+    assert headers.get("Mcp-Param-Region") == "us-east"
+
+  def test_resolver_returns_empty_for_unknown_tool_or_method(self):
+    client, transport = stub_client()
+    assert transport.resolve_param_headers("tools/call", {"name": "unknown", "arguments": {}}) == {}
+    assert transport.resolve_param_headers("tools/list", {}) == {}
+
+
+# ─── §11 multi-round-trip (input-required) driver ─────────────────────────────
+
+
+class TestMultiRoundTrip:
+  def test_fulfills_input_required_then_completes(self):
+    client, transport = stub_client(capabilities={"elicitation": {}})
+    client.set_request_handler("elicitation/create", lambda p: {"action": "accept", "content": {"name": "Ada"}})
+
+    def on_request(message):
+      params = message["params"]
+      if message["method"] == "tools/call" and "inputResponses" not in params:
+        result = {
+          "resultType": "input_required",
+          "inputRequests": {"who": {"method": "elicitation/create", "params": {"mode": "form"}}},
+          "requestState": "state-1",
+        }
+      else:
+        result = {"resultType": "complete", "content": [{"type": "text", "text": "ok"}]}
+      return {"jsonrpc": "2.0", "id": message["id"], "result": result}
+
+    transport.on_request = on_request
+    result = client.request_with_input("tools/call", {"name": "register_user"})
+    assert result["content"][0]["text"] == "ok"
+
+    retry = next(m for m in transport.sent if "inputResponses" in m["params"])
+    assert retry["params"]["requestState"] == "state-1"
+    assert retry["params"]["inputResponses"]["who"] == {"action": "accept", "content": {"name": "Ada"}}
+
+  def test_no_handler_for_input_kind_raises(self):
+    client, transport = stub_client(capabilities={"elicitation": {}})
+    transport.on_request = lambda m: {
+      "jsonrpc": "2.0",
+      "id": m["id"],
+      "result": {
+        "resultType": "input_required",
+        "inputRequests": {"who": {"method": "elicitation/create", "params": {}}},
+      },
+    }
+    with pytest.raises(RequestError) as exc:
+      client.request_with_input("tools/call", {"name": "x"})
+    assert exc.value.code == -32601
+
+  def test_unrecognized_result_type_raises(self):
+    client, transport = stub_client()
+    transport.on_request = lambda m: {"jsonrpc": "2.0", "id": m["id"], "result": {"resultType": "weird"}}
+    with pytest.raises(RequestError):
+      client.request_with_input("tools/call", {"name": "x"})
+
+  def test_exceeding_max_rounds_raises(self):
+    client, transport = stub_client(capabilities={"elicitation": {}})
+    client.set_request_handler("elicitation/create", lambda p: {"action": "accept"})
+    # Always re-request input → the round guard must trip.
+    transport.on_request = lambda m: {
+      "jsonrpc": "2.0",
+      "id": m["id"],
+      "result": {
+        "resultType": "input_required",
+        "inputRequests": {"who": {"method": "elicitation/create", "params": {}}},
+        "requestState": "s",
+      },
+    }
+    with pytest.raises(RequestError) as exc:
+      client.request_with_input("tools/call", {"name": "x"}, max_rounds=2)
+    assert "exceeded" in exc.value.message
+
+
+# ─── §25 Tasks extension helpers ──────────────────────────────────────────────
+
+
+class TestTasks:
+  def test_create_task_carries_ttl_and_returns_handle(self):
+    client, transport = stub_client()
+    transport.on_request = lambda m: {
+      "jsonrpc": "2.0",
+      "id": m["id"],
+      "result": {"resultType": "task", "taskId": "t1", "status": "working"},
+    }
+    handle = client.create_task("long_job", {"steps": 2}, ttl_ms=1000)
+    assert handle["taskId"] == "t1"
+    assert handle["resultType"] == "task"
+    assert transport.sent[0]["params"]["task"] == {"ttl": 1000}
+
+  def test_poll_until_terminal_returns_completed_task(self):
+    client, transport = stub_client()
+    polls = {"n": 0}
+
+    def on_request(message):
+      polls["n"] += 1
+      if polls["n"] >= 2:
+        result = {
+          "resultType": "complete",
+          "taskId": "t1",
+          "status": "completed",
+          "result": {"content": [{"type": "text", "text": "done"}]},
+        }
+      else:
+        result = {"resultType": "complete", "taskId": "t1", "status": "working"}
+      return {"jsonrpc": "2.0", "id": message["id"], "result": result}
+
+    transport.on_request = on_request
+    final = client.poll_task_until_terminal("t1", interval_ms=1)
+    assert final["status"] == "completed"
+    assert final["result"]["content"][0]["text"] == "done"
+
+  def test_poll_until_terminal_times_out(self):
+    client, transport = stub_client()
+    transport.on_request = lambda m: {
+      "jsonrpc": "2.0",
+      "id": m["id"],
+      "result": {"resultType": "complete", "taskId": "t1", "status": "working"},
+    }
+    with pytest.raises(RequestError) as exc:
+      client.poll_task_until_terminal("t1", interval_ms=1, timeout_ms=5)
+    assert "did not finish" in exc.value.message
+
+  def test_update_and_cancel_task_send_correct_params(self):
+    client, transport = stub_client()
+    transport.on_request = lambda m: {"jsonrpc": "2.0", "id": m["id"], "result": {}}
+    client.update_task("t1", {"who": {"action": "accept"}})
+    client.cancel_task("t1")
+    # The on-wire params carry the per-request _meta envelope alongside the method params,
+    # so assert the feature params (everything but _meta) match the §25.8/§25.9 shapes.
+    update_params = {k: v for k, v in transport.sent[0]["params"].items() if k != "_meta"}
+    cancel_params = {k: v for k, v in transport.sent[1]["params"].items() if k != "_meta"}
+    assert transport.sent[0]["method"] == "tasks/update"
+    assert update_params == {"taskId": "t1", "inputResponses": {"who": {"action": "accept"}}}
+    assert "_meta" in transport.sent[0]["params"]  # the required envelope is still stamped
+    assert transport.sent[1]["method"] == "tasks/cancel"
+    assert cancel_params == {"taskId": "t1"}
+
+
+# ─── §10 subscriptions ────────────────────────────────────────────────────────
+
+
+class TestSubscriptions:
+  def test_acks_delivers_filtered_notifications_and_tears_down(self):
+    client, transport = stub_client()
+    sub_id_holder = {}
+
+    def on_subscribe(message):
+      # Record the subscription id the listen request opened; the ack arrives out-of-band
+      # below, exactly as a real synchronous transport feeds it through the on_message tap.
+      sub_id_holder["id"] = str(message["id"])
+
+    transport.on_subscribe = on_subscribe
+    received = []
+
+    # subscribe() returns immediately, WITHOUT blocking on the acknowledgement — a
+    # single-threaded driver could not inject the ack otherwise (it would deadlock).
+    handle = client.subscribe({"resourcesListChanged": True}, lambda method, params: received.append(method))
+    assert isinstance(handle, SubscriptionHandle)
+    assert handle.acknowledged.is_set() is False
+    assert handle.acknowledged_filter == {}
+
+    sub_id = sub_id_holder["id"]
+    # The acknowledgement arrives later through the inbound tap, honoring only resourcesListChanged.
+    transport.inject({
+      "jsonrpc": "2.0",
+      "method": "notifications/subscriptions/acknowledged",
+      "params": {
+        "notifications": {"resourcesListChanged": True},
+        "_meta": {"io.modelcontextprotocol/subscriptionId": sub_id},
+      },
+    })
+    assert handle.acknowledged.is_set()
+    assert handle.acknowledged_filter == {"resourcesListChanged": True}
+
+    # A change notification carrying the subscription id is delivered to the callback.
+    transport.inject({
+      "jsonrpc": "2.0",
+      "method": "notifications/resources/list_changed",
+      "params": {"_meta": {"io.modelcontextprotocol/subscriptionId": sub_id}},
+    })
+    assert received == ["notifications/resources/list_changed"]
+
+    # Teardown sends notifications/cancelled and sets the closed event.
+    notes = []
+    transport.on_send = notes.append
+    handle.unsubscribe()
+    cancelled = next(m for m in notes if m.get("method") == "notifications/cancelled")
+    assert cancelled["params"]["requestId"] == int(sub_id)
+    assert handle.closed.is_set()
+
+    # After unsubscribe, further notifications are no longer routed.
+    transport.inject({
+      "jsonrpc": "2.0",
+      "method": "notifications/resources/list_changed",
+      "params": {"_meta": {"io.modelcontextprotocol/subscriptionId": sub_id}},
+    })
+    assert received == ["notifications/resources/list_changed"]
+
+  def test_unacknowledged_subscription_stays_pending_without_blocking(self):
+    client, transport = stub_client()
+    # No ack is ever injected. subscribe() must still return a handle promptly (no block),
+    # leaving the handle unacknowledged rather than deadlocking the caller.
+    transport.on_subscribe = lambda message: None
+    handle = client.subscribe({"resourcesListChanged": True}, lambda *a: None)
+    assert isinstance(handle, SubscriptionHandle)
+    assert handle.acknowledged.is_set() is False
+    assert handle.acknowledged_filter == {}
+    # A bounded wait for the (never-arriving) ack returns False instead of hanging forever.
+    assert handle.wait_acknowledged(timeout=0.05) is False
+
+  def test_subscribe_without_transport_support_raises(self):
+    class NoSubTransport(ClientTransport):
+      def request(self, message):
+        return {"jsonrpc": "2.0", "id": message["id"], "result": {}}
+
+    client = Client(NoSubTransport(), CLIENT)
+    with pytest.raises(RequestError) as exc:
+      client.subscribe({"resourcesListChanged": True})
+    assert "does not support subscriptions" in exc.value.message
+
+
+# ─── Lifecycle ────────────────────────────────────────────────────────────────
+
+
+class TestLifecycle:
+  def test_close_clears_handlers_and_closes_transport(self):
+    client, transport = stub_client()
+    client.set_request_handler("roots/list", lambda p: {})
+    client.set_notification_handler("notifications/message", lambda p: None)
+    client.close()
+    assert transport.closed is True
+    # Handlers are gone: an inbound server request now yields method-not-found.
+    transport.inject({"jsonrpc": "2.0", "id": "x", "method": "roots/list", "params": {}})
+    assert transport.sent[-1]["error"]["code"] == -32601

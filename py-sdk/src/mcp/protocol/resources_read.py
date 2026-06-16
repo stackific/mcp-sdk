@@ -6,7 +6,8 @@ The read side of the Resources feature: the ``resources/read`` request + result 
 notification payloads, and the common-URI-scheme catalog + direct-fetch guidance.
 
 The §10-filter *delivery* gating for ``notifications/resources/updated``
-(``may_notify_resource_updated``) lands with the streaming cluster, which owns the
+(:func:`may_notify_resource_updated`) is surfaced here too (mirroring the TS module),
+reusing :func:`mcp.protocol.streaming.may_deliver_resource_update`, which owns the
 subscription-filter machinery.
 """
 
@@ -23,6 +24,7 @@ from mcp.protocol.resources import (
   is_resource_uri,
   may_accept_resource_request,
 )
+from mcp.protocol.streaming import may_deliver_resource_update
 from mcp.types.resource_contents import is_valid_resource_contents
 
 RESOURCES_READ_METHOD = "resources/read"
@@ -63,6 +65,30 @@ def may_read_resource(server_caps: dict) -> bool:
   declared). (§17.1 via §17.5)
   """
   return may_accept_resource_request(RESOURCES_READ_METHOD, server_caps)
+
+
+def is_valid_read_resource_request_params(value: object) -> bool:
+  """Return ``True`` for a well-formed ``resources/read`` ``params``: a REQUIRED RFC3986
+  ``uri`` plus the OPTIONAL retry fields ``inputResponses`` (map) / ``requestState``
+  (string) and the OPTIONAL ``_meta`` map. (§17.5, R-17.5-a/-b/-d/-f)
+  Mirrors the TS ``ReadResourceRequestParamsSchema``.
+  """
+  if not isinstance(value, dict) or not is_resource_uri(value.get("uri")):
+    return False
+  if "inputResponses" in value and not isinstance(value["inputResponses"], dict):
+    return False
+  if "requestState" in value and not isinstance(value["requestState"], str):
+    return False
+  return "_meta" not in value or isinstance(value["_meta"], dict)
+
+
+def is_valid_read_resource_request(value: object) -> bool:
+  """Return ``True`` for a well-formed ``resources/read`` request envelope: the literal
+  ``method`` plus REQUIRED ``params``. (§17.5) Mirrors ``ReadResourceRequestSchema``.
+  """
+  if not isinstance(value, dict) or value.get("method") != RESOURCES_READ_METHOD:
+    return False
+  return is_valid_read_resource_request_params(value.get("params"))
 
 
 def build_read_resource_request_params(
@@ -191,6 +217,20 @@ def build_resource_updated_notification(uri: str, subscription_id: str, extra_me
   params["uri"] = uri
   params["_meta"] = {**inner_meta, "io.modelcontextprotocol/subscriptionId": subscription_id}
   return {"method": RESOURCES_UPDATED_METHOD, "params": params}
+
+
+def may_notify_resource_updated(updated_uri: str, filter_: dict) -> bool:
+  """Return ``True`` when a server MAY send ``notifications/resources/updated`` for
+  ``updated_uri`` given the client's opted-in ``resourceSubscriptions`` filter — i.e. the
+  URI (or a parent container it is a sub-resource of) was listed. A server MUST NOT send an
+  update for any resource the client did not opt into; an empty (or absent) subscription
+  list never matches. Reuses the streaming module's :func:`may_deliver_resource_update`.
+  (§17.7, R-17.7-i/-j)
+  """
+  subscriptions = filter_.get("resourceSubscriptions") or []
+  if not subscriptions:
+    return False
+  return may_deliver_resource_update(updated_uri, subscriptions)
 
 
 def may_notify_resources_list_changed(filter_: dict) -> bool:
