@@ -2,6 +2,7 @@
 - For Python use `uv` and 2 spaces as indentation
 - For Node use `pnpm` and 2 spaces as indentation
 - For C#, use .NET 10
+- For JSON, YAML, HTML, CSS use 2 spaces as indentation
 - Never modify git history, git commit/push, PR management without explicit user permission, even if the user gave you permission in previous instances, because every occassion is unique
 - Never follow your sibling projects
 - You must write idiomatic code

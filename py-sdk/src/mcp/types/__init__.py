@@ -19,6 +19,18 @@ from mcp.types.content import (
   is_valid_resource_link,
   is_valid_text_content,
 )
+from mcp.types.icon import (
+  DEFAULT_IMAGE_ALLOWLIST,
+  ICON_THEMES,
+  RECOMMENDED_IMAGE_TYPES,
+  REQUIRED_IMAGE_TYPES,
+  IconValidationError,
+  detect_mime_type_from_magic_bytes,
+  is_valid_icon,
+  is_valid_icon_src,
+  validate_icon_bytes,
+  validate_icon_src,
+)
 from mcp.types.implementation import (
   Implementation,
   is_valid_implementation,
@@ -55,4 +67,14 @@ __all__ = [
   "is_valid_resource_link",
   "is_valid_embedded_resource",
   "is_valid_content_block",
+  "ICON_THEMES",
+  "REQUIRED_IMAGE_TYPES",
+  "RECOMMENDED_IMAGE_TYPES",
+  "DEFAULT_IMAGE_ALLOWLIST",
+  "IconValidationError",
+  "is_valid_icon",
+  "validate_icon_src",
+  "is_valid_icon_src",
+  "detect_mime_type_from_magic_bytes",
+  "validate_icon_bytes",
 ]
