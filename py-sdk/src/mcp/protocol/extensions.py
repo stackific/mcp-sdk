@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Iterable, Literal
 
 __all__ = [
   "RESERVED_SECOND_LABELS",
@@ -322,10 +322,10 @@ def is_extension_active(
 #: * ``"use-extension"`` — the extension is active; exercise its behavior.
 #: * ``"fallback"``      — not active, but the operation has a core fallback.
 #: * ``"reject"``        — not active and the extension is MANDATORY; reject with an error.
-ExtensionFallbackDecision = str
+ExtensionFallbackDecision = Literal["use-extension", "fallback", "reject"]
 
 
-def decide_extension_fallback(*, active: bool, mandatory: bool) -> str:
+def decide_extension_fallback(*, active: bool, mandatory: bool) -> ExtensionFallbackDecision:
   """Decide how to handle an operation given activeness and mandatoriness. (R-6.5-l, R-6.5-n)
 
   * active                    → ``"use-extension"``

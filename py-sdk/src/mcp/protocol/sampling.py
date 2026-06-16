@@ -37,11 +37,6 @@ from mcp.types.content import (
 # WITHOUT redefining them (same objects, not duplicates). ``INVALID_PARAMS_CODE`` is the
 # ``-32602`` code used for capability-gating rejections (S05); the ``RESULT_TYPE_*`` are
 # the S04 §3.6 result discriminators the §21.2.8 result carries.
-__all_reexports__ = (
-  "INVALID_PARAMS_CODE",
-  "RESULT_TYPE_COMPLETE",
-  "RESULT_TYPE_INPUT_REQUIRED",
-)
 
 SAMPLING_DEPRECATED = True
 SAMPLING_METHOD = "sampling/createMessage"

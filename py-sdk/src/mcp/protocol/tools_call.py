@@ -10,7 +10,7 @@ the ``dispatchToolCall`` decision, tool annotations, and the list-changed notifi
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from mcp.protocol.errors import INVALID_PARAMS_CODE
 from mcp.protocol.tools import TOOLS_CALL_METHOD, TOOLS_LIST_CHANGED_METHOD, validate_tool_arguments

@@ -78,10 +78,10 @@ def parse_meta_key(key: str) -> tuple[str | None, str]:
   The prefix includes the trailing slash; the name is everything after it. When the
   key has no ``/``, the prefix is ``None`` and the name is the whole key.
   """
-  slash = key.find("/")
-  if slash == -1:
+  prefix, sep, name = key.partition("/")
+  if not sep:
     return None, key
-  return key[: slash + 1], key[slash + 1 :]
+  return prefix + sep, name
 
 
 def is_valid_meta_key(key: str) -> bool:
