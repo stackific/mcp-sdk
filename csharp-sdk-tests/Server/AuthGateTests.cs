@@ -67,11 +67,20 @@ public sealed class AuthGateTests
   }
 
   [Fact]
-  public void Metadata_handles_empty_servers_and_scopes()
+  public void Metadata_handles_empty_servers_and_omits_empty_scopes()
   {
+    // Per the TypeScript builder (server/auth.ts), `scopes_supported` is emitted ONLY when scopes are
+    // provided; an empty scope set omits the field entirely rather than serializing an empty array.
     var meta = AuthGates.BuildProtectedResourceMetadata(Resource, [], []);
     Assert.Empty((JsonArray)meta["authorization_servers"]!);
-    Assert.Empty((JsonArray)meta["scopes_supported"]!);
+    Assert.False(meta.ContainsKey("scopes_supported"));
+  }
+
+  [Fact]
+  public void Metadata_omits_scopes_supported_when_no_scopes()
+  {
+    var meta = AuthGates.BuildProtectedResourceMetadata(Resource, ["https://as.example.com"], []);
+    Assert.False(meta.ContainsKey("scopes_supported"));
   }
 
   // ───────────────────────── Bearer gate challenges (§23.1) ─────────────────────────
@@ -128,18 +137,23 @@ public sealed class AuthGateTests
   [InlineData("xBearer abc")]
   public async Task Malformed_authorization_header_is_unauthorized(string header)
   {
-    // The prefix match is case-sensitive "Bearer " (with trailing space); anything else is rejected.
+    // A non-Bearer scheme, or a single token with no scheme/space, carries no extractable Bearer token.
     var result = await AcceptingGate().AuthorizeAsync(Context(header));
     Assert.False(result.Authorized);
     Assert.Equal(401, result.ChallengeStatus);
   }
 
-  [Fact]
-  public async Task Lowercase_bearer_scheme_is_rejected()
+  [Theory]
+  [InlineData("bearer good-token")]
+  [InlineData("BEARER good-token")]
+  [InlineData("BeArEr good-token")]
+  public async Task Bearer_scheme_is_case_insensitive(string header)
   {
-    // Ordinal prefix check: "bearer " (lowercase) does not match "Bearer ".
-    var result = await AcceptingGate().AuthorizeAsync(Context("bearer good-token"));
-    Assert.False(result.Authorized);
+    // RFC 7235 auth-scheme names are case-insensitive; the TS `extractBearerToken` matches accordingly,
+    // so "bearer"/"BEARER" are accepted (the previous Ordinal prefix check was stricter than the spec).
+    var result = await AcceptingGate().AuthorizeAsync(Context(header));
+    Assert.True(result.Authorized);
+    Assert.Equal("good-token", result.Identity!.Token);
   }
 
   [Fact]
@@ -409,10 +423,27 @@ public sealed class AuthGateTests
   }
 
   [Fact]
-  public void Redirect_ignores_iss_when_not_supported()
+  public void Redirect_compares_present_iss_even_when_not_advertised()
   {
-    // When the AS does not advertise the iss parameter, a returned iss is not checked.
-    OAuth.VerifyAuthorizationRedirect("state-1", "state-1", "https://as.example.com", "https://whatever.example.com", issParameterSupported: false);
+    // R-23.7-f: a PRESENT iss MUST be compared regardless of advertisement; a mismatch is rejected even
+    // when `authorization_response_iss_parameter_supported` is false (mix-up defence).
+    var error = Assert.Throws<McpError>(() =>
+      OAuth.VerifyAuthorizationRedirect("state-1", "state-1", "https://as.example.com", "https://whatever.example.com", issParameterSupported: false));
+    Assert.Equal(ErrorCodes.InvalidParams, error.Code);
+  }
+
+  [Fact]
+  public void Redirect_passes_with_matching_present_iss_when_not_advertised()
+  {
+    // A present iss that matches the recorded issuer passes even when not advertised.
+    OAuth.VerifyAuthorizationRedirect("state-1", "state-1", "https://as.example.com", "https://as.example.com", issParameterSupported: false);
+  }
+
+  [Fact]
+  public void Redirect_proceeds_when_iss_absent_and_not_advertised()
+  {
+    // R-23.7-d row 4: iss absent + not advertised → proceed without comparison.
+    OAuth.VerifyAuthorizationRedirect("state-1", "state-1", "https://as.example.com", returnedIss: null, issParameterSupported: false);
   }
 
   [Fact]
@@ -421,5 +452,114 @@ public sealed class AuthGateTests
     var error = Assert.Throws<McpError>(() =>
       OAuth.VerifyAuthorizationRedirect("State", "state", "https://as.example.com", null, false));
     Assert.Equal(ErrorCodes.InvalidParams, error.Code);
+  }
+
+  // ───────────────────────── Required scopes → 403 insufficient_scope (§23.8, R-23.8-f) ─────────────────────────
+
+  private static IMcpAuthGate ScopedGate(IReadOnlyList<string> requiredScopes, IReadOnlyList<string>? tokenScopes = null) =>
+    AuthGates.Bearer(new BearerAuthGateOptions(
+      MetadataUrl,
+      Resource,
+      token => new AuthInfo(token, ClientId: "c", Scopes: tokenScopes ?? ["mcp:read"], Audience: Resource),
+      RequiredScopes: requiredScopes));
+
+  [Fact]
+  public async Task Token_missing_required_scope_is_forbidden_403()
+  {
+    var gate = ScopedGate(["mcp:write"], tokenScopes: ["mcp:read"]);
+    var result = await gate.AuthorizeAsync(Context("Bearer good-token"));
+    Assert.False(result.Authorized);
+    Assert.Equal(403, result.ChallengeStatus);
+  }
+
+  [Fact]
+  public async Task Insufficient_scope_challenge_carries_error_and_scope_and_metadata()
+  {
+    var gate = ScopedGate(["mcp:write"], tokenScopes: ["mcp:read"]);
+    var result = await gate.AuthorizeAsync(Context("Bearer good-token"));
+    Assert.Contains("error=\"insufficient_scope\"", result.WwwAuthenticate!);
+    Assert.Contains("scope=\"mcp:write\"", result.WwwAuthenticate);
+    Assert.Contains($"resource_metadata=\"{MetadataUrl}\"", result.WwwAuthenticate);
+  }
+
+  [Fact]
+  public async Task Insufficient_scope_challenge_lists_all_required_scopes_in_one_challenge()
+  {
+    // R-23.1-ac: include ALL required scopes in a single challenge, not incrementally.
+    var gate = ScopedGate(["mcp:read", "mcp:write"], tokenScopes: ["mcp:read"]);
+    var result = await gate.AuthorizeAsync(Context("Bearer good-token"));
+    Assert.Equal(403, result.ChallengeStatus);
+    Assert.Contains("scope=\"mcp:read mcp:write\"", result.WwwAuthenticate!);
+  }
+
+  [Fact]
+  public async Task Token_with_all_required_scopes_is_authorized()
+  {
+    var gate = ScopedGate(["mcp:read", "mcp:write"], tokenScopes: ["mcp:read", "mcp:write", "mcp:admin"]);
+    var result = await gate.AuthorizeAsync(Context("Bearer good-token"));
+    Assert.True(result.Authorized);
+  }
+
+  [Fact]
+  public async Task Unauthenticated_request_to_scoped_gate_challenges_401_with_scope()
+  {
+    // A missing token yields 401 (not 403); the challenge advertises the required scopes (R-23.1-w).
+    var gate = ScopedGate(["mcp:write"]);
+    var result = await gate.AuthorizeAsync(Context());
+    Assert.Equal(401, result.ChallengeStatus);
+    Assert.Contains("scope=\"mcp:write\"", result.WwwAuthenticate!);
+  }
+
+  // ───────────────────────── Audience: string OR array, trailing-slash tolerance (§23.6) ─────────────────────────
+
+  [Fact]
+  public async Task Audience_matches_with_uppercase_scheme_and_host()
+  {
+    // R-23.1-p: canonical comparison accepts uppercase scheme/host for robustness.
+    var gate = Gate(token => new AuthInfo(token, Audience: "HTTPS://MCP.EXAMPLE.COM/sse"));
+    var result = await gate.AuthorizeAsync(Context("Bearer good-token"));
+    Assert.True(result.Authorized);
+  }
+
+  [Fact]
+  public async Task Host_root_audience_tolerates_trailing_slash()
+  {
+    // `https://h` and `https://h/` are canonically identical (R-23.1-s).
+    var gate = AuthGates.Bearer(MetadataUrl, "https://mcp.example.com", _ =>
+      new AuthInfo("t", Audience: "https://mcp.example.com/"));
+    var result = await gate.AuthorizeAsync(Context("Bearer good-token"));
+    Assert.True(result.Authorized);
+  }
+
+  // ───────────────────────── Token expiry → 401 (§23.8, R-23.8-e) ─────────────────────────
+
+  [Fact]
+  public async Task Expired_token_is_unauthorized_401()
+  {
+    var pastSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 60;
+    var gate = Gate(token => new AuthInfo(token, Audience: Resource, ExpiresAt: pastSeconds));
+    var result = await gate.AuthorizeAsync(Context("Bearer good-token"));
+    Assert.False(result.Authorized);
+    Assert.Equal(401, result.ChallengeStatus);
+  }
+
+  [Fact]
+  public async Task Unexpired_token_is_authorized()
+  {
+    var futureSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 3600;
+    var gate = Gate(token => new AuthInfo(token, Scopes: ["mcp:read"], Audience: Resource, ExpiresAt: futureSeconds));
+    var result = await gate.AuthorizeAsync(Context("Bearer good-token"));
+    Assert.True(result.Authorized);
+  }
+
+  // ───────────────────────── WWW-Authenticate escaping (RFC 7235) ─────────────────────────
+
+  [Fact]
+  public async Task Challenge_escapes_quotes_in_resource_metadata()
+  {
+    // A metadata URL containing a double-quote must be backslash-escaped so it cannot break the header.
+    var gate = AuthGates.Bearer("https://mcp.example.com/meta\"x", Resource, _ => null);
+    var result = await gate.AuthorizeAsync(Context());
+    Assert.Contains("resource_metadata=\"https://mcp.example.com/meta\\\"x\"", result.WwwAuthenticate!);
   }
 }

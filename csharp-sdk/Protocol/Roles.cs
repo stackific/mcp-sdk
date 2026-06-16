@@ -1,7 +1,10 @@
+using System.Text.Json.Serialization;
+
 namespace Stackific.Mcp.Protocol;
 
 /// <summary>
-/// The two wire-level JSON-RPC endpoint roles (§1.1, §2.2).
+/// The two wire-level JSON-RPC endpoint roles (§1.1, §2.2): the two ends of a one-to-one
+/// client&#8596;server pairing.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -11,22 +14,20 @@ namespace Stackific.Mcp.Protocol;
 /// </para>
 /// <para>
 /// This endpoint role is deliberately distinct from <see cref="Role"/> (the content-author /
-/// audience role of §14.7, whose values are <c>user</c> and <c>assistant</c>). The values exposed
-/// here are the literal wire strings a caller compares a received role against, mirroring the
-/// TypeScript <c>McpRole</c> constant object. (AC-01.1)
+/// audience role of §14.7, whose values are <c>user</c> and <c>assistant</c>). Modeled as an enum —
+/// the idiomatic C# form of a closed set of wire strings — with the same
+/// <see cref="JsonStringEnumConverter{TEnum}"/> pattern used by <see cref="Role"/> and
+/// <see cref="IconTheme"/>, so it round-trips to the literal lowercase wire values. (AC-01.1)
 /// </para>
 /// </remarks>
-public static class McpRole
+[JsonConverter(typeof(JsonStringEnumConverter<McpRole>))]
+public enum McpRole
 {
-  /// <summary>The wire value for the client endpoint role: the literal <c>"client"</c>.</summary>
-  public const string Client = "client";
+  /// <summary>The client endpoint role; serializes to the literal <c>"client"</c>.</summary>
+  [JsonStringEnumMemberName("client")]
+  Client,
 
-  /// <summary>The wire value for the server endpoint role: the literal <c>"server"</c>.</summary>
-  public const string Server = "server";
-
-  /// <summary>
-  /// The two endpoint roles exactly as they appear on the wire, in declaration order. The host is
-  /// not a wire role and is intentionally absent.
-  /// </summary>
-  public static IReadOnlyList<string> Values { get; } = [Client, Server];
+  /// <summary>The server endpoint role; serializes to the literal <c>"server"</c>.</summary>
+  [JsonStringEnumMemberName("server")]
+  Server,
 }

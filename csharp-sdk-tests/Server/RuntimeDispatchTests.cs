@@ -888,6 +888,45 @@ public sealed class RuntimeDispatchTests
     Assert.Contains("english", result.Completion.Values);
   }
 
+  [Theory]
+  [InlineData("ref/unknown")]   // a plausible-looking but undefined discriminator
+  [InlineData("ref/tool")]      // a real-method-shaped value that is NOT a completion ref kind
+  [InlineData("prompt")]        // missing the "ref/" prefix
+  [InlineData("")]              // empty discriminator
+  public async Task Completion_with_unknown_ref_type_is_minus_32602_not_internal_error(string refType)
+  {
+    // S29 / R-19.2-e / R-19.3-f: the completion `ref` is a CLOSED discriminated union over `type`
+    // (ref/prompt | ref/resource). An unknown discriminator MUST be rejected as -32602 (Invalid
+    // params). Driven directly because the typed client cannot construct an out-of-union reference —
+    // System.Text.Json would otherwise surface the unrecognized discriminator as a JsonException that,
+    // before the fix, fell through to the generic -32603 (Internal error) catch in HandleRequestAsync.
+    var prms = Obj($"{{\"ref\":{{\"type\":\"{refType}\",\"name\":\"x\"}},\"argument\":{{\"name\":\"a\",\"value\":\"v\"}}}}");
+    prms["_meta"] = GoodMeta();
+    var error = ExpectError(await Dispatch(FullServer(), McpMethods.CompletionComplete, prms));
+    Assert.Equal(ErrorCodes.InvalidParams, error.Code);
+    Assert.NotEqual(ErrorCodes.InternalError, error.Code);
+  }
+
+  [Fact]
+  public async Task Completion_with_a_missing_ref_is_minus_32602()
+  {
+    // R-19.2-e: a params object with no `ref` at all is a closed-union/shape violation → -32602.
+    var prms = Obj("""{"argument":{"name":"a","value":"v"}}""");
+    prms["_meta"] = GoodMeta();
+    var error = ExpectError(await Dispatch(FullServer(), McpMethods.CompletionComplete, prms));
+    Assert.Equal(ErrorCodes.InvalidParams, error.Code);
+  }
+
+  [Fact]
+  public async Task Completion_with_a_non_object_ref_is_minus_32602()
+  {
+    // A `ref` that is not an object cannot carry the `type` discriminator → -32602, never -32603.
+    var prms = Obj("""{"ref":"ref/prompt","argument":{"name":"a","value":"v"}}""");
+    prms["_meta"] = GoodMeta();
+    var error = ExpectError(await Dispatch(FullServer(), McpMethods.CompletionComplete, prms));
+    Assert.Equal(ErrorCodes.InvalidParams, error.Code);
+  }
+
   [Fact]
   public async Task Completion_values_are_capped_at_100_with_has_more_and_full_total()
   {

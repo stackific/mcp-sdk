@@ -256,6 +256,102 @@ public sealed class SubscriptionsBehaviorTests
     await handle.Unsubscribe();
   }
 
+  // ───────────────────────── Non-absolute resource URI rejection (§10.2, R-10.2-i) ─────────────────────────
+
+  [Theory]
+  [InlineData("/relative/path")]
+  [InlineData("readme")]
+  [InlineData("docs-without-scheme")]
+  [InlineData("://noscheme")]
+  public async Task Subscribe_rejects_a_non_absolute_resource_subscription_uri(string badUri)
+  {
+    // S16 / R-10.2-i: a client MUST NOT subscribe to a non-absolute resource URI. The client rejects it
+    // up front with -32602 rather than sending it to the server.
+    await using var client = InMemory.Connect(BuildServer());
+    await client.DiscoverAsync();
+
+    var error = await Assert.ThrowsAsync<McpError>(() =>
+      client.SubscribeAsync(new SubscriptionFilter { ResourceSubscriptions = [badUri] }));
+    Assert.Equal(ErrorCodes.InvalidParams, error.Code);
+    // The faulty subscription was never registered (no active subscription leaked).
+    Assert.Empty(client.ActiveSubscriptionIds);
+  }
+
+  [Fact]
+  public async Task Subscribe_rejects_when_any_uri_in_the_list_is_non_absolute()
+  {
+    await using var client = InMemory.Connect(BuildServer());
+    await client.DiscoverAsync();
+
+    var error = await Assert.ThrowsAsync<McpError>(() =>
+      client.SubscribeAsync(new SubscriptionFilter { ResourceSubscriptions = ["docs://ok", "not-absolute"] }));
+    Assert.Equal(ErrorCodes.InvalidParams, error.Code);
+    Assert.Empty(client.ActiveSubscriptionIds);
+  }
+
+  [Fact]
+  public async Task Subscribe_accepts_an_absolute_resource_subscription_uri()
+  {
+    // The positive control: an absolute URI is accepted and the subscription becomes active.
+    await using var client = InMemory.Connect(BuildServer());
+    await client.DiscoverAsync();
+
+    var handle = await client.SubscribeAsync(new SubscriptionFilter { ResourceSubscriptions = ["docs://readme"] });
+    Assert.Single(client.ActiveSubscriptionIds);
+    await handle.Unsubscribe();
+  }
+
+  // ───────────────────────── subscriptionId correlation routing (§10.4, R-10.4-c) ─────────────────────────
+
+  [Fact]
+  public async Task Each_subscription_routes_only_its_own_subscription_ids_notifications()
+  {
+    // S16 / R-10.4-c: with two concurrent subscriptions over the same client channel, every delivered
+    // notification carries the OWNING subscription's id in _meta and is routed to that handler only.
+    await using var client = InMemory.Connect(BuildServer());
+    await client.DiscoverAsync();
+
+    var a = new List<JsonRpcNotification>();
+    var b = new List<JsonRpcNotification>();
+    var handleA = await client.SubscribeAsync(new SubscriptionFilter { ToolsListChanged = true }, a.Add);
+    var handleB = await client.SubscribeAsync(new SubscriptionFilter { ToolsListChanged = true }, b.Add);
+
+    var idA = client.ActiveSubscriptionIds[0];
+    var idB = client.ActiveSubscriptionIds[1];
+
+    await client.CallToolAsync("emit");
+
+    Assert.NotEmpty(a);
+    Assert.NotEmpty(b);
+    // Every notification each handler saw is tagged with that handler's own subscription id (R-10.4-c).
+    Assert.All(a, n => Assert.Equal(idA, SubscriptionRegistry.ReadSubscriptionId(n.Params)));
+    Assert.All(b, n => Assert.Equal(idB, SubscriptionRegistry.ReadSubscriptionId(n.Params)));
+    Assert.NotEqual(idA, idB);
+
+    await handleA.Unsubscribe();
+    await handleB.Unsubscribe();
+  }
+
+  [Fact]
+  public async Task Active_subscription_is_retrievable_by_its_id_and_gone_after_unsubscribe()
+  {
+    // The client tracks the request-scoped lifecycle through a SubscriptionRegistry keyed by the
+    // subscription id (the subscriptions/listen request id) — §10.4/§10.7.
+    await using var client = InMemory.Connect(BuildServer());
+    await client.DiscoverAsync();
+
+    var handle = await client.SubscribeAsync(new SubscriptionFilter { ToolsListChanged = true });
+    var id = client.ActiveSubscriptionIds[0];
+
+    var sub = client.GetSubscription(id);
+    Assert.NotNull(sub);
+    Assert.Equal(id, sub!.SubscriptionId);
+
+    await handle.Unsubscribe();
+    Assert.Null(client.GetSubscription(id));
+    Assert.Empty(client.ActiveSubscriptionIds);
+  }
+
   // ───────────────────────── Delivery + subscription id (§10.4/§10.5) ─────────────────────────
 
   [Fact]

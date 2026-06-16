@@ -594,8 +594,23 @@ public sealed class McpServer : IMcpRequestHandler, IMcpSubscriptionHandler
     RequireCapability(_capabilities.Completions is not null, McpMethods.CompletionComplete);
     if (prms is null) throw McpError.InvalidParams("completion/complete requires params.");
 
-    var request = prms.Deserialize<CompleteRequestParams>(McpJson.Options)
-      ?? throw McpError.InvalidParams("Invalid completion/complete params.");
+    // §19.2/§19.3 (R-19.2-e / R-19.3-f): the `ref` is a CLOSED discriminated union over `type`
+    // (`ref/prompt` / `ref/resource`). An unknown/invalid discriminator — or any other shape the
+    // params schema rejects — is INVALID PARAMS (-32602), NOT an internal error. System.Text.Json
+    // surfaces an unrecognized polymorphic discriminator (and other binding failures) as a
+    // JsonException, which would otherwise fall through to the generic -32603 catch in
+    // HandleRequestAsync; trap it here and re-raise as -32602 so the closed-union violation maps to the
+    // spec-mandated code rather than masquerading as an internal server fault.
+    CompleteRequestParams request;
+    try
+    {
+      request = prms.Deserialize<CompleteRequestParams>(McpJson.Options)
+        ?? throw McpError.InvalidParams("Invalid completion/complete params.");
+    }
+    catch (JsonException error)
+    {
+      throw McpError.InvalidParams($"Invalid completion/complete params: {error.Message}");
+    }
     var argumentName = request.Argument.Name;
     var value = request.Argument.Value;
 

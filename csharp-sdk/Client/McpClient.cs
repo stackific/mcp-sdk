@@ -285,6 +285,24 @@ public sealed class McpClient : IAsyncDisposable
     Action<JsonRpcNotification>? onNotification = null,
     CancellationToken cancellationToken = default)
   {
+    ArgumentNullException.ThrowIfNull(filter);
+
+    // §10.2 (R-10.2-i): every resource-subscription URI MUST be an absolute URI [RFC3986]. A relative
+    // reference (or any string without a valid scheme) is rejected up front with -32602 rather than
+    // being sent to the server — a client MUST NOT subscribe to a non-absolute resource URI. Mirrors the
+    // TS subscriptions/listen request-params validation (isAbsoluteUri over resourceSubscriptions).
+    if (filter.ResourceSubscriptions is { Count: > 0 } uris)
+    {
+      foreach (var uri in uris)
+      {
+        if (!Subscriptions.IsAbsoluteUri(uri))
+        {
+          throw McpError.InvalidParams(
+            $"A resource subscription URI MUST be an absolute URI [RFC3986] (R-10.2-i): \"{uri}\".");
+        }
+      }
+    }
+
     var listenId = new RequestId(Interlocked.Increment(ref _nextId));
     var prms = new JsonObject
     {

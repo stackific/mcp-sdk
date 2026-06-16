@@ -331,6 +331,138 @@ public sealed class HttpHardeningTests
     }
   }
 
+  // ═════════════════════════ §9.6.2 — client SSE disconnect treated as cancellation (R-9.6.2-i/j/k) ═════════════════════════
+
+  /// <summary>
+  /// S15 / R-9.6.2-i/j/k: when a client closes its SSE stream mid-flight, the server MUST treat the
+  /// disconnect as a cancellation — sealing the stream and failing the in-flight request — and send
+  /// NOTHING further. This drives the pre-committed event-stream path (a <c>progressToken</c> in
+  /// <c>_meta</c>): a <c>block</c> tool reports one progress update (committing the SSE response) and then
+  /// awaits its cancellation signal forever. The test reads the first progress frame, abruptly disposes
+  /// the request (client disconnect), and asserts the tool's cancellation token fired — i.e. the server
+  /// observed the close as cancellation rather than continuing to drive the handler.
+  /// </summary>
+  [Fact]
+  public async Task Client_sse_disconnect_mid_stream_is_treated_as_cancellation_by_the_server()
+  {
+    // Coordination: the tool signals once it has reported progress, then blocks until cancelled.
+    var progressReported = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var cancellationObserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    var server = new McpServer(
+      new Implementation { Name = "disconnect-server", Version = "1.0.0" },
+      new ServerCapabilities { Tools = new ToolsCapability() });
+
+    server.RegisterTool(
+      new Tool { Name = "block", InputSchema = Obj("""{"type":"object"}""") },
+      async ctx =>
+      {
+        // Emit one progress update so the SSE stream is committed and the client receives a frame.
+        await ctx.ReportProgressAsync(1, 2, "started");
+        progressReported.TrySetResult();
+        try
+        {
+          // Block until the client disconnects; ctx.Signal is wired from HttpContext.RequestAborted, so a
+          // client SSE close cancels it (R-9.6.2-i). Without the close this would hang for the full delay.
+          await Task.Delay(Timeout.Infinite, ctx.Signal);
+        }
+        catch (OperationCanceledException)
+        {
+          // The server surfaced the client close as cancellation of the in-flight handler (R-9.6.2-j/k).
+          cancellationObserved.TrySetResult();
+          throw;
+        }
+        return CallToolResult.FromText("never reached");
+      });
+
+    var builder = WebApplication.CreateSlimBuilder();
+    builder.WebHost.UseUrls("http://127.0.0.1:0");
+    builder.Logging.ClearProviders();
+    var app = builder.Build();
+    app.MapMcp("/mcp", server);
+    await app.StartAsync();
+    var endpoint = $"{app.Urls.First()}/mcp";
+
+    try
+    {
+      // A SocketsHttpHandler whose connection we can forcibly tear down to model the client abruptly
+      // closing the SSE stream mid-flight (disposing the HttpClient resets the underlying socket, which
+      // Kestrel surfaces as HttpContext.RequestAborted on the in-flight request).
+      var raw = new HttpClient(new SocketsHttpHandler());
+
+      var body = new JsonObject
+      {
+        ["jsonrpc"] = "2.0",
+        ["id"] = 1,
+        ["method"] = McpMethods.ToolsCall,
+        ["params"] = new JsonObject
+        {
+          ["name"] = "block",
+          ["arguments"] = new JsonObject(),
+          ["_meta"] = new JsonObject
+          {
+            ["io.modelcontextprotocol/clientInfo"] = new JsonObject { ["name"] = "raw", ["version"] = "1.0.0" },
+            ["io.modelcontextprotocol/clientCapabilities"] = new JsonObject(),
+            ["io.modelcontextprotocol/protocolVersion"] = ProtocolRevision.Current,
+            // A progress token forces the pre-committed event-stream shape (§9.6.2).
+            ["progressToken"] = "p-disconnect",
+          },
+        },
+      };
+
+      using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
+      {
+        Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json"),
+      };
+      request.Headers.TryAddWithoutValidation("Accept", "application/json, text/event-stream");
+      request.Headers.TryAddWithoutValidation("MCP-Protocol-Version", ProtocolRevision.Current);
+      request.Headers.TryAddWithoutValidation("Mcp-Method", McpMethods.ToolsCall);
+      request.Headers.TryAddWithoutValidation("Mcp-Name", "block");
+
+      // Read only the response HEADERS so the SSE body stays open and streaming.
+      var response = await raw.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+      Assert.Equal("text/event-stream", response.Content.Headers.ContentType?.MediaType);
+
+      // Read the first SSE progress frame to confirm the stream is live and the handler is running.
+      var stream = await response.Content.ReadAsStreamAsync();
+      var reader = new StreamReader(stream, Encoding.UTF8);
+      var firstLine = await ReadFirstDataLineAsync(reader, CancellationToken.None);
+      Assert.Contains("notifications/progress", firstLine);
+      await progressReported.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+      // Now the client abruptly closes the SSE stream mid-flight: dispose the response/stream and the
+      // HttpClient, forcibly resetting the TCP connection. Kestrel surfaces this on RequestAborted.
+      reader.Dispose();
+      stream.Dispose();
+      response.Dispose();
+      raw.Dispose();
+
+      // §9.6.2 (R-9.6.2-i/j/k): the server MUST treat the close as cancellation — the in-flight handler's
+      // cancellation token (HttpContext.RequestAborted) fires, so the tool is cancelled rather than driven
+      // to its "never reached" result. The server sends nothing further (the StreamableHttpServer seals
+      // the stream and fails the in-flight request without writing the terminal frame).
+      await cancellationObserved.Task.WaitAsync(TimeSpan.FromSeconds(10));
+    }
+    finally
+    {
+      await app.StopAsync();
+      await app.DisposeAsync();
+    }
+  }
+
+  /// <summary>Reads SSE lines until the first <c>data:</c> payload line, returning it (without the prefix).</summary>
+  private static async Task<string> ReadFirstDataLineAsync(StreamReader reader, CancellationToken cancellationToken)
+  {
+    while (await reader.ReadLineAsync(cancellationToken) is { } line)
+    {
+      if (line.StartsWith("data:", StringComparison.Ordinal))
+      {
+        return line["data:".Length..].Trim();
+      }
+    }
+    return string.Empty;
+  }
+
   /// <summary>Builds a well-formed tools/call body for the "run" tool with the given region (and optional limit).</summary>
   private static JsonObject RunBody(string region, int? limit = null)
   {

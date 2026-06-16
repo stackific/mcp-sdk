@@ -87,7 +87,9 @@ public readonly record struct ProgressToken
   {
     Kind.String => _string!,
     Kind.Integer => _integer.ToString(CultureInfo.InvariantCulture),
-    Kind.Real => _real.ToString("R", CultureInfo.InvariantCulture),
+    // The default ("G") format is the shortest round-trippable form since .NET Core 3.0; the legacy
+    // "R" specifier is documented as discouraged for double.
+    Kind.Real => _real.ToString(CultureInfo.InvariantCulture),
     _ => string.Empty,
   };
 
