@@ -87,6 +87,12 @@ def is_valid_logging_level(value: object) -> bool:
   names; any other string (e.g. ``"verbose"``), a number, ``None``, etc. is rejected.
   (§4.3, R-4.3-d) The ``io.modelcontextprotocol/logLevel`` key that uses these is
   **Deprecated** (§27.3).
+
+  .. deprecated::
+    The ``io.modelcontextprotocol/logLevel`` ``_meta`` key (and the Logging capability it
+    drives) is Deprecated (§27.3). See the Logging capability migration note (stderr on
+    stdio; external observability otherwise). Earliest removal: 2026-07-28 (§27.2/§27.3,
+    R-27.4-a/-b).
   """
   return isinstance(value, str) and value in LOGGING_LEVELS
 
@@ -190,6 +196,12 @@ def validate_request_meta(meta: dict) -> RequestMetaValidationResult:
 # ─── RequestMetaObject structural validator (§4.3) ────────────────────────────
 
 #: The optional ``io.modelcontextprotocol/logLevel`` per-request key (Deprecated). (R-4.3-d)
+#:
+#: .. deprecated::
+#:   The ``io.modelcontextprotocol/logLevel`` ``_meta`` key (and the Logging capability it
+#:   drives) is Deprecated (§27.3). See the Logging capability migration note (stderr on
+#:   stdio; external observability otherwise). Earliest removal: 2026-07-28 (§27.2/§27.3,
+#:   R-27.4-a/-b).
 LOG_LEVEL_META_KEY = "io.modelcontextprotocol/logLevel"
 
 

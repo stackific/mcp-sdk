@@ -59,7 +59,6 @@ from mcp.protocol.authorization_flow import (
   PKCE_UNRESERVED_RE,
   RESPONSE_TYPE_CODE,
   TOKEN_TYPE_BEARER,
-  AuthorizationFlowRecord,
   DynamicClientRegistrationCredential,
   DynamicClientRegistrationStore,
   PkceSupportError,

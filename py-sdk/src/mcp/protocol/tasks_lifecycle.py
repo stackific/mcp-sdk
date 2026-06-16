@@ -42,6 +42,11 @@ The TypeScript SDK validates ``DetailedTask`` via a Zod discriminated union
 
 from __future__ import annotations
 
+from typing import Annotated, Any, Literal
+
+from pydantic import AfterValidator, Field, TypeAdapter
+
+from mcp._model import McpModel, validates
 from mcp.jsonrpc.payload import (
   RESULT_TYPE_COMPLETE,
   is_valid_mcp_error,
@@ -55,11 +60,23 @@ from mcp.protocol.tasks import (
   TASKS_GET_METHOD,
   TASKS_NOTIFICATION_METHOD,
   TASKS_UPDATE_METHOD,
+  Task,
   build_tasks_missing_capability_error,
   is_terminal_task_status,
   subscribed_task_ids,
   task_subscription_requires_capability,
 )
+
+
+def _require_mcp_error(value: Any) -> Any:
+  """Field validator: a ``failed`` task's ``error`` MUST be a valid JSON-RPC error object."""
+  if not is_valid_mcp_error(value):
+    raise ValueError("failed-task error MUST be a valid JSON-RPC error object (§22)")
+  return value
+
+
+#: A JSON-RPC error object field for a ``failed`` task. (§22)
+_McpError = Annotated[dict, AfterValidator(_require_mcp_error)]
 
 # Re-export the S39-owned bindings the TS module re-exports, so an S40 caller has the
 # full surface (method names, capability-gating error, subscription helpers) without
@@ -208,47 +225,77 @@ def _has_valid_base_task_fields(value: dict) -> bool:
   return True
 
 
+class _WorkingTask(Task):
+  """``status: "working"`` — a base ``Task`` with no additional payload. (§25.4)"""
+
+  status: Literal["working"]
+
+
+class _CancelledTask(Task):
+  """``status: "cancelled"`` — a base ``Task`` with no additional payload. (§25.4)"""
+
+  status: Literal["cancelled"]
+
+
+class _InputRequiredTask(Task):
+  """``status: "input_required"`` — carries the outstanding ``inputRequests`` map. (§25.4)"""
+
+  status: Literal["input_required"]
+  input_requests: dict[str, Any]
+
+
+class _CompletedTask(Task):
+  """``status: "completed"`` — carries the verbatim ordinary ``result``. (§25.4, R-25.5-d)"""
+
+  status: Literal["completed"]
+  result: dict[str, Any]
+
+
+class _FailedTask(Task):
+  """``status: "failed"`` — carries the inline JSON-RPC ``error``. (§25.4, R-25.5-d)"""
+
+  status: Literal["failed"]
+  error: _McpError
+
+
+#: A ``DetailedTask`` — a base ``Task`` plus the status-specific payload, discriminated by
+#: ``status`` (the Python analogue of the TS ``DetailedTaskSchema`` union). (§25.4, R-25.5-d)
+DetailedTask = Annotated[
+  _WorkingTask | _InputRequiredTask | _CompletedTask | _FailedTask | _CancelledTask,
+  Field(discriminator="status"),
+]
+
+_DETAILED_TASK_ADAPTER: TypeAdapter[Any] = TypeAdapter(DetailedTask)
+
+
 def is_valid_detailed_task(value: object) -> bool:
   """Return ``True`` for a well-formed ``DetailedTask`` (the discriminated union). (§25.4)
 
-  A ``DetailedTask`` is a base ``Task`` plus the status-specific payload required by
-  its ``status`` discriminator (R-25.5-d):
-
-  * ``working`` / ``cancelled`` — no additional payload;
-  * ``input_required`` — REQUIRED ``inputRequests`` map (opaque keys → input requests);
-  * ``completed`` — REQUIRED ``result`` object (the verbatim ordinary result);
-  * ``failed`` — REQUIRED ``error`` object (a JSON-RPC error, §22).
-
-  Mirrors the TS ``DetailedTaskSchema`` discriminated union; additional members are
-  tolerated (passthrough). (R-25.5-d, AC-39.16)
+  A base ``Task`` plus the status-specific payload required by its ``status`` discriminator
+  (R-25.5-d): ``working``/``cancelled`` — none; ``input_required`` — ``inputRequests``;
+  ``completed`` — ``result``; ``failed`` — a JSON-RPC ``error``.
   """
-  if not _is_object(value):
-    return False
-  if not _has_valid_base_task_fields(value):
-    return False
-  status = value["status"]
-  if status in ("working", "cancelled"):
+  try:
+    _DETAILED_TASK_ADAPTER.validate_python(value)
     return True
-  if status == "input_required":
-    return _is_object(value.get("inputRequests"))
-  if status == "completed":
-    return _is_object(value.get("result"))
-  if status == "failed":
-    return is_valid_mcp_error(value.get("error"))
-  return False
+  except Exception:  # noqa: BLE001 — any validation failure means "not a valid DetailedTask"
+    return False
 
 
 # ─── §25.7 — tasks/get request ──────────────────────────────────────────────────
 
 
-def is_valid_get_task_request_params(value: object) -> bool:
-  """Return ``True`` for valid ``tasks/get`` params: a REQUIRED string ``taskId``. (§25.7)
-
-  ``taskId`` MUST be the server-generated identifier sent verbatim, exactly as it
-  appeared in the originating ``CreateTaskResult``. Additional members (e.g. the
-  per-request ``_meta``) are tolerated. (R-25.7-a, R-25.7-b)
+class GetTaskRequestParams(McpModel):
+  """``tasks/get`` params (§25.7): a REQUIRED string ``taskId`` (verbatim from the
+  originating ``CreateTaskResult``); additional members tolerated. (R-25.7-a/-b)
   """
-  return _is_object(value) and isinstance(value.get("taskId"), str)
+
+  task_id: str
+
+
+def is_valid_get_task_request_params(value: object) -> bool:
+  """Return ``True`` for valid ``tasks/get`` params: a REQUIRED string ``taskId``. (§25.7)"""
+  return validates(GetTaskRequestParams, value)
 
 
 def _is_valid_request_envelope(value: object, method: str) -> bool:
@@ -325,17 +372,20 @@ def is_valid_task_input_responses(value: object) -> bool:
   return _is_object(value)
 
 
+class UpdateTaskRequestParams(McpModel):
+  """``tasks/update`` params (§25.8): REQUIRED string ``taskId`` + ``inputResponses`` map;
+  additional members tolerated. (R-25.8-a/-b)
+  """
+
+  task_id: str
+  input_responses: dict[str, Any]
+
+
 def is_valid_update_task_request_params(value: object) -> bool:
   """Return ``True`` for valid ``tasks/update`` params: REQUIRED ``taskId`` + ``inputResponses``.
-
-  ``taskId`` is a string and ``inputResponses`` is a map; additional members (e.g. the
-  per-request ``_meta``) are tolerated. (§25.8, R-25.8-a, R-25.8-b)
+  (§25.8, R-25.8-a, R-25.8-b)
   """
-  return (
-    _is_object(value)
-    and isinstance(value.get("taskId"), str)
-    and is_valid_task_input_responses(value.get("inputResponses"))
-  )
+  return validates(UpdateTaskRequestParams, value)
 
 
 def is_valid_update_task_request(value: object) -> bool:
@@ -425,12 +475,17 @@ def is_partial_input_response(
 # ─── §25.9 — tasks/cancel request ──────────────────────────────────────────────
 
 
-def is_valid_cancel_task_request_params(value: object) -> bool:
-  """Return ``True`` for valid ``tasks/cancel`` params: a REQUIRED string ``taskId``. (§25.9)
-
-  Additional members (e.g. the per-request ``_meta``) are tolerated. (R-25.9-b)
+class CancelTaskRequestParams(McpModel):
+  """``tasks/cancel`` params (§25.9): a REQUIRED string ``taskId``; additional members
+  tolerated. (R-25.9-b)
   """
-  return _is_object(value) and isinstance(value.get("taskId"), str)
+
+  task_id: str
+
+
+def is_valid_cancel_task_request_params(value: object) -> bool:
+  """Return ``True`` for valid ``tasks/cancel`` params: a REQUIRED string ``taskId``. (§25.9)"""
+  return validates(CancelTaskRequestParams, value)
 
 
 def is_valid_cancel_task_request(value: object) -> bool:

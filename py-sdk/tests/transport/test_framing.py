@@ -99,3 +99,47 @@ class TestTryDecode:
     assert not result.ok
     assert isinstance(result.error, TransportError)
     assert result.message is None
+
+
+class TestNonFiniteNumbersRejected:
+  """RFC 8259 / §3 JSON has no non-finite numbers, so the wire boundary rejects ``NaN`` /
+  ``Infinity`` / ``-Infinity`` in BOTH directions rather than emitting or accepting them.
+  Python's ``json`` is permissive about these by default — this is the explicit guard.
+  (S02; R-7.1-b, R-7.6-b)
+  """
+
+  @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+  def test_encode_rejects_non_finite(self, value):
+    msg = {"jsonrpc": "2.0", "id": 1, "result": {"x": value}}
+    with pytest.raises(TransportError):
+      encode_message_unit(msg)
+
+  def test_encode_rejects_non_finite_nested_deeply(self):
+    msg = {"jsonrpc": "2.0", "id": 1, "result": {"a": [1, {"b": float("inf")}]}}
+    with pytest.raises(TransportError):
+      encode_message_unit(msg)
+
+  @pytest.mark.parametrize(
+    "raw",
+    [
+      b'{"jsonrpc":"2.0","id":1,"result":{"x":NaN}}',
+      b'{"jsonrpc":"2.0","id":1,"result":{"x":Infinity}}',
+      b'{"jsonrpc":"2.0","id":1,"result":{"x":-Infinity}}',
+    ],
+  )
+  def test_decode_rejects_non_finite_tokens(self, raw):
+    # The peer must not be able to smuggle a float('nan')/float('inf') past the decoder.
+    with pytest.raises(TransportError):
+      decode_message_unit(raw)
+
+  def test_try_decode_returns_error_for_non_finite(self):
+    raw = b'{"jsonrpc":"2.0","id":1,"result":{"x":NaN}}'
+    result = try_decode_message_unit(raw)
+    assert not result.ok
+    assert isinstance(result.error, TransportError)
+    assert result.message is None
+
+  def test_finite_floats_still_round_trip(self):
+    # The complement: ordinary finite floats are unaffected (no over-rejection).
+    msg = {"jsonrpc": "2.0", "id": 1, "result": {"x": 3.14, "y": -2.5, "z": 0.0}}
+    assert decode_message_unit(encode_message_unit(msg)) == msg

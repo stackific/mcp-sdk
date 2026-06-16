@@ -5,6 +5,7 @@ Mirrors ts-sdk/src/__tests__/types/implementation.test.ts.
 
 import pytest
 
+from mcp.types.icon import Icon
 from mcp.types.implementation import (
   Implementation,
   is_valid_implementation,
@@ -62,7 +63,7 @@ class TestParse:
 
   def test_optional_icons(self):
     impl = parse_implementation({**MINIMAL, "icons": [{"src": "https://example.com/icon.png"}]})
-    assert impl.icons == [{"src": "https://example.com/icon.png"}]
+    assert impl.icons == [Icon(src="https://example.com/icon.png")]
 
   def test_all_optionals_absent_by_default(self):
     impl = parse_implementation(MINIMAL)

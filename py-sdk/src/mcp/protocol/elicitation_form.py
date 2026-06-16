@@ -11,10 +11,13 @@ identity binding). Builds on :mod:`mcp.protocol.elicitation`.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Annotated, Any, Literal
 from urllib.parse import parse_qsl, urlsplit
 
+from pydantic import Field, StrictBool, TypeAdapter
+
+from mcp._model import JsonNumber, McpModel, validates
 from mcp.protocol.elicitation import (
-  ELICITATION_MODE_FORM,
   ELICITATION_MODE_URL,
   is_valid_requested_schema,
 )
@@ -34,52 +37,178 @@ def is_string_schema_format(value: object) -> bool:
   return value in STRING_SCHEMA_FORMATS
 
 
+class StringSchema(McpModel):
+  """A free-text ``StringSchema`` primitive (§20.4): ``type: "string"`` + optional length
+  bounds / ``format`` / ``default``. Does not consider ``enum``/``oneOf`` (those select an
+  enum) — extra keys pass through.
+  """
+
+  type: Literal["string"]
+  title: str | None = None
+  description: str | None = None
+  default: str | None = None
+  min_length: JsonNumber | None = None
+  max_length: JsonNumber | None = None
+  format: Literal["email", "uri", "date", "date-time"] | None = None
+
+
+class NumberSchema(McpModel):
+  """A ``NumberSchema`` primitive (§20.4, R-20.4-e): ``type`` ``number``/``integer`` + optional
+  ``minimum``/``maximum``/``default``.
+  """
+
+  type: Literal["number", "integer"]
+  title: str | None = None
+  description: str | None = None
+  minimum: JsonNumber | None = None
+  maximum: JsonNumber | None = None
+  default: JsonNumber | None = None
+
+
+class BooleanSchema(McpModel):
+  """A ``BooleanSchema`` primitive (§20.4): ``type: "boolean"`` + optional ``default`` bool."""
+
+  type: Literal["boolean"]
+  title: str | None = None
+  description: str | None = None
+  default: StrictBool | None = None
+
+
 def is_valid_string_schema(value: object) -> bool:
   """Return ``True`` for a free-text ``StringSchema`` (``type: "string"``; optional length
-  bounds, ``format``, ``default``). Does not consider ``enum``/``oneOf`` (those select an
-  enum). (§20.4)
+  bounds, ``format``, ``default``). Does not consider ``enum``/``oneOf``. (§20.4)
   """
-  if not isinstance(value, dict) or value.get("type") != "string":
-    return False
-  for key in ("title", "description", "default"):
-    if key in value and not isinstance(value[key], str):
-      return False
-  for key in ("minLength", "maxLength"):
-    if key in value and not _is_number(value[key]):
-      return False
-  return "format" not in value or is_string_schema_format(value["format"])
+  return validates(StringSchema, value)
 
 
 def is_valid_number_schema(value: object) -> bool:
   """Return ``True`` for a ``NumberSchema`` (``type`` ``number``/``integer``; optional bounds,
   ``default``). (§20.4, R-20.4-e)
   """
-  if not isinstance(value, dict) or value.get("type") not in NUMBER_SCHEMA_TYPES:
-    return False
-  for key in ("title", "description"):
-    if key in value and not isinstance(value[key], str):
-      return False
-  for key in ("minimum", "maximum", "default"):
-    if key in value and not _is_number(value[key]):
-      return False
-  return True
+  return validates(NumberSchema, value)
 
 
 def is_valid_boolean_schema(value: object) -> bool:
   """Return ``True`` for a ``BooleanSchema`` (``type: "boolean"``; optional ``default`` bool).
   (§20.4)
   """
-  if not isinstance(value, dict) or value.get("type") != "boolean":
-    return False
-  for key in ("title", "description"):
-    if key in value and not isinstance(value[key], str):
-      return False
-  return "default" not in value or isinstance(value["default"], bool)
+  return validates(BooleanSchema, value)
+
+
+# ─── EnumSchema family (§20.4) ─────────────────────────────────────────────────
+
+
+class TitledEnumOption(McpModel):
+  """One option of a titled enum: the wire ``const`` value plus its display ``title``.
+  Both are REQUIRED. (§20.4)
+  """
+
+  const: str
+  title: str
+
+
+class UntitledSingleSelectEnum(McpModel):
+  """A single choice from a list of string values, with no separate display labels:
+  ``type: "string"`` + REQUIRED ``enum`` (``string[]``). (§20.4)
+  """
+
+  type: Literal["string"]
+  title: str | None = None
+  description: str | None = None
+  enum: list[str]
+  default: str | None = None
+
+
+class TitledSingleSelectEnum(McpModel):
+  """A single choice where each option carries a display label via REQUIRED ``oneOf``
+  (one ``{const, title}`` entry per option). (§20.4)
+  """
+
+  type: Literal["string"]
+  title: str | None = None
+  description: str | None = None
+  one_of: list[TitledEnumOption]
+  default: str | None = None
+
+
+class UntitledMultiSelectItems(McpModel):
+  """The ``items`` schema of an untitled multi-select enum: a string ``enum``. (§20.4)"""
+
+  type: Literal["string"]
+  enum: list[str]
+
+
+class UntitledMultiSelectEnum(McpModel):
+  """Selection of zero or more values from a list, no separate labels: ``type: "array"``
+  + REQUIRED ``items`` (a string ``enum``) + optional count bounds. (§20.4)
+  """
+
+  type: Literal["array"]
+  title: str | None = None
+  description: str | None = None
+  min_items: JsonNumber | None = None
+  max_items: JsonNumber | None = None
+  items: UntitledMultiSelectItems
+  default: list[str] | None = None
+
+
+class TitledMultiSelectItems(McpModel):
+  """The ``items`` schema of a titled multi-select enum: an ``anyOf`` of options. (§20.4)"""
+
+  any_of: list[TitledEnumOption]
+
+
+class TitledMultiSelectEnum(McpModel):
+  """Selection of zero or more values where each option carries a display label via
+  REQUIRED ``items.anyOf`` + optional count bounds. (§20.4)
+  """
+
+  type: Literal["array"]
+  title: str | None = None
+  description: str | None = None
+  min_items: JsonNumber | None = None
+  max_items: JsonNumber | None = None
+  items: TitledMultiSelectItems
+  default: list[str] | None = None
+
+
+class LegacyTitledEnum(McpModel):
+  """Deprecated legacy titled enum: per-value labels via a parallel ``enumNames`` array,
+  non-standard for JSON Schema 2020-12. Defined only for interoperability — a peer MAY
+  still send it; prefer :class:`TitledSingleSelectEnum` for new work. (§20.4, R-20.4-f, R-20.4-g)
+
+  .. deprecated::
+    Use :class:`TitledSingleSelectEnum` for per-option labels in new functionality.
+    (§20.4, R-20.4-f, R-20.4-g)
+  """
+
+  type: Literal["string"]
+  title: str | None = None
+  description: str | None = None
+  enum: list[str]
+  enum_names: list[str] | None = None
+  default: str | None = None
+
+
+# The five-form ``EnumSchema`` union. Members are tried most-specific first so a
+# structurally ambiguous object is matched to the form that uses its distinguishing
+# keyword (the closed analogue of TS ``EnumSchemaSchema``). The :func:`classify_enum_schema`
+# helper reports the precise structural form.
+EnumSchema = Annotated[
+  TitledSingleSelectEnum
+  | UntitledMultiSelectEnum
+  | TitledMultiSelectEnum
+  | LegacyTitledEnum
+  | UntitledSingleSelectEnum,
+  Field(union_mode="left_to_right"),
+]
+
+_ENUM_SCHEMA_ADAPTER: TypeAdapter[Any] = TypeAdapter(EnumSchema)
 
 
 def is_valid_titled_enum_option(value: object) -> bool:
   """Return ``True`` for a titled enum option: REQUIRED string ``const`` + ``title``. (§20.4)"""
-  return isinstance(value, dict) and isinstance(value.get("const"), str) and isinstance(value.get("title"), str)
+  return validates(TitledEnumOption, value)
 
 
 def classify_enum_schema(value: object) -> str | None:
@@ -107,28 +236,28 @@ def classify_enum_schema(value: object) -> str | None:
 
 
 def is_valid_enum_schema(value: object) -> bool:
-  """Return ``True`` for a structurally valid enum schema (any of the five forms). (§20.4)"""
-  form = classify_enum_schema(value)
-  if form is None:
+  """Return ``True`` for a member of the closed ``EnumSchema`` union — any of the five
+  structural forms. (§20.4)
+
+  Mirrors TS ``EnumSchemaSchema.safeParse``: validation is delegated to the
+  :data:`EnumSchema` union, while :func:`classify_enum_schema` reports the precise form.
+  """
+  if not isinstance(value, dict):
     return False
-  if form in ("untitled-single-select", "legacy-titled"):
-    if not all(isinstance(v, str) for v in value["enum"]):
-      return False
-    if form == "legacy-titled" and "enumNames" in value and not all(isinstance(v, str) for v in value["enumNames"]):
-      return False
+  try:
+    _ENUM_SCHEMA_ADAPTER.validate_python(value)
     return True
-  if form == "titled-single-select":
-    return all(is_valid_titled_enum_option(o) for o in value["oneOf"])
-  if form == "untitled-multi-select":
-    return all(isinstance(v, str) for v in value["items"]["enum"])
-  if form == "titled-multi-select":
-    return all(is_valid_titled_enum_option(o) for o in value["items"]["anyOf"])
-  return False
+  except Exception:  # noqa: BLE001 — any validation failure means "not a valid EnumSchema"
+    return False
 
 
 def is_legacy_titled_enum_schema(value: object) -> bool:
   """Return ``True`` for the Deprecated legacy enum form (string ``enum`` + ``enumNames``).
   (§20.4, R-20.4-f)
+
+  .. deprecated::
+    Use :class:`TitledSingleSelectEnum` for per-option labels in new functionality.
+    (§20.4, R-20.4-f, R-20.4-g)
   """
   return classify_enum_schema(value) == "legacy-titled"
 
@@ -239,13 +368,26 @@ def is_valid_elicit_content(value: object) -> bool:
   return isinstance(value, dict) and all(is_valid_elicit_content_value(v) for v in value.values())
 
 
+#: A permitted elicitation content value (§20.5, R-20.5-c): string, boolean, number, or a
+#: list of strings. ``StrictBool`` keeps booleans distinct from numbers.
+_ElicitContentValue = str | StrictBool | int | float | list[str]
+
+
+class StrictElicitResult(McpModel):
+  """An ``ElicitResult`` with §20.5 content typing — the Python analogue of the TS
+  ``ElicitResultSchema``: REQUIRED ``action`` discriminator + OPTIONAL permitted-typed
+  ``content`` map.
+  """
+
+  action: Literal["accept", "decline", "cancel"]
+  content: dict[str, _ElicitContentValue] | None = None
+
+
 def is_valid_strict_elicit_result(value: object) -> bool:
   """Return ``True`` for an ``ElicitResult`` with §20.5 content typing: REQUIRED ``action`` +
   OPTIONAL permitted-typed ``content``. (§20.5)
   """
-  if not isinstance(value, dict) or not is_elicit_action(value.get("action")):
-    return False
-  return "content" not in value or is_valid_elicit_content(value["content"])
+  return validates(StrictElicitResult, value)
 
 
 # ─── content ↔ requestedSchema conformance (§20.5) ────────────────────────────

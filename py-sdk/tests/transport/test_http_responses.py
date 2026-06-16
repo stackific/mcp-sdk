@@ -175,6 +175,13 @@ class TestFormatSseEvent:
     event = format_sse_event({"a": 1, "b": 2})
     assert event == 'data: {"a":1,"b":2}\n\n'
 
+  @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+  def test_rejects_non_finite_numbers(self, value):
+    # JSON has no NaN/Infinity; the SSE wire encoder refuses to emit one rather than
+    # writing the invalid bare token Python's json produces by default. (R-7.1-b)
+    with pytest.raises(ValueError):
+      format_sse_event({"jsonrpc": "2.0", "id": 1, "result": {"x": value}})
+
 
 # ─── validate_stream_message (R-9.6.2-c/d) ──────────────────────────────────────
 

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from mcp.protocol.errors import INTERNAL_ERROR_CODE, INVALID_PARAMS_CODE

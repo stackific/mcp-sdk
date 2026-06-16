@@ -102,7 +102,9 @@ def create_mcp_request_handler(
     }
 
   def _json(status: int, payload: dict) -> HttpResponse:
-    return HttpResponse(status, {"Content-Type": "application/json", **_cors_headers()}, json.dumps(payload))
+    # allow_nan=False: a non-finite number is not valid JSON and must never reach the wire.
+    body = json.dumps(payload, allow_nan=False)
+    return HttpResponse(status, {"Content-Type": "application/json", **_cors_headers()}, body)
 
   def handler(method: str, request_path: str, headers: Mapping[str, str] | None = None, body: object = "") -> HttpResponse:
     headers = headers or {}

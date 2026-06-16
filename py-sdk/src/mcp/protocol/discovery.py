@@ -15,7 +15,11 @@ revision selection (R-5.3.2-d). Wire shapes are represented as plain dicts.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
+from pydantic import Field
+
+from mcp._model import McpModel, validates
 from mcp.jsonrpc.framing import RequestId
 from mcp.jsonrpc.payload import RESULT_TYPE_COMPLETE
 from mcp.protocol.errors import INVALID_PARAMS_CODE, UNSUPPORTED_PROTOCOL_VERSION_CODE
@@ -27,7 +31,7 @@ from mcp.protocol.meta import (
   is_supported_protocol_version,
   validate_request_meta,
 )
-from mcp.types.implementation import is_valid_implementation
+from mcp.types.implementation import Implementation
 
 #: The discovery method name. (Owned by the progress module in the TS SDK; pinned here
 #: as the literal to avoid a forward dependency.)
@@ -37,6 +41,7 @@ __all__ = [
   "SERVER_DISCOVER_METHOD",
   "UNSUPPORTED_PROTOCOL_VERSION_CODE",
   "DiscoverConfig",
+  "DiscoverResult",
   "DiscoverRequestValidation",
   "ProcessDiscoverOutcome",
   "is_version_supported",
@@ -83,26 +88,31 @@ def is_version_supported(supported_versions: list[str], requested: str) -> bool:
   return requested in supported_versions
 
 
+class DiscoverResult(McpModel):
+  """A successful ``server/discover`` result (§5.3.2) — the Python analogue of the TS
+  ``DiscoverResultSchema``.
+
+  Advertises the server's supported protocol revisions, capabilities, and identity.
+  Unknown members pass through (forward-compatible).
+  """
+
+  #: REQUIRED base discriminator (a tools/discover result is ``"complete"``). (R-5.3.2-a)
+  result_type: str
+  #: REQUIRED non-empty list of revisions the server accepts. (R-5.3.2-b, R-5.3.2-c)
+  supported_versions: list[str] = Field(min_length=1)
+  #: REQUIRED advertised capabilities; ``{}`` ⇒ no optional capabilities.
+  capabilities: dict[str, Any]
+  #: REQUIRED server identity. (R-5.3.2-f)
+  server_info: Implementation
+  #: OPTIONAL guidance for using the server effectively. (R-5.3.2-g)
+  instructions: str | None = None
+  #: OPTIONAL result-level metadata. (R-5.3.2-k)
+  meta: dict[str, Any] | None = Field(default=None, alias="_meta")
+
+
 def is_discover_result(value: object) -> bool:
   """Return ``True`` when ``value`` is a well-formed ``DiscoverResult`` (§5.3.2)."""
-  if not isinstance(value, dict):
-    return False
-  if not isinstance(value.get("resultType"), str):
-    return False
-  versions = value.get("supportedVersions")
-  if not isinstance(versions, list) or len(versions) == 0:
-    return False
-  if not all(isinstance(v, str) for v in versions):
-    return False
-  if not isinstance(value.get("capabilities"), dict):
-    return False
-  if not is_valid_implementation(value.get("serverInfo")):
-    return False
-  if "instructions" in value and not isinstance(value["instructions"], str):
-    return False
-  if "_meta" in value and not isinstance(value["_meta"], dict):
-    return False
-  return True
+  return validates(DiscoverResult, value)
 
 
 def build_discover_result(config: DiscoverConfig) -> dict:

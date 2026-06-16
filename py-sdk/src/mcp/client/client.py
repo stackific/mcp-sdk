@@ -36,8 +36,14 @@ import time
 from collections.abc import Callable, Iterator
 
 from mcp.client.transport import ClientTransport
-from mcp.protocol.discovery import resolve_instructions, select_revision
+from mcp.protocol.discovery import resolve_instructions
 from mcp.protocol.errors import MISSING_CLIENT_CAPABILITY_CODE
+from mcp.protocol.negotiation import (
+  UNSUPPORTED_PROTOCOL_VERSION_CODE,
+  IncompatibleProtocolError,
+  negotiate_revision,
+  reselect_after_unsupported_version,
+)
 from mcp.protocol.meta import (
   CLIENT_CAPABILITIES_META_KEY,
   CLIENT_INFO_META_KEY,
@@ -53,6 +59,8 @@ from mcp.protocol.streaming import (
   read_subscription_id,
   subscription_id_from_request_id,
 )
+from mcp.protocol.security import redact_for_logging, sanitize_tool_output_text
+from mcp.protocol.tools import validate_tool_structured_content
 from mcp.transport.http.param_headers import build_param_headers, filter_valid_tools
 
 # ─── Error codes ────────────────────────────────────────────────────────────────
@@ -62,6 +70,9 @@ from mcp.transport.http.param_headers import build_param_headers, filter_valid_t
 METHOD_NOT_FOUND_CODE = -32601
 #: JSON-RPC "Internal error" — the fallback code for a throwing request handler. (§7.5)
 INTERNAL_ERROR_CODE = -32603
+#: JSON-RPC "Invalid params" — used here when a tool result violates its declared
+#: ``outputSchema`` on the client receive path (§16.6, R-28-validation). (§7.5)
+INVALID_PARAMS_CODE = -32602
 
 
 class RequestError(Exception):
@@ -100,6 +111,30 @@ def _cursor_params(cursor: str | None) -> dict:
   R-12.3-e)
   """
   return {"cursor": cursor} if is_cursor_present(cursor) else {}
+
+
+def _sanitize_result_text(result: dict) -> dict:
+  """Return a shallow copy of a tool/resource result with C0/C1 control sequences stripped
+  from its text blocks (``content[].text`` for tools, ``contents[].text`` for resources).
+  Ordinary whitespace is preserved. (§28.3, R-28.3-i)
+  """
+
+  def _scrub(blocks: object) -> object:
+    if not isinstance(blocks, list):
+      return blocks
+    return [
+      {**b, "text": sanitize_tool_output_text(b["text"])}
+      if isinstance(b, dict) and isinstance(b.get("text"), str)
+      else b
+      for b in blocks
+    ]
+
+  scrubbed = dict(result)
+  if "content" in scrubbed:
+    scrubbed["content"] = _scrub(scrubbed["content"])
+  if "contents" in scrubbed:
+    scrubbed["contents"] = _scrub(scrubbed["contents"])
+  return scrubbed
 
 
 class SubscriptionHandle:
@@ -162,12 +197,23 @@ class Client:
     *,
     capabilities: dict | None = None,
     protocol_versions: list[str] | None = None,
+    sanitize_tool_text: bool = False,
   ) -> None:
     self._transport = transport
     #: This client's ``Implementation`` identity, stamped into every request (§4.3).
     self.client_info = client_info
     #: Capabilities declared in every request's ``_meta`` (§6.2).
     self.capabilities = capabilities or {}
+    #: §28.3 (R-28.3-i): when ``True``, strip C0/C1 control sequences from received tool /
+    #: resource text on the receive path. Off by default so results pass through verbatim;
+    #: a host that does not sanitize at its render target SHOULD enable it.
+    self._sanitize_tool_text = sanitize_tool_text
+    #: Tool ``outputSchema`` learned from ``tools/list``, used to validate a tool result's
+    #: ``structuredContent`` on the receive path (§16.6). Keyed by tool name.
+    self._tool_output_schemas: dict[str, dict] = {}
+    #: Optional pre-dispatch review hook: ``hook(name, arguments)`` invoked before a
+    #: ``tools/call`` leaves the client, so a host can surface arguments for approval (§28.6).
+    self._pre_dispatch_hook: Callable[[str, dict], None] | None = None
     #: Acceptable revisions, most-preferred first.
     self.preferred_versions = protocol_versions or [CURRENT_PROTOCOL_VERSION]
     #: The revision negotiated via discovery; ``None`` until :meth:`discover` runs.
@@ -235,9 +281,43 @@ class Client:
   def _tap(self, direction: str, frame: dict) -> None:
     if self._frame_listener is not None:
       try:
-        self._frame_listener(direction, frame)
+        # §28.9 (R-28.9-d, RC-8/15/16): never surface a credential/token to the debug/audit
+        # listener — redact sensitive keys before the frame leaves the SDK boundary.
+        self._frame_listener(direction, redact_for_logging(frame))
       except Exception:  # noqa: BLE001 — the tap is observational; never break the call
         pass
+
+  def set_pre_dispatch_hook(self, hook: Callable[[str, dict], None] | None) -> None:
+    """Install a pre-dispatch review hook invoked as ``hook(name, arguments)`` immediately
+    before a ``tools/call`` is sent, so a host can surface the exact arguments for review /
+    approval before they reach the server. The hook may raise to veto the call. (§28.6)
+    """
+    self._pre_dispatch_hook = hook
+
+  def _finalize_tool_result(self, name: str, result: dict) -> dict:
+    """Apply the §16.6/§28.3 client receive-path guards to a ``tools/call`` result.
+
+    * Validates ``structuredContent`` against the tool's learned ``outputSchema`` and raises
+      :class:`RequestError` (``-32602``) on a violation — a server MUST NOT return structured
+      output that breaks its own contract, and the client refuses it. (§16.6, RC-17)
+    * When :attr:`_sanitize_tool_text` is set, strips control sequences from text content.
+      (§28.3, R-28.3-i, RC-5)
+    """
+    if not isinstance(result, dict):
+      return result
+    schema = self._tool_output_schemas.get(name)
+    structured = result.get("structuredContent")
+    if schema is not None and structured is not None and result.get("isError") is not True:
+      verdict = validate_tool_structured_content({"name": name, "outputSchema": schema}, structured)
+      if not verdict.valid:
+        raise RequestError(
+          INVALID_PARAMS_CODE,
+          f'Tool "{name}" returned structuredContent that violates its outputSchema',
+          {"errors": verdict.errors},
+        )
+    if self._sanitize_tool_text:
+      result = _sanitize_result_text(result)
+    return result
 
   def _resolve_param_headers(self, method: str, params: dict | None) -> dict:
     """Resolve the ``Mcp-Param-*`` routing headers for an outgoing request from the tool's
@@ -368,6 +448,7 @@ class Client:
     cancel_id: str | None = None,
     timeout_ms: int | None = None,
     meta_extra: dict | None = None,
+    _retry_unsupported_version: bool = True,
   ) -> dict:
     """Send a request and return its ``result``, or raise :class:`RequestError`.
 
@@ -378,6 +459,11 @@ class Client:
     when supplied, §15.1); ``cancel_id`` registers the call for later :meth:`cancel`
     (→ ``notifications/cancelled``, §15.2); ``timeout_ms`` bounds the call when the transport
     honors a per-request timeout (the synthesized failure surfaces as a transport error).
+
+    On a ``-32004`` (UnsupportedProtocolVersion) the client re-selects from the error's
+    authoritative ``data.supported`` set and retries the request EXACTLY ONCE at the chosen
+    revision; if the sets are disjoint it raises :class:`IncompatibleProtocolError` rather
+    than looping. (§5.5 R-5.5-h/-i/-j, §29.3 R-29.3-c)
     """
     self._id += 1
     request_id = self._id
@@ -409,8 +495,37 @@ class Client:
       raise RequestError(None, "transport returned a non-object response")
     if "error" in response:
       error = response["error"]
+      if _retry_unsupported_version and error.get("code") == UNSUPPORTED_PROTOCOL_VERSION_CODE:
+        return self._reselect_and_retry(
+          error,
+          method,
+          params,
+          progress=progress,
+          progress_token=progress_token,
+          on_progress=on_progress,
+          cancel_id=cancel_id,
+          timeout_ms=timeout_ms,
+          meta_extra=meta_extra,
+        )
       raise RequestError(error.get("code"), error.get("message", ""), error.get("data"))
     return response.get("result", {})
+
+  def _reselect_and_retry(self, error: dict, method: str, params: dict | None, **kwargs) -> dict:
+    """React to a ``-32004`` by re-selecting a mutually supported revision and retrying once.
+
+    Uses the error's authoritative ``data.supported`` set (§5.5). On overlap the chosen
+    revision is adopted (so the retry's ``_meta`` carries it) and the request is re-sent
+    exactly once with version-retry disabled; on no overlap the terminal
+    :class:`IncompatibleProtocolError` is raised instead of retrying indefinitely.
+    (R-5.5-h/-i/-j, R-29.3-c)
+    """
+    reselection = reselect_after_unsupported_version(error, self.preferred_versions)
+    if not reselection.ok:
+      raise IncompatibleProtocolError(
+        self.preferred_versions, (error.get("data") or {}).get("supported") or []
+      )
+    self.negotiated_version = reselection.selected
+    return self.request(method, params, _retry_unsupported_version=False, **kwargs)
 
   def _transport_request(self, message: dict, timeout_ms: int | None) -> dict:
     """Dispatch one request over the transport, passing a per-request ``timeout_ms`` when the
@@ -463,7 +578,8 @@ class Client:
     self.server_info = result.get("serverInfo")
     self.server_capabilities = result.get("capabilities")
     self.instructions = resolve_instructions(result)
-    self.negotiated_version = select_revision(result.get("supportedVersions", []), self.preferred_versions)
+    negotiation = negotiate_revision(self.preferred_versions, result.get("supportedVersions", []))
+    self.negotiated_version = negotiation.selected if negotiation.ok else None
     return result
 
   @property
@@ -541,6 +657,8 @@ class Client:
       for tool in filtered:
         if isinstance(tool, dict) and isinstance(tool.get("name"), str):
           self._tool_schemas[tool["name"]] = tool.get("inputSchema")
+          if isinstance(tool.get("outputSchema"), dict):
+            self._tool_output_schemas[tool["name"]] = tool["outputSchema"]
     return result
 
   def call_tool(self, name: str, arguments: dict | None = None, *, meta: dict | None = None) -> dict:
@@ -549,22 +667,38 @@ class Client:
     A tool needing client input (elicitation/sampling/roots) returns ``input_required``, which is
     fulfilled by the registered handlers and retried. ``meta`` carries caller ``_meta`` (e.g. a
     W3C ``traceparent``) on the wire. (§16.5)
+
+    The result passes through the §16.6/§28.3 receive-path guards (``outputSchema`` validation
+    and optional text sanitization); a pre-dispatch hook (if installed) reviews the arguments
+    first.
     """
-    return self.request_with_input(
-      "tools/call", {"name": name, "arguments": arguments or {}}, meta_extra=meta
-    )
+    args = arguments or {}
+    self._review_before_dispatch(name, args)
+    result = self.request_with_input("tools/call", {"name": name, "arguments": args}, meta_extra=meta)
+    return self._finalize_tool_result(name, result)
 
   def call_tool_cancellable(self, name: str, arguments: dict | None, cancel_id: str) -> dict:
     """A cancellable, progress-reporting ``tools/call`` (abort later via :meth:`cancel`)."""
-    return self.request_with_input(
-      "tools/call", {"name": name, "arguments": arguments or {}}, cancel_id=cancel_id, progress=True
+    args = arguments or {}
+    self._review_before_dispatch(name, args)
+    result = self.request_with_input(
+      "tools/call", {"name": name, "arguments": args}, cancel_id=cancel_id, progress=True
     )
+    return self._finalize_tool_result(name, result)
 
   def call_tool_with_meta(self, name: str, arguments: dict | None, meta: dict) -> dict:
     """A ``tools/call`` carrying caller ``_meta`` (e.g. W3C ``traceparent``) on the wire."""
-    return self.request_with_input(
-      "tools/call", {"name": name, "arguments": arguments or {}}, meta_extra=meta
-    )
+    args = arguments or {}
+    self._review_before_dispatch(name, args)
+    result = self.request_with_input("tools/call", {"name": name, "arguments": args}, meta_extra=meta)
+    return self._finalize_tool_result(name, result)
+
+  def _review_before_dispatch(self, name: str, arguments: dict) -> None:
+    """Invoke the installed pre-dispatch review hook (if any) with the exact arguments about
+    to be sent. The hook may raise to veto the call. (§28.6, RC-6)
+    """
+    if self._pre_dispatch_hook is not None:
+      self._pre_dispatch_hook(name, arguments)
 
   def list_resources(self, cursor: str | None = None) -> dict:
     """``resources/list`` — one page of resources. (§17.2)"""
@@ -575,8 +709,13 @@ class Client:
     return self.request("resources/templates/list", _cursor_params(cursor))
 
   def read_resource(self, uri: str) -> dict:
-    """``resources/read`` — read a resource by URI. (§17.5)"""
-    return self.request("resources/read", {"uri": uri})
+    """``resources/read`` — read a resource by URI. (§17.5)
+
+    When text sanitization is enabled (see the ``sanitize_tool_text`` constructor flag),
+    control sequences are stripped from the returned text contents. (§28.3, R-28.3-i)
+    """
+    result = self.request("resources/read", {"uri": uri})
+    return _sanitize_result_text(result) if self._sanitize_tool_text else result
 
   def list_prompts(self, cursor: str | None = None) -> dict:
     """``prompts/list`` — one page of prompts. (§18.2)"""

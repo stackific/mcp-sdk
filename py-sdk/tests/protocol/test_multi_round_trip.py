@@ -80,14 +80,42 @@ class TestDiscriminateResultType:
     assert discriminate_result_type("nope").action == "error"
 
   def test_capability_gating_undeclared_kind_is_error(self):
-    result = {"resultType": "input_required", "inputRequests": {"k": ELICIT}}
+    # ELICIT_FULL is a well-formed request, so the error is isolated to the undeclared
+    # capability (not a malformed shape) — that is what this case exercises. (R-11.5-k)
+    result = {"resultType": "input_required", "inputRequests": {"k": ELICIT_FULL}}
     d = discriminate_result_type(result, client_capabilities={})
     assert d.action == "error"
 
   def test_capability_gating_declared_kind_is_input_required(self):
-    result = {"resultType": "input_required", "inputRequests": {"k": ELICIT}}
+    result = {"resultType": "input_required", "inputRequests": {"k": ELICIT_FULL}}
     d = discriminate_result_type(result, client_capabilities={"elicitation": {}})
     assert d.action == "input_required"
+
+  def test_capability_blind_unrecognized_method_is_error(self):
+    # P1-1 parity gate: even with NO client_capabilities supplied, an inner request whose
+    # `method` is unrecognized makes the whole InputRequiredResult malformed → error. TS
+    # runs `InputRequiredResultSchema.safeParse` first; Python must match. (R-11.5-d/-e)
+    result = {
+      "resultType": "input_required",
+      "inputRequests": {"step": {"method": "made/up", "params": {}}},
+    }
+    d = discriminate_result_type(result)  # capability-blind
+    assert d.action == "error" and d.reason is not None
+
+  def test_capability_blind_malformed_inner_request_is_error(self):
+    # An inner request with a recognized method but a malformed payload (elicitation
+    # requires `params`) is likewise malformed when capability-blind. (R-11.2-k/-l)
+    result = {
+      "resultType": "input_required",
+      "inputRequests": {"step": {"method": "elicitation/create"}},
+    }
+    assert discriminate_result_type(result).action == "error"
+
+  def test_capability_blind_well_formed_is_input_required(self):
+    # The complement: a well-formed input_required result is still classified
+    # input_required when capability-blind (no over-rejection). (R-11.5-c)
+    result = {"resultType": "input_required", "inputRequests": {"k": ELICIT_FULL}}
+    assert discriminate_result_type(result).action == "input_required"
 
 
 class TestIsLoadSheddingResult:

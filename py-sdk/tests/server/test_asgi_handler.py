@@ -43,7 +43,7 @@ from mcp.protocol.errors import (
   UNSUPPORTED_PROTOCOL_VERSION_CODE,
 )
 from mcp.protocol.tasks import TASKS_EXTENSION_ID
-from mcp.server.asgi import create_asgi_mcp_handler
+from mcp.server.asgi import _sse, create_asgi_mcp_handler
 from mcp.server.server import McpServer
 from mcp.server.tasks import InMemoryTaskStore
 
@@ -272,6 +272,26 @@ def build_task_server() -> tuple[McpServer, InMemoryTaskStore]:
 def handler() -> object:
   """A handler over the canonical test server with default settings."""
   return create_asgi_mcp_handler(build_server())
+
+
+# ─── 0. SSE serializer rejects non-finite numbers (S02 wire boundary) ──────────
+
+
+class TestSseEncoderRejectsNonFinite:
+  """The live ASGI SSE serializer never puts an invalid bare ``NaN``/``Infinity`` token on
+  the wire — JSON has no non-finite numbers, so encoding one raises. (S02; R-7.1-b)
+  """
+
+  def test_finite_message_serializes(self):
+    event = _sse({"jsonrpc": "2.0", "id": 1, "result": {"x": 3.5}})
+    assert event.startswith("data: ") and event.endswith("\n\n")
+
+  def test_non_finite_raises(self):
+    import pytest
+
+    for value in (float("nan"), float("inf"), float("-inf")):
+      with pytest.raises(ValueError):
+        _sse({"jsonrpc": "2.0", "id": 1, "result": {"x": value}})
 
 
 # ─── 1. HTTP method / path / CORS gating ───────────────────────────────────────
@@ -503,6 +523,26 @@ class TestMetaEnvelopeGate:
 
 
 # ─── 3. Malformed body / classification ────────────────────────────────────────
+
+
+class TestPayloadSizeBound:
+  """B4 (R-28.10-l): an inbound request body larger than the configured bound is rejected
+  with HTTP 413 BEFORE it is parsed.
+  """
+
+  def test_oversized_body_rejected_with_413(self):
+    h = create_asgi_mcp_handler(build_server(), max_request_bytes=200)
+    body = request_body(1, "tools/call", {"name": "echo", "arguments": {"msg": "x" * 1000}})
+    assert len(body) > 200
+    status, _, _ = call(h, headers=headers_for("tools/call", name="echo"), body=body)
+    assert status == 413
+
+  def test_within_bound_dispatches_normally(self):
+    h = create_asgi_mcp_handler(build_server(), max_request_bytes=10_000)
+    body = request_body(2, "tools/call", {"name": "echo", "arguments": {"msg": "hi"}})
+    status, _, text = call(h, headers=headers_for("tools/call", name="echo"), body=body)
+    assert status == 200
+    assert json_body(text)["result"]["content"][0]["text"] == "hi"
 
 
 class TestBodyParsing:
@@ -796,6 +836,128 @@ class TestSubscriptions:
     ).encode()
     status, _, text = call(h, headers=headers_for("subscriptions/listen"), body=body)
     assert json_body(text)["error"]["code"] == MISSING_CLIENT_CAPABILITY_CODE
+
+
+# ─── 9b. subscriptions/listen fan-out, end-to-end (§10.5) ──────────────────────
+
+
+class TestSubscriptionFanOutEndToEnd:
+  """End-to-end multi-frame fan-out: an open ``subscriptions/listen`` stream receives a
+  SECOND SSE frame — a change notification broadcast by a *separate*, concurrently-running
+  ``tools/call`` via ``ctx.notify_subscribers`` — that is filtered by ``may_emit`` and
+  tagged with the stream's subscription id; a client disconnect then tears it down.
+
+  The unit suite covers ``fan_out`` / ``may_emit`` / ``Subscription`` in isolation; this
+  drives the live wiring (worker-thread broadcast → ``call_soon_threadsafe`` → the open
+  stream's ``asyncio.Queue`` → SSE frame) through a single shared handler instance so both
+  requests see the same in-closure subscription registry. (§10.5, R-10.5-l)
+  """
+
+  @staticmethod
+  def _scope(headers: dict) -> dict:
+    hlist = [(k.lower().encode(), v.encode()) for k, v in headers.items()]
+    return {
+      "type": "http",
+      "http_version": "1.1",
+      "method": "POST",
+      "path": "/mcp",
+      "raw_path": b"/mcp",
+      "root_path": "",
+      "headers": hlist,
+      "query_string": b"",
+      "scheme": "http",
+      "server": ("localhost", 80),
+      "client": ("testclient", 50000),
+    }
+
+  def test_open_stream_receives_filtered_broadcast_then_tears_down(self):
+    asyncio.run(asyncio.wait_for(self._scenario(), timeout=8))
+
+  async def _scenario(self) -> None:
+    server = McpServer(INFO, {"tools": {"listChanged": True}, "resources": {}})
+
+    def announce(_args, ctx) -> dict:
+      # A kind sub-1 did NOT subscribe to → dropped by may_emit (the filtering assertion).
+      ctx.notify_subscribers(
+        {"method": "notifications/resources/updated", "params": {"uri": "file:///not-watched"}}
+      )
+      # A kind sub-1 DID subscribe to → delivered and tagged with the subscription id.
+      ctx.notify_subscribers({"method": "notifications/tools/list_changed", "params": {}})
+      return {"content": [{"type": "text", "text": "announced"}]}
+
+    server.register_tool("announce", announce)
+    h = create_asgi_mcp_handler(server)
+
+    sub_frames: list[dict] = []
+    ack_seen = asyncio.Event()
+    broadcast_seen = asyncio.Event()
+    disconnect = asyncio.Event()
+    body_sent = {"done": False}
+
+    sub_body = json.dumps(
+      {
+        "jsonrpc": "2.0",
+        "id": "sub-1",
+        "method": "subscriptions/listen",
+        "params": {"notifications": {"toolsListChanged": True}, "_meta": envelope()},
+      }
+    ).encode()
+    sub_scope = self._scope(headers_for("subscriptions/listen"))
+
+    async def sub_receive() -> dict:
+      if not body_sent["done"]:
+        body_sent["done"] = True
+        return {"type": "http.request", "body": sub_body, "more_body": False}
+      # Hold the stream open until the test decides to tear it down.
+      await disconnect.wait()
+      return {"type": "http.disconnect"}
+
+    async def sub_send(message: dict) -> None:
+      if message["type"] != "http.response.body":
+        return
+      chunk = message.get("body", b"")
+      if not chunk:
+        return
+      for frame in sse_frames(chunk.decode("utf-8")):
+        sub_frames.append(frame)
+        if frame.get("method") == "notifications/subscriptions/acknowledged":
+          ack_seen.set()
+        elif frame.get("method") == "notifications/tools/list_changed":
+          broadcast_seen.set()
+
+    # Build + register the subscription (the registry entry is created synchronously here),
+    # then run its open stream as a background task.
+    sub_response = await h(Request(sub_scope, sub_receive))
+
+    async def run_sub() -> None:
+      try:
+        await sub_response(sub_scope, sub_receive, sub_send)
+      except asyncio.CancelledError:
+        pass  # the simulated disconnect cancels the open stream — expected
+
+    sub_task = asyncio.create_task(run_sub())
+    await asyncio.wait_for(ack_seen.wait(), timeout=4)
+
+    # A separate, concurrent request invokes announce; its worker thread fans the
+    # broadcast out to the registry shared through this same handler.
+    announce_body = request_body(99, "tools/call", {"name": "announce"})
+    status, _, _ = await _drive(h, headers=headers_for("tools/call", name="announce"), body=announce_body)
+    assert status == 200
+
+    # The honored notification arrives on the open stream as a SECOND frame.
+    await asyncio.wait_for(broadcast_seen.wait(), timeout=4)
+
+    # Unsubscribe: a client disconnect tears the stream down and the task completes.
+    disconnect.set()
+    await asyncio.wait_for(sub_task, timeout=4)
+
+    methods = [f.get("method") for f in sub_frames]
+    assert methods[0] == "notifications/subscriptions/acknowledged"
+    # Exactly the honored kind got through; the unsubscribed kind was filtered by may_emit.
+    assert "notifications/tools/list_changed" in methods
+    assert "notifications/resources/updated" not in methods
+    broadcast = next(f for f in sub_frames if f.get("method") == "notifications/tools/list_changed")
+    assert broadcast["params"]["_meta"][SUBSCRIPTION_ID_KEY] == "sub-1"
 
 
 # ─── 10. Tasks extension: task-handle results ──────────────────────────────────

@@ -15,8 +15,11 @@ from __future__ import annotations
 import threading
 from concurrent.futures import Future
 from dataclasses import dataclass
-from typing import Callable, Protocol, TypeVar
+from typing import Annotated, Any, Callable, Literal, Protocol, TypeVar
 
+from pydantic import Field, StrictBool
+
+from mcp._model import JsonNumber, McpModel, validates
 from mcp.jsonrpc.payload import RESULT_TYPE_COMPLETE
 from mcp.protocol.capability_negotiation import SERVER_METHOD_CAPABILITY, may_client_invoke, server_declares
 from mcp.protocol.errors import INVALID_PARAMS_CODE
@@ -38,11 +41,17 @@ RESOURCE_TEMPLATE_REFERENCE_TYPE = "ref/resource"
 
 # ─── Capability (§19.1) ───────────────────────────────────────────────────────
 
+class CompletionsCapability(McpModel):
+  """The ``completions`` capability value (§19.1) — an open object; ``{}`` is the RECOMMENDED
+  baseline. Extra members pass through.
+  """
+
+
 def is_valid_completions_capability(value: object) -> bool:
   """Return ``True`` for a valid ``completions`` capability — an (open) object; ``{}`` is the
   RECOMMENDED baseline. (§19.1)
   """
-  return isinstance(value, dict)
+  return validates(CompletionsCapability, value)
 
 
 def build_completions_capability() -> dict:
@@ -67,20 +76,41 @@ def completion_gated_by_completions() -> bool:
 
 # ─── Reference union (§19.3) ──────────────────────────────────────────────────
 
+class PromptReference(McpModel):
+  """A reference to a prompt for completion (§19.3): ``type == "ref/prompt"`` + string
+  ``name`` + OPTIONAL ``title``. (R-19.3-a/-b)
+  """
+
+  type: Literal["ref/prompt"]
+  name: str
+  title: str | None = None
+
+
+class ResourceTemplateReference(McpModel):
+  """A reference to a resource template for completion (§19.3): ``type == "ref/resource"`` +
+  string ``uri``. (R-19.3-c/-d)
+  """
+
+  type: Literal["ref/resource"]
+  uri: str
+
+
+#: The closed ``ref`` union — discriminated by ``type``; any other ``type`` is rejected.
+CompletionReference = Annotated[
+  PromptReference | ResourceTemplateReference, Field(discriminator="type")
+]
+
+
 def is_valid_prompt_reference(value: object) -> bool:
   """Return ``True`` for a ``PromptReference``: ``type == "ref/prompt"`` + string ``name``. (R-19.3-a/-b)"""
-  if not isinstance(value, dict) or value.get("type") != PROMPT_REFERENCE_TYPE:
-    return False
-  if not isinstance(value.get("name"), str):
-    return False
-  return "title" not in value or isinstance(value["title"], str)
+  return validates(PromptReference, value)
 
 
 def is_valid_resource_template_reference(value: object) -> bool:
   """Return ``True`` for a ``ResourceTemplateReference``: ``type == "ref/resource"`` + string
   ``uri``. (R-19.3-c/-d)
   """
-  return isinstance(value, dict) and value.get("type") == RESOURCE_TEMPLATE_REFERENCE_TYPE and isinstance(value.get("uri"), str)
+  return validates(ResourceTemplateReference, value)
 
 
 def is_valid_completion_reference(value: object) -> bool:
@@ -102,37 +132,50 @@ def is_resource_template_reference(ref: dict) -> bool:
 
 # ─── CompleteRequestParams (§19.2) ────────────────────────────────────────────
 
+class CompletionArgument(McpModel):
+  """The argument being completed (§19.2): string ``name`` + string ``value`` (MAY be ``""``).
+  (R-19.2-g/-h/-i)
+  """
+
+  name: str
+  value: str
+
+
+class CompletionContext(McpModel):
+  """Already-resolved sibling arguments (§19.2): OPTIONAL ``arguments`` map string→string. (R-19.2-j)"""
+
+  arguments: dict[str, str] | None = None
+
+
+class CompleteRequestParams(McpModel):
+  """The ``params`` of a ``completion/complete`` request (§19.2) — the Python analogue of the
+  TS ``CompleteRequestParamsSchema``: a closed ``ref`` union + ``argument`` + OPTIONAL
+  ``context`` / ``_meta``.
+  """
+
+  ref: CompletionReference
+  argument: CompletionArgument
+  context: CompletionContext | None = None
+  meta: dict[str, Any] | None = Field(default=None, alias="_meta")
+
+
 def is_valid_completion_argument(value: object) -> bool:
   """Return ``True`` for a valid ``argument``: string ``name`` + string ``value`` (MAY be ``""``).
   (R-19.2-g/-h/-i)
   """
-  return isinstance(value, dict) and isinstance(value.get("name"), str) and isinstance(value.get("value"), str)
+  return validates(CompletionArgument, value)
 
 
 def is_valid_completion_context(value: object) -> bool:
   """Return ``True`` for a valid ``context``: OPTIONAL ``arguments`` map of string→string. (R-19.2-j)"""
-  if not isinstance(value, dict):
-    return False
-  if "arguments" in value:
-    args = value["arguments"]
-    if not isinstance(args, dict) or not all(isinstance(v, str) for v in args.values()):
-      return False
-  return True
+  return validates(CompletionContext, value)
 
 
 def is_valid_complete_request_params(value: object) -> bool:
   """Return ``True`` for valid ``completion/complete`` params: closed ``ref`` + ``argument`` +
   optional ``context``/``_meta``. (§19.2)
   """
-  if not isinstance(value, dict):
-    return False
-  if not is_valid_completion_reference(value.get("ref")):
-    return False
-  if not is_valid_completion_argument(value.get("argument")):
-    return False
-  if "context" in value and not is_valid_completion_context(value["context"]):
-    return False
-  return "_meta" not in value or isinstance(value["_meta"], dict)
+  return validates(CompleteRequestParams, value)
 
 
 def build_complete_request_params(ref: dict, argument: dict, *, context: dict | None = None, meta: dict | None = None) -> dict:
@@ -152,35 +195,39 @@ def build_complete_request_params(ref: dict, argument: dict, *, context: dict | 
 
 # ─── CompleteResult (§19.4) ───────────────────────────────────────────────────
 
-def _is_number(value: object) -> bool:
-  return isinstance(value, (int, float)) and not isinstance(value, bool)
+class Completion(McpModel):
+  """The ``completion`` object inside a ``CompleteResult`` (§19.4): a ``values`` list of ≤100
+  strings; OPTIONAL ``total`` (number) and ``hasMore`` (bool).
+  """
+
+  values: Annotated[list[str], Field(max_length=MAX_COMPLETION_VALUES)]
+  total: JsonNumber | None = None
+  has_more: StrictBool | None = None
+
+
+class CompleteResult(McpModel):
+  """A ``completion/complete`` result (§19.4) — the Python analogue of the TS
+  ``CompleteResultSchema``: a REQUIRED ``completion`` object + OPTIONAL ``_meta``.
+  ``resultType`` is OPTIONAL and, when present, MUST be ``"complete"`` (absent ⇒ complete).
+  """
+
+  result_type: Literal["complete"] | None = None
+  completion: Completion
+  meta: dict[str, Any] | None = Field(default=None, alias="_meta")
 
 
 def is_valid_completion_object(value: object) -> bool:
   """Return ``True`` for a valid ``completion`` object: ``values`` list of ≤100 strings;
   OPTIONAL ``total`` (number), ``hasMore`` (bool). (§19.4)
   """
-  if not isinstance(value, dict):
-    return False
-  values = value.get("values")
-  if not isinstance(values, list) or len(values) > MAX_COMPLETION_VALUES or not all(isinstance(v, str) for v in values):
-    return False
-  if "total" in value and not _is_number(value["total"]):
-    return False
-  return "hasMore" not in value or isinstance(value["hasMore"], bool)
+  return validates(Completion, value)
 
 
 def is_valid_complete_result(value: object) -> bool:
   """Return ``True`` for a well-formed ``CompleteResult``: ``resultType`` + ``completion``
   object; OPTIONAL ``_meta``. (§19.4)
   """
-  if not isinstance(value, dict):
-    return False
-  if resolve_complete_result_type(value) != "complete":
-    return False
-  if not is_valid_completion_object(value.get("completion")):
-    return False
-  return "_meta" not in value or isinstance(value["_meta"], dict)
+  return validates(CompleteResult, value)
 
 
 def resolve_complete_result_type(result: dict) -> str:

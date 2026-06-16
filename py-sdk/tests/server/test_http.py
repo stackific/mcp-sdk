@@ -25,7 +25,6 @@ from mcp.protocol.errors import (
   METHOD_NOT_FOUND_CODE,
   PARSE_ERROR_CODE,
 )
-from mcp.protocol.meta import PROTOCOL_VERSION_META_KEY
 from mcp.server.asgi import create_asgi_mcp_handler
 from mcp.server.http import create_mcp_request_handler
 from mcp.server.server import McpServer

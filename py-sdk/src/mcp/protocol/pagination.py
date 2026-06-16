@@ -12,7 +12,11 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import Any
 
+from pydantic import Field
+
+from mcp._model import McpModel, validates
 from mcp.jsonrpc.payload import is_cursor
 
 # Error code for an invalid / unrecognized cursor. (R-12.4-c) — same value as -32602.
@@ -27,6 +31,8 @@ INVALID_CURSOR_CODE = -32602
 __all__ = [
   "INVALID_CURSOR_CODE",
   "PAGINATED_METHODS",
+  "PaginatedRequestParams",
+  "PaginatedResult",
   "OffsetPaginator",
   "PaginatorPage",
   "build_invalid_cursor_error",
@@ -43,44 +49,44 @@ __all__ = [
 
 # ─── PaginatedRequestParams / PaginatedResult structural validators ───────────
 
-def is_valid_paginated_request_params(value: object) -> bool:
-  """Return ``True`` for valid base paginated-request ``params``. (§12, §6 / S18)
+class PaginatedRequestParams(McpModel):
+  """The base parameter shape for any paginated list request (§12 / S18) — the Python
+  analogue of the TS ``PaginatedRequestParamsSchema``.
 
   ``cursor`` is OPTIONAL; when present it MUST be an opaque string (``""`` is a valid
-  PRESENT cursor, R-12.1-a). ``_meta`` when present MUST be an object. Method-specific
-  members are tolerated (the TS schema uses ``.passthrough()``). (R-12.2-a, R-12.2-b)
+  PRESENT cursor, R-12.1-a). Method-specific members are tolerated.
 
-  Note: this validates only the S18-owned base shape. The per-request ``_meta``
-  REQUIRED-key constraint (§4.3 / S05) is enforced by ``is_valid_request_params``
-  when this shape rides a client request — it is intentionally not duplicated here so
-  that a first-page request (``{}``) parses as valid against the abstract §12 shape.
+  Validates only the S18-owned base shape: the per-request ``_meta`` REQUIRED-key
+  constraint (§4.3 / S05) is enforced by ``is_valid_request_params`` when this rides a
+  client request, so a first-page request (``{}``) parses as valid here. (R-12.2-a/-b)
   """
-  if not isinstance(value, dict):
-    return False
-  if "cursor" in value and not is_cursor(value["cursor"]):
-    return False
-  if "_meta" in value and not isinstance(value["_meta"], dict):
-    return False
-  return True
+
+  cursor: str | None = None
+  meta: dict[str, Any] | None = Field(default=None, alias="_meta")
+
+
+class PaginatedResult(McpModel):
+  """The base result shape paginated list results extend (§12 / S18) — the Python analogue
+  of the TS ``PaginatedResultSchema``.
+
+  REQUIRED string ``resultType`` (the §3.6 discriminator); OPTIONAL opaque-string
+  ``nextCursor`` (``""`` signals continuation, NOT end — R-12.3-d). Method-specific list
+  members are tolerated. (R-12.2-c, R-12.2-d)
+  """
+
+  result_type: str
+  next_cursor: str | None = None
+  meta: dict[str, Any] | None = Field(default=None, alias="_meta")
+
+
+def is_valid_paginated_request_params(value: object) -> bool:
+  """Return ``True`` for valid base paginated-request ``params``. (§12, §6 / S18)"""
+  return validates(PaginatedRequestParams, value)
 
 
 def is_valid_paginated_result(value: object) -> bool:
-  """Return ``True`` for a valid base paginated ``result`` shape. (§12 / S18)
-
-  REQUIRED string ``resultType`` (the §3.6 discriminator); OPTIONAL opaque-string
-  ``nextCursor`` (``""`` is valid and signals continuation, NOT end — R-12.3-d);
-  OPTIONAL object ``_meta``. Method-specific list members (``tools`` / ``resources`` /
-  …) are tolerated. (R-12.2-c, R-12.2-d)
-  """
-  if not isinstance(value, dict):
-    return False
-  if not isinstance(value.get("resultType"), str):
-    return False
-  if "nextCursor" in value and not is_cursor(value["nextCursor"]):
-    return False
-  if "_meta" in value and not isinstance(value["_meta"], dict):
-    return False
-  return True
+  """Return ``True`` for a valid base paginated ``result`` shape. (§12 / S18)"""
+  return validates(PaginatedResult, value)
 
 
 def has_next_cursor(result: dict) -> bool:

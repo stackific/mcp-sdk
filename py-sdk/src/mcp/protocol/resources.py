@@ -11,11 +11,18 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit
 
+from pydantic import AfterValidator, Field, StrictBool, StrictInt
+
+from mcp._model import JsonNumber, McpModel, validates
+from mcp.protocol.caching import CacheScope
 from mcp.protocol.capability_negotiation import client_should_expect_notification, server_declares
-from mcp.types.annotations import is_valid_annotations
-from mcp.types.base_metadata import is_valid_base_metadata, resolve_display_name
+from mcp.protocol.pagination import PaginatedRequestParams
+from mcp.types.annotations import Annotations
+from mcp.types.base_metadata import BaseMetadata, resolve_display_name
+from mcp.types.icon import Icon
 
 # Method + notification names (the notification names are owned by the streaming
 # module in the TS SDK; pinned here as literals to avoid a forward dependency).
@@ -30,16 +37,20 @@ RESOURCE_GATED_METHODS = (RESOURCES_LIST_METHOD, RESOURCES_TEMPLATES_LIST_METHOD
 
 # ─── Capability + gating (§17.1) ──────────────────────────────────────────────
 
+class ResourcesCapability(McpModel):
+  """The ``resources`` capability value (§17.1) — OPTIONAL strict-boolean ``listChanged`` /
+  ``subscribe`` sub-flags; empty ``{}`` valid; extra members pass through.
+  """
+
+  list_changed: StrictBool | None = None
+  subscribe: StrictBool | None = None
+
+
 def is_valid_resources_capability(value: object) -> bool:
   """Return ``True`` for a valid ``resources`` capability: OPTIONAL boolean
   ``listChanged``/``subscribe``; empty ``{}`` valid. (§17.1)
   """
-  if not isinstance(value, dict):
-    return False
-  for key in ("listChanged", "subscribe"):
-    if key in value and not isinstance(value[key], bool):
-      return False
-  return True
+  return validates(ResourcesCapability, value)
 
 
 def server_declares_resources(server_caps: dict) -> bool:
@@ -195,39 +206,68 @@ def uri_template_variables(template: str) -> list[str]:
 
 # ─── Resource / ResourceTemplate types (§17.4) ────────────────────────────────
 
-def _is_number(value: object) -> bool:
-  return isinstance(value, (int, float)) and not isinstance(value, bool)
+def _require_resource_uri(value: str) -> str:
+  """Field validator: a ``Resource.uri`` MUST be an RFC3986 URI. (§17.4, R-17.4-a/-b)"""
+  if not is_resource_uri(value):
+    raise ValueError("Resource.uri MUST be a URI [RFC3986] (R-17.4-a, R-17.4-b)")
+  return value
 
 
-def _common_descriptor_ok(value: dict) -> bool:
-  for key in ("description", "mimeType"):
-    if key in value and not isinstance(value[key], str):
-      return False
-  if "annotations" in value and not is_valid_annotations(value["annotations"]):
-    return False
-  if "icons" in value and not isinstance(value["icons"], list):
-    return False
-  return "_meta" not in value or isinstance(value["_meta"], dict)
+def _require_uri_template(value: str) -> str:
+  """Field validator: a ``ResourceTemplate.uriTemplate`` MUST be an RFC6570 URI Template. (R-17.4-m)"""
+  if not is_uri_template(value):
+    raise ValueError("ResourceTemplate.uriTemplate MUST be an RFC6570 URI Template (R-17.4-m)")
+  return value
+
+
+#: A concrete resource URI (RFC3986) / a URI Template (RFC6570) — the field-type analogues
+#: of the TS ``isResourceUri`` / ``isUriTemplate`` refinements.
+ResourceUri = Annotated[str, AfterValidator(_require_resource_uri)]
+UriTemplateStr = Annotated[str, AfterValidator(_require_uri_template)]
+
+
+class Resource(BaseMetadata):
+  """A concrete resource descriptor (§17.4) — the Python analogue of the TS ``ResourceSchema``.
+
+  Extends ``BaseMetadata`` with a REQUIRED RFC3986 ``uri`` and the OPTIONAL descriptor
+  fields. Unknown members pass through (forward-compatible).
+  """
+
+  uri: ResourceUri
+  description: str | None = None
+  mime_type: str | None = None
+  size: JsonNumber | None = None
+  annotations: Annotations | None = None
+  icons: list[Icon] | None = None
+  meta: dict[str, Any] | None = Field(default=None, alias="_meta")
+
+
+class ResourceTemplate(BaseMetadata):
+  """A parameterized resource descriptor (§17.4) — the Python analogue of the TS
+  ``ResourceTemplateSchema``. Like ``Resource`` but keyed by a REQUIRED RFC6570
+  ``uriTemplate`` and carrying no ``size``.
+  """
+
+  uri_template: UriTemplateStr
+  description: str | None = None
+  mime_type: str | None = None
+  annotations: Annotations | None = None
+  icons: list[Icon] | None = None
+  meta: dict[str, Any] | None = Field(default=None, alias="_meta")
 
 
 def is_valid_resource(value: object) -> bool:
   """Return ``True`` for a well-formed ``Resource`` (§17.4): ``BaseMetadata`` + REQUIRED
   RFC3986 ``uri``; OPTIONAL ``description``/``mimeType``/``size``/``annotations``/``icons``/``_meta``.
   """
-  if not is_valid_base_metadata(value) or not is_resource_uri(value.get("uri")):
-    return False
-  if "size" in value and not _is_number(value["size"]):
-    return False
-  return _common_descriptor_ok(value)
+  return validates(Resource, value)
 
 
 def is_valid_resource_template(value: object) -> bool:
   """Return ``True`` for a well-formed ``ResourceTemplate`` (§17.4): ``BaseMetadata`` +
   REQUIRED RFC6570 ``uriTemplate``; same OPTIONAL fields as ``Resource`` minus ``size``.
   """
-  if not is_valid_base_metadata(value) or not is_uri_template(value.get("uriTemplate")):
-    return False
-  return _common_descriptor_ok(value)
+  return validates(ResourceTemplate, value)
 
 
 def resource_template_has_no_size(template: dict) -> bool:
@@ -253,13 +293,9 @@ def _is_valid_paginated_request_params(value: object) -> bool:
   """Return ``True`` for a well-formed paginated-request ``params`` (the shape shared by
   ``resources/list`` and ``resources/templates/list``): an OPTIONAL opaque string
   ``cursor`` and an OPTIONAL ``_meta`` map; both fields optional, an empty ``{}`` valid.
-  (§17.2, R-17.2-a/-i; §17.3, R-17.3-a) Mirrors the TS ``PaginatedRequestParamsSchema``.
+  (§17.2, R-17.2-a/-i; §17.3, R-17.3-a) Backed by the shared S18 ``PaginatedRequestParams``.
   """
-  if not isinstance(value, dict):
-    return False
-  if "cursor" in value and not isinstance(value["cursor"], str):
-    return False
-  return "_meta" not in value or isinstance(value["_meta"], dict)
+  return validates(PaginatedRequestParams, value)
 
 
 #: Validator for ``resources/list`` request ``params`` (the paginated shape). (§17.2)
@@ -298,30 +334,40 @@ class ListCacheHints:
   cache_scope: str
 
 
-def _is_valid_list_result(value: object, key: str, item_predicate) -> bool:
-  if not isinstance(value, dict) or value.get("resultType") != "complete":
-    return False
-  items = value.get(key)
-  if not isinstance(items, list) or not all(item_predicate(i) for i in items):
-    return False
-  if "nextCursor" in value and not isinstance(value["nextCursor"], str):
-    return False
-  ttl = value.get("ttlMs")
-  if not isinstance(ttl, int) or isinstance(ttl, bool) or ttl < 0:
-    return False
-  if value.get("cacheScope") not in ("public", "private"):
-    return False
-  return "_meta" not in value or isinstance(value["_meta"], dict)
+class ListResourcesResult(McpModel):
+  """The result of ``resources/list`` (§17.2) — a paginated + cacheable result wrapping the
+  REQUIRED ``resources`` page. The Python analogue of the TS ``ListResourcesResultSchema``.
+  """
+
+  result_type: Literal["complete"]
+  resources: list[Resource]
+  next_cursor: str | None = None
+  ttl_ms: Annotated[StrictInt, Field(ge=0)]
+  cache_scope: CacheScope
+  meta: dict[str, Any] | None = Field(default=None, alias="_meta")
+
+
+class ListResourceTemplatesResult(McpModel):
+  """The result of ``resources/templates/list`` (§17.3) — a paginated + cacheable result
+  wrapping the REQUIRED ``resourceTemplates`` page.
+  """
+
+  result_type: Literal["complete"]
+  resource_templates: list[ResourceTemplate]
+  next_cursor: str | None = None
+  ttl_ms: Annotated[StrictInt, Field(ge=0)]
+  cache_scope: CacheScope
+  meta: dict[str, Any] | None = Field(default=None, alias="_meta")
 
 
 def is_valid_list_resources_result(value: object) -> bool:
   """Return ``True`` for a well-formed ``ListResourcesResult`` (§17.2)."""
-  return _is_valid_list_result(value, "resources", is_valid_resource)
+  return validates(ListResourcesResult, value)
 
 
 def is_valid_list_resource_templates_result(value: object) -> bool:
   """Return ``True`` for a well-formed ``ListResourceTemplatesResult`` (§17.3)."""
-  return _is_valid_list_result(value, "resourceTemplates", is_valid_resource_template)
+  return validates(ListResourceTemplatesResult, value)
 
 
 def _build_list_result(key: str, items: list, hints: ListCacheHints, next_cursor: str | None, meta: dict | None) -> dict:

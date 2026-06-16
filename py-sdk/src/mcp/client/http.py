@@ -307,7 +307,7 @@ class StreamableHttpClientTransport(ClientTransport):
     headers = self._headers(message)
     request_id = message.get("id")
     try:
-      with self._client.stream("POST", self._url, headers=headers, content=json.dumps(message)) as response:
+      with self._client.stream("POST", self._url, headers=headers, content=json.dumps(message, allow_nan=False)) as response:
         content_type = (response.headers.get("content-type") or "").lower()
         is_event_stream = "text/event-stream" in content_type
 
@@ -397,7 +397,7 @@ class StreamableHttpClientTransport(ClientTransport):
 
     headers = self._headers(message)
     try:
-      response = self._client.post(self._url, headers=headers, content=json.dumps(message))
+      response = self._client.post(self._url, headers=headers, content=json.dumps(message, allow_nan=False))
     except httpx.HTTPError as exc:
       raise ClientTransportError(f"transport failure contacting {self._url}: {exc}") from exc
     if response.status_code // 100 != 2:
@@ -437,7 +437,7 @@ class StreamableHttpClientTransport(ClientTransport):
     def run() -> None:
       try:
         on_ready()
-        with self._client.stream("POST", self._url, headers=headers, content=json.dumps(message)) as response:
+        with self._client.stream("POST", self._url, headers=headers, content=json.dumps(message, allow_nan=False)) as response:
           for frame in _iter_sse(response):
             if isinstance(frame, ValueError):
               self._report_error(f"malformed SSE data frame: {frame}")

@@ -13,8 +13,12 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import Annotated, Any
 from urllib.parse import unquote, urlsplit
 
+from pydantic import AfterValidator, Field
+
+from mcp._model import McpModel, validates
 from mcp.protocol.capability_negotiation import (
   client_declares,
   is_deprecated_client_capability,
@@ -39,11 +43,27 @@ def is_recommended_migration_target(target: str) -> bool:
 
 # ─── roots capability value (§21.1.2) ─────────────────────────────────────────
 
+class RootsCapabilityValue(McpModel):
+  """The (Deprecated) ``roots`` capability value (§21.1.2) — any JSON object (canonically
+  ``{}``); unknown members pass through. (R-21.1.2-a/-b)
+
+  .. deprecated::
+    Roots is a Deprecated client capability (§27.3). No direct replacement; roots
+    integration is now host-managed. Earliest removal: 2026-07-28 (§27.2/§27.3,
+    R-27.4-a/-b).
+  """
+
+
 def is_valid_roots_capability_value(value: object) -> bool:
   """Return ``True`` for a valid ``roots`` capability value: any JSON object (canonically
   ``{}``); non-object values are rejected, unknown members tolerated. (R-21.1.2-a/-b)
+
+  .. deprecated::
+    Roots is a Deprecated client capability (§27.3). No direct replacement; roots
+    integration is now host-managed. Earliest removal: 2026-07-28 (§27.2/§27.3,
+    R-27.4-a/-b).
   """
-  return isinstance(value, dict)
+  return validates(RootsCapabilityValue, value)
 
 
 def declares_roots(caps: dict) -> bool:
@@ -156,15 +176,37 @@ def is_path_traversal_safe(uri: object) -> bool:
   return True
 
 
+def _require_file_uri(value: str) -> str:
+  """Field validator: a ``Root.uri`` MUST be a syntactically valid ``file://`` URI. (R-21.1.5-b/-d)"""
+  if not is_valid_file_uri(value):
+    raise ValueError("Root.uri MUST be a valid file:// URI [RFC3986] (R-21.1.5-b, R-21.1.5-d)")
+  return value
+
+
+#: A ``file://`` URI string — the field-type analogue of the TS ``isValidFileUri`` refinement.
+FileUri = Annotated[str, AfterValidator(_require_file_uri)]
+
+
+class Root(McpModel):
+  """A filesystem root (§21.1.5, Deprecated) — the Python analogue of the TS ``RootSchema``:
+  a REQUIRED ``file://`` ``uri`` + OPTIONAL ``name`` and ``_meta``. (R-21.1.5-b/-d/-e/-f)
+
+  .. deprecated::
+    Roots is a Deprecated client capability (§27.3). No direct replacement; roots
+    integration is now host-managed. Earliest removal: 2026-07-28 (§27.2/§27.3,
+    R-27.4-a/-b).
+  """
+
+  uri: FileUri
+  name: str | None = None
+  meta: dict[str, Any] | None = Field(default=None, alias="_meta")
+
+
 def is_valid_root(value: object) -> bool:
   """Return ``True`` for a valid ``Root`` (§21.1.5): REQUIRED ``file://`` ``uri``; OPTIONAL
   string ``name`` and object ``_meta`` (unknown members tolerated). (R-21.1.5-b/-d/-e/-f)
   """
-  if not isinstance(value, dict) or not is_valid_file_uri(value.get("uri")):
-    return False
-  if "name" in value and not isinstance(value["name"], str):
-    return False
-  return "_meta" not in value or isinstance(value["_meta"], dict)
+  return validates(Root, value)
 
 
 # ─── non-file-scheme handling (§21.1.5) ───────────────────────────────────────
@@ -187,14 +229,20 @@ def apply_non_file_disposition(uri: object, disposition: str) -> dict:
 
 # ─── ListRootsResult (§21.1.5) ────────────────────────────────────────────────
 
+class ListRootsResult(McpModel):
+  """A ``ListRootsResult`` with full §21.1 ``Root`` enforcement (§21.1.5) — the Python
+  analogue of the TS ``ListRootsResultSchema``: a REQUIRED ``roots`` array (MAY be empty) of
+  valid ``file://`` Roots. (R-21.1.5-a/-b/-d)
+  """
+
+  roots: list[Root]
+
+
 def is_valid_strict_list_roots_result(value: object) -> bool:
   """Return ``True`` for a ``ListRootsResult`` with full §21.1 ``Root`` enforcement: REQUIRED
   ``roots`` array (MAY be empty) of valid ``file://`` Roots. (R-21.1.5-a/-b/-d)
   """
-  if not isinstance(value, dict):
-    return False
-  roots = value.get("roots")
-  return isinstance(roots, list) and all(is_valid_root(r) for r in roots)
+  return validates(ListRootsResult, value)
 
 
 # ─── client-side assembly (§21.1.5) ───────────────────────────────────────────

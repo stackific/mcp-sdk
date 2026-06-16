@@ -53,9 +53,6 @@ from jsonschema import Draft202012Validator
 
 from mcp.protocol.authorization import (
   BEARER_AUTH_SCHEME,
-  INSUFFICIENT_SCOPE_ERROR,
-  UNAUTHORIZED_STATUS,
-  AUTHORIZATION_FORBIDDEN_STATUS,
   WwwAuthenticateChallenge,
   build_insufficient_scope_response,
   build_unauthorized_response,

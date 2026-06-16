@@ -80,6 +80,72 @@ _REGISTRY_CODES = [
   HEADER_MISMATCH_CODE,
 ]
 
+#: Golden, ordered method/notification index (Appendix A). A frozen list catches a dropped,
+#: renamed, or reordered row that a bare count assertion would miss. Verified out of band to
+#: mirror the ts-sdk reference; embedded so this suite stays self-contained.
+_GOLDEN_METHOD_NAMES = (
+    "server/discover", "tools/list", "tools/call",
+    "resources/list", "resources/read", "resources/templates/list",
+    "prompts/list", "prompts/get", "completion/complete",
+    "subscriptions/listen", "elicitation/create", "sampling/createMessage",
+    "roots/list", "tasks/get", "tasks/update",
+    "tasks/cancel", "ui/initialize", "ui/notifications/initialized",
+    "notifications/progress", "notifications/cancelled", "notifications/message",
+    "notifications/tools/list_changed", "notifications/prompts/list_changed", "notifications/resources/list_changed",
+    "notifications/resources/updated", "notifications/subscriptions/acknowledged", "notifications/elicitation/complete",
+    "notifications/tasks",
+)
+
+#: Golden, ordered consolidated type index (Appendix E). The published order is broadly
+#: alphabetical; this frozen list pins every row so dropping ~50 of the rows (which a
+#: ``> 100`` guard would not catch) fails loudly. Verified out of band against ts-sdk.
+_GOLDEN_TYPE_NAMES = (
+    "Annotations", "AudioContent", "AuthorizationServerMetadata", "BaseMetadata",
+    "BlobResourceContents", "BooleanSchema", "CacheableResult", "CallToolRequest",
+    "CallToolResult", "CancelledNotification", "CancelledNotificationParams", "CancelledTask",
+    "CancelTaskRequest", "CancelTaskResult", "ClientCapabilities", "ClientIdMetadataDocument",
+    "ClientRegistrationRequest", "ClientRegistrationResponse", "ClientSamplingCapability", "CompletedTask",
+    "CompleteRequest", "CompleteRequestParams", "CompleteResult", "CompletionsCapability",
+    "ContentBlock", "CreateMessageRequest", "CreateMessageRequestParams", "CreateMessageResult",
+    "CreateTaskResult", "Cursor", "DetailedTask", "DiscoverRequest",
+    "DiscoverResult", "DiscoverResultResponse", "ElicitRequest", "ElicitRequestFormParams",
+    "ElicitRequestParams", "ElicitRequestURLParams", "ElicitResult", "EmbeddedResource",
+    "EmptyResult", "EnumSchema", "Error", "ExtensionSettings",
+    "FailedTask", "GetPromptRequest", "GetPromptResult", "GetTaskRequest",
+    "GetTaskResult", "Icon", "Icons", "ImageContent",
+    "Implementation", "InputRequest", "InputRequests", "InputRequiredResult",
+    "InputRequiredTask", "InputResponse", "InputResponseRequestParams", "InputResponses",
+    "JSONArray", "JSONObject", "JSONRPCErrorResponse", "JSONRPCMessage",
+    "JSONRPCNotification", "JSONRPCRequest", "JSONRPCResponse", "JSONRPCResultResponse",
+    "JSONValue", "LegacyTitledEnumSchema", "ListPromptsRequest", "ListPromptsResult",
+    "ListResourcesRequest", "ListResourcesResult", "ListResourceTemplatesRequest", "ListResourceTemplatesResult",
+    "ListRootsRequest", "ListRootsResult", "ListToolsRequest", "ListToolsResult",
+    "LoggingLevel", "LoggingMessageNotification", "LoggingMessageNotificationParams", "MetaObject",
+    "MissingRequiredClientCapabilityError", "ModelHint", "ModelPreferences", "Notification",
+    "NotificationParams", "NumberSchema", "OpenLinkParams", "PaginatedRequestParams",
+    "PaginatedResult", "PrimitiveSchemaDefinition", "ProgressNotification", "ProgressNotificationParams",
+    "ProgressToken", "Prompt", "PromptArgument", "PromptListChangedNotification",
+    "PromptMessage", "PromptReference", "PromptsCapability", "ProtectedResourceMetadata",
+    "ReadResourceRequest", "ReadResourceRequestParams", "ReadResourceResult", "Request",
+    "RequestId", "RequestMetaObject", "RequestParams", "RequestProtocolVersionMeta",
+    "Resource", "ResourceContents", "ResourceLink", "ResourceListChangedNotification",
+    "ResourceNotFoundError", "ResourcesServerCapability", "ResourceTeardownParams", "ResourceTemplate",
+    "ResourceTemplateReference", "ResourceUiMeta", "ResourceUpdatedNotification", "ResourceUpdatedNotificationParams",
+    "Result", "ResultType", "Role", "Root",
+    "SamplingMessage", "SamplingMessageContentBlock", "SandboxResourceReadyParams", "ServerCapabilities",
+    "SingleSelectEnumSchema", "SizeChangedParams", "StringSchema", "SubscriptionFilter",
+    "SubscriptionsAcknowledgedNotification", "SubscriptionsAcknowledgedNotificationParams", "SubscriptionsListenRequest", "SubscriptionsListenRequestParams",
+    "Task", "TaskStatus", "TaskStatusNotification", "TaskStatusNotificationParams",
+    "TasksExtensionCapability", "TextContent", "TextResourceContents", "TitledMultiSelectEnumSchema",
+    "TitledSingleSelectEnumSchema", "Tool", "ToolAnnotations", "ToolCancelledParams",
+    "ToolChoice", "ToolInputParams", "ToolListChangedNotification", "ToolResultContent",
+    "ToolResultParams", "ToolsCallParams", "ToolsCapability", "ToolUiMeta",
+    "ToolUseContent", "TraceContextMeta", "UiContentSecurityPolicy", "UiHostContext",
+    "UiHostExtensionCapability", "UiInitializeParams", "UiInitializeResult", "UiMessageParams",
+    "UiPermissions", "UnsupportedProtocolVersionError", "UntitledMultiSelectEnumSchema", "UntitledSingleSelectEnumSchema",
+    "UpdateModelContextParams", "UpdateTaskRequest", "UpdateTaskResult", "WorkingTask",
+)
+
 
 # ─── Appendix A — Method and Notification Index ────────────────────────────────
 
@@ -93,6 +159,11 @@ class TestAppendixAMethodIndex:
       assert entry.kind in tuple(RegistryMethodKind)
       assert len(entry.direction) > 0
       assert entry.defined_in.startswith("§")
+
+  def test_method_index_matches_golden_list(self):
+    # Golden cross-check: exact set + order. Catches a dropped, renamed, or reordered
+    # method/notification that the count assertion alone would miss.
+    assert tuple(e.name for e in METHOD_REGISTRY) == _GOLDEN_METHOD_NAMES
 
   def test_input_request_kinds_classified_and_delivered_via_section_11(self):
     for name in ("elicitation/create", "sampling/createMessage", "roots/list"):
@@ -536,12 +607,18 @@ class TestAppendixDCapabilityRegistry:
 
 class TestAppendixETypeIndex:
   def test_lists_every_wire_type_with_section_and_purpose(self):
-    assert len(TYPE_REGISTRY) > 100
+    assert len(TYPE_REGISTRY) == 176
     for entry in TYPE_REGISTRY:
       assert isinstance(entry, TypeIndexEntry)
       assert len(entry.type) > 0
       assert entry.defined_in.startswith("§")
       assert len(entry.purpose) > 0
+
+  def test_type_index_matches_golden_list(self):
+    # Golden cross-check: the full ordered type set. An exact count catches drops; this
+    # additionally catches a renamed or reordered row. (A bare ``> 100`` guard would not
+    # catch dropping ~50 of the 176 rows.)
+    assert tuple(e.type for e in TYPE_REGISTRY) == _GOLDEN_TYPE_NAMES
 
   def test_mirrors_published_order_broadly_alphabetical_by_first_letter(self):
     first_letters = [e.type[0].lower() for e in TYPE_REGISTRY]

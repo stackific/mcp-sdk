@@ -11,15 +11,21 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from typing import Annotated, Any, Literal
 
+from pydantic import BeforeValidator, Field, StrictBool
+
+from mcp._model import McpModel, validates
 from mcp.protocol.errors import INVALID_PARAMS_CODE
 from mcp.protocol.tools import TOOLS_CALL_METHOD, TOOLS_LIST_CHANGED_METHOD, validate_tool_arguments
-from mcp.types.content import is_valid_content_block
+from mcp.types.content import parse_content_block
 
 __all__ = [
   "TOOLS_CALL_METHOD",
   "TOOLS_LIST_CHANGED_METHOD",
   "INVALID_PARAMS_CODE",
+  "CallToolResult",
+  "CallToolRequestParams",
   "is_call_tool_request",
   "resolve_call_tool_arguments",
   "CallToolRequestConfig",
@@ -52,16 +58,40 @@ _OMITTED = object()
 
 # ─── §16.5 tools/call request ─────────────────────────────────────────────────
 
+class CallToolRequestParams(McpModel):
+  """The ``params`` of a ``tools/call`` request (§16.5) — the Python analogue of the TS
+  ``CallToolRequestParamsSchema``.
+
+  ``name`` is the REQUIRED tool name (a string); ``arguments`` and ``inputResponses`` are
+  OPTIONAL objects; ``requestState`` is an OPTIONAL opaque string echoed on retry; ``_meta``
+  is an OPTIONAL reserved metadata object. Unknown members pass through
+  (``extra="allow"`` ≙ ``.passthrough()``). A non-object ``arguments``/``inputResponses``,
+  a non-string ``requestState`` or ``name``, or a non-object ``_meta`` fail validation.
+  (R-16.5-a, R-16.5-c, R-16.5-f, R-16.5-h, R-16.5-k)
+  """
+
+  name: str
+  arguments: dict[str, Any] | None = None
+  input_responses: dict[str, Any] | None = None
+  request_state: str | None = None
+  meta: dict[str, Any] | None = Field(default=None, alias="_meta")
+
+
 def is_call_tool_request(value: object) -> bool:
-  """Return ``True`` for a well-formed ``tools/call`` request: envelope + ``params.name``
-  (string). (§16.5, R-16.5-a)
+  """Return ``True`` for a well-formed ``tools/call`` request: the JSON-RPC envelope plus a
+  ``params`` object that validates as :class:`CallToolRequestParams`. (§16.5, R-16.5-a)
+
+  Mirrors the TS ``CallToolRequestSchema.safeParse``: beyond a string ``params.name`` the
+  request-shape contract also rejects a non-object ``arguments``/``inputResponses``, a
+  non-string ``requestState``, and a non-object ``_meta``. (Both a malformed and a
+  well-formed-but-unknown-tool call still converge on ``-32602`` at dispatch, but the
+  shape predicate now matches TS rather than only checking ``name``.)
   """
   if not isinstance(value, dict) or value.get("jsonrpc") != "2.0" or value.get("method") != TOOLS_CALL_METHOD:
     return False
   if "id" not in value:
     return False
-  params = value.get("params")
-  return isinstance(params, dict) and isinstance(params.get("name"), str)
+  return validates(CallToolRequestParams, value.get("params"))
 
 
 def resolve_call_tool_arguments(params: dict) -> dict:
@@ -122,18 +152,41 @@ def build_call_tool_retry_request(initial_id: str | int, retry_id: str | int, co
 
 # ─── §16.5 CallToolResult ─────────────────────────────────────────────────────
 
+def _validate_content_blocks(items: Any) -> list:
+  """Validate a ``content`` array: each element MUST be a valid ``ContentBlock`` (known type
+  validated, unknown tolerated, forbidden ``tool_use``/``tool_result`` rejected). (§16.5, §14.4)"""
+  if not isinstance(items, list):
+    raise ValueError("content MUST be an array of ContentBlock (§16.5)")
+  return [parse_content_block(block) for block in items]
+
+
+#: A ``content`` array — each element validated as a ``ContentBlock`` (the analogue of the
+#: TS ``z.array(ContentBlockSchema)``, which rejects the forbidden sampling types).
+_ContentBlockList = Annotated[list[Any], BeforeValidator(_validate_content_blocks)]
+
+
+class CallToolResult(McpModel):
+  """A completed ``tools/call`` result (§16.5) — the Python analogue of the TS
+  ``CallToolResultSchema`` (its ``"complete"`` variant).
+
+  ``content`` (REQUIRED) is the unstructured ``ContentBlock`` array; ``structuredContent``
+  (OPTIONAL, any JSON value); ``isError`` (OPTIONAL strict bool; absent ⇒ success);
+  ``resultType`` is fixed to ``"complete"`` (the ``"input_required"`` variant is the S17
+  ``InputRequiredResult``).
+  """
+
+  result_type: Literal["complete"]
+  content: _ContentBlockList
+  structured_content: Any = None
+  is_error: StrictBool | None = None
+  meta: dict[str, Any] | None = Field(default=None, alias="_meta")
+
+
 def is_call_tool_result(value: object) -> bool:
   """Return ``True`` for a well-formed (completed) ``CallToolResult`` (§16.5): ``resultType``
   ``"complete"``, a ``content`` list of valid blocks, OPTIONAL ``isError`` bool, ``_meta``.
   """
-  if not isinstance(value, dict) or value.get("resultType") != "complete":
-    return False
-  content = value.get("content")
-  if not isinstance(content, list) or not all(is_valid_content_block(b) for b in content):
-    return False
-  if "isError" in value and not isinstance(value["isError"], bool):
-    return False
-  return "_meta" not in value or isinstance(value["_meta"], dict)
+  return validates(CallToolResult, value)
 
 
 def is_call_tool_error(result: dict) -> bool:

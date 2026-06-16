@@ -11,23 +11,32 @@ argument-rendered get result + its ``input_required`` discrimination, the ``-326
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Annotated, Any, Literal
 
+from pydantic import BeforeValidator, Field, StrictBool, StrictInt
+
+from mcp._model import McpModel, validates
 from mcp.jsonrpc.payload import RESULT_TYPE_COMPLETE, RESULT_TYPE_INPUT_REQUIRED
+from mcp.protocol.caching import CacheScope
 from mcp.protocol.capability_negotiation import (
   client_should_expect_notification,
   may_client_invoke,
   server_declares,
 )
-from mcp.protocol.caching import is_valid_cache_scope
 from mcp.protocol.errors import INVALID_PARAMS_CODE
 from mcp.protocol.multi_round_trip import (
   discriminate_result_type,
   is_valid_input_required_result,
 )
 from mcp.protocol.pagination import is_valid_paginated_request_params
-from mcp.types.base_metadata import is_valid_base_metadata
-from mcp.types.content import is_valid_content_block
-from mcp.types.role import is_role
+from mcp.types.base_metadata import BaseMetadata
+from mcp.types.content import parse_content_block
+from mcp.types.icon import Icon
+from mcp.types.role import Role
+
+#: A single ``ContentBlock`` field — validated (and forbidden types rejected) via
+#: :func:`parse_content_block`. (§14.4)
+_ContentBlockField = Annotated[Any, BeforeValidator(parse_content_block)]
 
 # Re-export the canonical multi-round-trip "input_required" discriminator value and
 # input-required validator (the SAME S17 bindings) so prompt callers handling a
@@ -52,13 +61,19 @@ PROMPTS_INTERNAL_ERROR_CODE = -32603
 
 # ─── Capability + gating (§18.1) ──────────────────────────────────────────────
 
+class PromptsCapability(McpModel):
+  """The ``prompts`` capability value (§18.1) — OPTIONAL strict-boolean ``listChanged``;
+  empty ``{}`` valid; extra members pass through.
+  """
+
+  list_changed: StrictBool | None = None
+
+
 def is_valid_prompts_capability(value: object) -> bool:
   """Return ``True`` for a valid ``prompts`` capability: OPTIONAL boolean ``listChanged``;
   empty ``{}`` valid. (§18.1)
   """
-  if not isinstance(value, dict):
-    return False
-  return "listChanged" not in value or isinstance(value["listChanged"], bool)
+  return validates(PromptsCapability, value)
 
 
 def server_declares_prompts(server_caps: dict) -> bool:
@@ -82,32 +97,40 @@ def may_expect_prompts_list_changed(server_caps: dict) -> bool:
 
 # ─── Prompt / PromptArgument / PromptMessage (§18.3, §18.5) ────────────────────
 
+class PromptArgument(BaseMetadata):
+  """An argument a prompt accepts (§18.3) — ``BaseMetadata`` + OPTIONAL ``description`` and
+  strict-boolean ``required``.
+  """
+
+  description: str | None = None
+  required: StrictBool | None = None
+
+
+class Prompt(BaseMetadata):
+  """A prompt template descriptor (§18.3) — the Python analogue of the TS ``PromptSchema``.
+
+  ``BaseMetadata`` + OPTIONAL ``description``, ``arguments`` (``PromptArgument`` list),
+  ``icons``, and ``_meta``.
+  """
+
+  description: str | None = None
+  arguments: list[PromptArgument] | None = None
+  icons: list[Icon] | None = None
+  meta: dict[str, Any] | None = Field(default=None, alias="_meta")
+
+
 def is_valid_prompt_argument(value: object) -> bool:
   """Return ``True`` for a valid ``PromptArgument`` (§18.3): ``BaseMetadata`` + OPTIONAL
   ``description`` (str) and ``required`` (bool).
   """
-  if not is_valid_base_metadata(value):
-    return False
-  if "description" in value and not isinstance(value["description"], str):
-    return False
-  return "required" not in value or isinstance(value["required"], bool)
+  return validates(PromptArgument, value)
 
 
 def is_valid_prompt(value: object) -> bool:
   """Return ``True`` for a valid ``Prompt`` (§18.3): ``BaseMetadata`` + OPTIONAL
   ``description`` (str), ``arguments`` (list of PromptArgument), ``icons`` (list), ``_meta``.
   """
-  if not is_valid_base_metadata(value):
-    return False
-  if "description" in value and not isinstance(value["description"], str):
-    return False
-  if "arguments" in value:
-    args = value["arguments"]
-    if not isinstance(args, list) or not all(is_valid_prompt_argument(a) for a in args):
-      return False
-  if "icons" in value and not isinstance(value["icons"], list):
-    return False
-  return "_meta" not in value or isinstance(value["_meta"], dict)
+  return validates(Prompt, value)
 
 
 def required_argument_names(prompt: dict) -> list[str]:
@@ -115,13 +138,20 @@ def required_argument_names(prompt: dict) -> list[str]:
   return [a["name"] for a in (prompt.get("arguments") or []) if a.get("required") is True]
 
 
+class PromptMessage(McpModel):
+  """One conversation message in a prompt (§18.5) — a ``role`` plus exactly one ``content``
+  block (a single object, not an array).
+  """
+
+  role: Role
+  content: _ContentBlockField
+
+
 def is_valid_prompt_message(value: object) -> bool:
   """Return ``True`` for a valid ``PromptMessage`` (§18.5): a ``role`` + exactly one
   ``content`` block (a single object, not an array).
   """
-  if not isinstance(value, dict):
-    return False
-  return is_role(value.get("role")) and is_valid_content_block(value.get("content"))
+  return validates(PromptMessage, value)
 
 
 # ─── prompts/list (§18.2) ─────────────────────────────────────────────────────
@@ -147,24 +177,25 @@ def resolve_list_prompts_result_type(result: dict) -> str:
   return RESULT_TYPE_COMPLETE if raw is None else str(raw)
 
 
+class ListPromptsResult(McpModel):
+  """The result of ``prompts/list`` (§18.2) — a paginated + cacheable result wrapping the
+  REQUIRED ``prompts`` page. The Python analogue of the TS ``ListPromptsResultSchema``.
+  """
+
+  result_type: Literal["complete"]
+  prompts: list[Prompt]
+  next_cursor: str | None = None
+  ttl_ms: Annotated[StrictInt, Field(ge=0)]
+  cache_scope: CacheScope
+  meta: dict[str, Any] | None = Field(default=None, alias="_meta")
+
+
 def is_valid_list_prompts_result(value: object) -> bool:
   """Return ``True`` for a well-formed ``ListPromptsResult`` (§18.2): ``resultType``
   ``"complete"``, ``prompts`` list of valid Prompts, OPTIONAL ``nextCursor``, REQUIRED
   non-negative ``ttlMs`` + ``cacheScope``.
   """
-  if not isinstance(value, dict) or value.get("resultType") != "complete":
-    return False
-  prompts = value.get("prompts")
-  if not isinstance(prompts, list) or not all(is_valid_prompt(p) for p in prompts):
-    return False
-  if "nextCursor" in value and not isinstance(value["nextCursor"], str):
-    return False
-  ttl = value.get("ttlMs")
-  if not isinstance(ttl, int) or isinstance(ttl, bool) or ttl < 0:
-    return False
-  if not is_valid_cache_scope(value.get("cacheScope")):
-    return False
-  return "_meta" not in value or isinstance(value["_meta"], dict)
+  return validates(ListPromptsResult, value)
 
 
 @dataclass(frozen=True)
@@ -215,21 +246,25 @@ def is_valid_get_prompt_request_params(value: object) -> bool:
   * ``_meta`` REQUIRED object — every client request carries per-request metadata (S04),
     so it is modeled as required here (matching ``is_valid_request_params``).
 
-  Additional members are tolerated (the TS schema uses ``.passthrough()``).
+  Additional members are tolerated (the model uses ``extra="allow"``).
   """
-  if not isinstance(value, dict):
-    return False
-  if not isinstance(value.get("name"), str):
-    return False
-  if "arguments" in value:
-    args = value["arguments"]
-    if not isinstance(args, dict) or not all(isinstance(v, str) for v in args.values()):
-      return False
-  if "inputResponses" in value and not isinstance(value["inputResponses"], dict):
-    return False
-  if "requestState" in value and not isinstance(value["requestState"], str):
-    return False
-  return isinstance(value.get("_meta"), dict)
+  return validates(GetPromptRequestParams, value)
+
+
+class GetPromptRequestParams(McpModel):
+  """The ``params`` of a ``prompts/get`` request (§18.4) — the Python analogue of the TS
+  ``GetPromptRequestParamsSchema``.
+
+  ``name`` REQUIRED; ``arguments`` OPTIONAL ``map<string,string>``; OPTIONAL multi-round-trip
+  retry fields (``inputResponses`` / ``requestState``); ``_meta`` REQUIRED per-request
+  metadata. (R-18.4-a – R-18.4-k)
+  """
+
+  name: str
+  arguments: dict[str, str] | None = None
+  input_responses: dict[str, Any] | None = None
+  request_state: str | None = None
+  meta: dict[str, Any] = Field(alias="_meta")
 
 
 def resolve_get_prompt_result_type(result: dict) -> str:
@@ -240,20 +275,35 @@ def resolve_get_prompt_result_type(result: dict) -> str:
   return RESULT_TYPE_COMPLETE if raw is None else str(raw)
 
 
+class GetPromptResult(McpModel):
+  """A completed ``prompts/get`` result (§18.4) — the Python analogue of the TS
+  ``GetPromptResultSchema``.
+
+  ``messages`` (REQUIRED ``PromptMessage`` list); OPTIONAL ``description`` and ``_meta``.
+  ``resultType`` is OPTIONAL and, when present, MUST be ``"complete"`` (an absent value is
+  treated as ``"complete"`` per §3.6; the ``"input_required"`` variant is the S17 result).
+
+  Intentional divergence from the TS ``GetPromptResultSchema`` (an accepted, documented
+  decision rather than an oversight): TS types ``resultType`` as the broad, REQUIRED
+  ``ResultTypeSchema`` (``z.string()``). Here it is pinned to the single value a *completed*
+  prompt result may carry, ``"complete"``, and made optional so an absent discriminator is
+  tolerated per R-18.4-p — a stricter, more precise contract than the open string while
+  remaining behaviourally equivalent on every test vector. The non-``complete``
+  ``"input_required"`` case is the separate S17 ``InputRequiredResult`` and is discriminated
+  upstream, never validated as a ``GetPromptResult``. (R-18.4-n, R-18.4-o, R-18.4-p)
+  """
+
+  result_type: Literal["complete"] | None = None
+  messages: list[PromptMessage]
+  description: str | None = None
+  meta: dict[str, Any] | None = Field(default=None, alias="_meta")
+
+
 def is_valid_get_prompt_result(value: object) -> bool:
   """Return ``True`` for a well-formed (completed) ``GetPromptResult`` (§18.4): a
   ``messages`` list of valid PromptMessages; OPTIONAL ``description`` (str), ``_meta``.
   """
-  if not isinstance(value, dict):
-    return False
-  if resolve_get_prompt_result_type(value) != "complete":
-    return False
-  messages = value.get("messages")
-  if not isinstance(messages, list) or not all(is_valid_prompt_message(m) for m in messages):
-    return False
-  if "description" in value and not isinstance(value["description"], str):
-    return False
-  return "_meta" not in value or isinstance(value["_meta"], dict)
+  return validates(GetPromptResult, value)
 
 
 @dataclass(frozen=True)

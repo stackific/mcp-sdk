@@ -15,7 +15,11 @@ field AND the relevant server capability/sub-flag. Request-scoped notifications
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Annotated, Any
 
+from pydantic import AfterValidator, Field, StrictBool
+
+from mcp._model import McpModel, validates
 from mcp.jsonrpc.framing import is_request_id
 from mcp.protocol.capability_negotiation import NOTIFICATION_REQUIRED_CAPABILITY, server_declares
 from mcp.protocol.logging import LOGGING_MESSAGE_METHOD
@@ -92,22 +96,9 @@ def is_valid_subscription_filter(value: object) -> bool:
   ALL fields are OPTIONAL: ``toolsListChanged`` / ``promptsListChanged`` /
   ``resourcesListChanged`` (booleans), ``resourceSubscriptions`` (array of absolute URI
   strings, R-10.2-i), and ``taskIds`` (array of strings, §25.10). Extra members are
-  tolerated (the TS schema uses ``.passthrough()``). (R-10.2-e/-f/-g/-h/-i)
+  tolerated (the model uses ``extra="allow"``). (R-10.2-e/-f/-g/-h/-i)
   """
-  if not isinstance(value, dict):
-    return False
-  for field_name in ("toolsListChanged", "promptsListChanged", "resourcesListChanged"):
-    if field_name in value and not isinstance(value[field_name], bool):
-      return False
-  subs = value.get("resourceSubscriptions")
-  if subs is not None:
-    if not isinstance(subs, list) or not all(is_absolute_uri(u) for u in subs):
-      return False
-  task_ids = value.get("taskIds")
-  if task_ids is not None:
-    if not isinstance(task_ids, list) or not all(isinstance(t, str) for t in task_ids):
-      return False
-  return True
+  return validates(SubscriptionFilter, value)
 
 
 def is_empty_subscription_filter(filter: dict) -> bool:
@@ -133,12 +124,7 @@ def is_valid_subscriptions_listen_request_params(value: object) -> bool:
   there are no implicit/default subscriptions (R-10.2-b, R-10.1-c). ``_meta`` is REQUIRED
   per-request metadata and MUST be an object (S04 / R-3.7-a; R-10.2-d).
   """
-  if not isinstance(value, dict):
-    return False
-  if not isinstance(value.get("_meta"), dict):
-    return False
-  notifications = value.get("notifications")
-  return notifications is not None and is_valid_subscription_filter(notifications)
+  return validates(SubscriptionsListenRequestParams, value)
 
 
 def is_valid_subscriptions_listen_request(value: object) -> bool:
@@ -169,9 +155,7 @@ def is_valid_subscription_meta(value: object) -> bool:
   ``io.modelcontextprotocol/subscriptionId`` with a string value (the request ``id``
   serialized as a JSON string). Other ``_meta`` members are tolerated.
   """
-  if not isinstance(value, dict):
-    return False
-  return isinstance(value.get(SUBSCRIPTION_ID_META_KEY), str)
+  return validates(SubscriptionMeta, value)
 
 
 # ─── Acknowledgement notification validation (§10.3) ──────────────────────────
@@ -183,12 +167,7 @@ def is_valid_subscriptions_acknowledged_notification_params(value: object) -> bo
   (R-10.3-c, R-10.3-d). ``_meta`` is REQUIRED and MUST carry the subscription id under
   ``io.modelcontextprotocol/subscriptionId`` (R-10.3-e, R-10.4-a).
   """
-  if not isinstance(value, dict):
-    return False
-  notifications = value.get("notifications")
-  if notifications is None or not is_valid_subscription_filter(notifications):
-    return False
-  return is_valid_subscription_meta(value.get("_meta"))
+  return validates(SubscriptionsAcknowledgedNotificationParams, value)
 
 
 def is_valid_subscriptions_acknowledged_notification(value: object) -> bool:
@@ -213,11 +192,7 @@ def is_valid_resource_updated_notification_params(value: object) -> bool:
   sub-resource of a subscribed container URI, R-10.5-i, R-10.5-j); ``_meta`` carries the
   subscription id for correlation (R-10.5-k, R-10.4-a). S27-owned members are tolerated.
   """
-  if not isinstance(value, dict):
-    return False
-  if not is_absolute_uri(value.get("uri")):
-    return False
-  return is_valid_subscription_meta(value.get("_meta"))
+  return validates(ResourceUpdatedNotificationParams, value)
 
 
 def is_absolute_uri(value: object) -> bool:
@@ -239,6 +214,89 @@ def is_absolute_uri(value: object) -> bool:
 
 #: Backward-compatible private alias of :func:`is_absolute_uri`.
 _is_absolute_uri = is_absolute_uri
+
+
+def _require_absolute_uri(value: str) -> str:
+  """Field validator: reject a ``resourceSubscriptions`` entry that is not an absolute URI."""
+  if not is_absolute_uri(value):
+    raise ValueError("resourceSubscriptions entries MUST be absolute URI strings [RFC3986] (R-10.2-i)")
+  return value
+
+
+#: An absolute-URI string element of ``resourceSubscriptions`` — the analogue of the TS
+#: ``AbsoluteUriSchema`` (``z.string().refine(isAbsoluteUri)``). (R-10.2-i)
+AbsoluteUri = Annotated[str, AfterValidator(_require_absolute_uri)]
+
+
+class SubscriptionFilter(McpModel):
+  """The explicit opt-in describing which change notifications a client wants (§10.2 /
+  §6.3) — the Python analogue of the TS ``SubscriptionFilterSchema``.
+
+  ALL fields are OPTIONAL; an omitted field (or ``false`` boolean, or absent/empty array)
+  means "not subscribing" to that kind. Unknown members pass through (forward-compatible).
+  Booleans are strict (``1``/``"true"`` rejected, like Zod ``z.boolean()``).
+  """
+
+  #: ``true`` ⇒ request ``notifications/tools/list_changed``. (R-10.2-e)
+  tools_list_changed: StrictBool | None = None
+  #: ``true`` ⇒ request ``notifications/prompts/list_changed``. (R-10.2-f)
+  prompts_list_changed: StrictBool | None = None
+  #: ``true`` ⇒ request ``notifications/resources/list_changed``. (R-10.2-g)
+  resources_list_changed: StrictBool | None = None
+  #: Absolute URIs for which per-resource ``notifications/resources/updated`` are wanted. (R-10.2-h, R-10.2-i)
+  resource_subscriptions: list[AbsoluteUri] | None = None
+  #: Task ids to receive ``notifications/tasks`` for (Tasks extension, §25.10).
+  task_ids: list[str] | None = None
+
+
+class SubscriptionMeta(McpModel):
+  """The ``_meta`` fragment present on every subscription notification — the Python analogue
+  of the TS ``SubscriptionMetaSchema``. It MUST contain the reserved
+  ``io.modelcontextprotocol/subscriptionId`` key with a string value (the request ``id``
+  serialized as a JSON string); other ``_meta`` members pass through. (§10.4, R-10.4-a, R-10.4-b)
+  """
+
+  subscription_id: str = Field(alias=SUBSCRIPTION_ID_META_KEY)
+
+
+class SubscriptionsListenRequestParams(McpModel):
+  """The ``params`` of a ``subscriptions/listen`` request — the analogue of TS
+  ``SubscriptionsListenRequestParamsSchema`` (``RequestParamsSchema.extend``).
+
+  ``notifications`` is REQUIRED — the requested kinds come SOLELY from this filter, there
+  are no implicit/default subscriptions (R-10.2-b, R-10.1-c). ``_meta`` is REQUIRED
+  per-request metadata and MUST be an object (S04 / R-3.7-a; R-10.2-d).
+  """
+
+  notifications: SubscriptionFilter
+  meta: dict[str, Any] = Field(alias="_meta")
+
+
+class SubscriptionsAcknowledgedNotificationParams(McpModel):
+  """The ``params`` of the mandatory first stream message,
+  ``notifications/subscriptions/acknowledged`` — the analogue of TS
+  ``SubscriptionsAcknowledgedNotificationParamsSchema``.
+
+  ``notifications`` is REQUIRED and reflects the honored subset of the requested filter
+  (R-10.3-c, R-10.3-d); ``_meta`` is REQUIRED and MUST carry the subscription id (R-10.3-e,
+  R-10.4-a).
+  """
+
+  notifications: SubscriptionFilter
+  meta: SubscriptionMeta = Field(alias="_meta")
+
+
+class ResourceUpdatedNotificationParams(McpModel):
+  """The S16-owned constraints on ``notifications/resources/updated`` params — the analogue
+  of TS ``ResourceUpdatedNotificationParamsSchema``.
+
+  ``uri`` is REQUIRED and MUST be an absolute URI string [RFC3986] (MAY be a sub-resource
+  of a subscribed container URI, R-10.5-i, R-10.5-j); ``_meta`` carries the subscription id
+  for correlation (R-10.5-k, R-10.4-a). S27-owned members pass through.
+  """
+
+  uri: AbsoluteUri
+  meta: SubscriptionMeta = Field(alias="_meta")
 
 
 def uri_covered_by_subscription(updated_uri: str, subscribed_uri: str) -> bool:

@@ -7,8 +7,13 @@ report state without the host trusting the document's origin (§26).
 
 COUNTER_APP_HTML = """<!doctype html>
 <!--
-  MCP Apps (UI extension) payload. Served as a `ui://` resource and rendered by the host
-  inside a sandboxed iframe; it talks to the host over postMessage (the MCP Apps bridge).
+  MCP Apps (UI extension) payload.
+
+  This document is served by the MCP server as a `ui://` resource and rendered by the
+  host inside a sandboxed iframe. It talks to the host over postMessage — the MCP Apps
+  bridge — so the embedded UI can request tool calls and report state without the host
+  trusting the document's origin. This is the app's own self-contained UI; it is not
+  part of the SPA's source (hence a standalone .html file).
 -->
 <html lang="en">
   <head>

@@ -15,17 +15,23 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Annotated, Any, Literal
 
+from pydantic import Field, StrictInt
+
+from mcp._model import McpModel, validates
 from mcp.jsonrpc.payload import RESULT_TYPE_COMPLETE, RESULT_TYPE_INPUT_REQUIRED
+from mcp.protocol.caching import CacheScope
 from mcp.protocol.errors import INVALID_PARAMS_CODE
 from mcp.protocol.resources import (
   RESOURCES_LIST_CHANGED_METHOD,
   RESOURCES_UPDATED_METHOD,
+  ResourceUri,
   is_resource_uri,
   may_accept_resource_request,
 )
 from mcp.protocol.streaming import may_deliver_resource_update
-from mcp.types.resource_contents import is_valid_resource_contents
+from mcp.types.resource_contents import ResourceContents
 
 RESOURCES_READ_METHOD = "resources/read"
 
@@ -67,19 +73,25 @@ def may_read_resource(server_caps: dict) -> bool:
   return may_accept_resource_request(RESOURCES_READ_METHOD, server_caps)
 
 
+class ReadResourceRequestParams(McpModel):
+  """The ``params`` of a ``resources/read`` request (§17.5) — the Python analogue of the TS
+  ``ReadResourceRequestParamsSchema``.
+
+  A REQUIRED RFC3986 ``uri`` plus the OPTIONAL multi-round-trip retry fields
+  (``inputResponses`` / ``requestState``) and ``_meta``. (R-17.5-a/-b/-d/-f)
+  """
+
+  uri: ResourceUri
+  input_responses: dict[str, Any] | None = None
+  request_state: str | None = None
+  meta: dict[str, Any] | None = Field(default=None, alias="_meta")
+
+
 def is_valid_read_resource_request_params(value: object) -> bool:
   """Return ``True`` for a well-formed ``resources/read`` ``params``: a REQUIRED RFC3986
-  ``uri`` plus the OPTIONAL retry fields ``inputResponses`` (map) / ``requestState``
-  (string) and the OPTIONAL ``_meta`` map. (§17.5, R-17.5-a/-b/-d/-f)
-  Mirrors the TS ``ReadResourceRequestParamsSchema``.
+  ``uri`` plus the OPTIONAL retry fields and ``_meta``. (§17.5, R-17.5-a/-b/-d/-f)
   """
-  if not isinstance(value, dict) or not is_resource_uri(value.get("uri")):
-    return False
-  if "inputResponses" in value and not isinstance(value["inputResponses"], dict):
-    return False
-  if "requestState" in value and not isinstance(value["requestState"], str):
-    return False
-  return "_meta" not in value or isinstance(value["_meta"], dict)
+  return validates(ReadResourceRequestParams, value)
 
 
 def is_valid_read_resource_request(value: object) -> bool:
@@ -136,21 +148,24 @@ class ReadCacheHints:
   cache_scope: str
 
 
+class ReadResourceResult(McpModel):
+  """A completed ``resources/read`` result (§17.5) — the Python analogue of the TS
+  ``ReadResourceResultSchema``: a cacheable result whose non-empty ``contents`` array holds
+  text/blob ``ResourceContents`` entries. ``resultType`` is fixed to ``"complete"``.
+  """
+
+  result_type: Literal["complete"]
+  contents: list[ResourceContents] = Field(min_length=1)
+  ttl_ms: Annotated[StrictInt, Field(ge=0)]
+  cache_scope: CacheScope
+  meta: dict[str, Any] | None = Field(default=None, alias="_meta")
+
+
 def is_valid_read_resource_result(value: object) -> bool:
   """Return ``True`` for a well-formed (completed) ``ReadResourceResult`` (§17.5): a
   cacheable result with a non-empty ``contents`` array of text/blob entries.
   """
-  if not isinstance(value, dict) or value.get("resultType") != "complete":
-    return False
-  contents = value.get("contents")
-  if not isinstance(contents, list) or not contents or not all(is_valid_resource_contents(c) for c in contents):
-    return False
-  ttl = value.get("ttlMs")
-  if not isinstance(ttl, int) or isinstance(ttl, bool) or ttl < 0:
-    return False
-  if value.get("cacheScope") not in ("public", "private"):
-    return False
-  return "_meta" not in value or isinstance(value["_meta"], dict)
+  return validates(ReadResourceResult, value)
 
 
 def build_read_resource_result(contents: list, hints: ReadCacheHints, *, meta: dict | None = None) -> dict:

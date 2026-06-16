@@ -24,6 +24,8 @@ AC coverage:
 import pytest
 
 from mcp.protocol.errors import INVALID_PARAMS_CODE, MISSING_CLIENT_CAPABILITY_CODE
+from mcp.protocol.logging import resolved_min_log_level_index
+from mcp.transport.http.responses import http_status_for_error_code
 from mcp.protocol.meta import (
   CLIENT_CAPABILITIES_META_KEY,
   CLIENT_INFO_META_KEY,
@@ -405,3 +407,64 @@ class TestMissingCapabilityError:
   def test_message_is_string(self):
     err = build_missing_capability_error({"elicitation": {}})
     assert isinstance(err["message"], str)
+
+
+# ─── S05-RQ-13 / RQ-16 / RQ-18 — _meta gate failures ride HTTP 400 (§9.7) ──────
+
+
+class TestMetaGateMapsToHttp400:
+  """A failed §4.3 ``_meta`` envelope gate is a ``-32602`` (Invalid params) outcome, which
+  the §9.7 status map carries as HTTP ``400 Bad Request``. The live request→400 path is
+  exercised end to end by ``TestMetaEnvelopeGate`` / ``TestProtocolVersionValidation`` in
+  ``tests/server/test_asgi_handler.py``; these assertions pin the protocol-layer outcome ↔
+  HTTP-status mapping that underlies it so S05 stands on its own. (S05-RQ-13, RQ-16, RQ-18;
+  R-9.7)
+  """
+
+  def _status(self, meta: dict) -> int:
+    result = validate_request_meta(meta)
+    assert not result.ok
+    return http_status_for_error_code(result.code)
+
+  def test_each_missing_required_key_maps_to_400(self):
+    for key in (PROTOCOL_VERSION_META_KEY, CLIENT_INFO_META_KEY, CLIENT_CAPABILITIES_META_KEY):
+      meta = valid_meta()
+      del meta[key]
+      assert self._status(meta) == 400
+
+  def test_mismatched_protocol_version_maps_to_400(self):
+    meta = valid_meta()
+    meta[PROTOCOL_VERSION_META_KEY] = "not-a-date"
+    assert self._status(meta) == 400
+
+  def test_malformed_client_info_maps_to_400(self):
+    meta = valid_meta()
+    meta[CLIENT_INFO_META_KEY] = {"name": "c"}  # missing REQUIRED version
+    assert self._status(meta) == 400
+
+
+# ─── S05-RQ-19 — logLevel absent ⇒ no log notifications (R-4.3-l/m) ─────────────
+
+
+class TestLogLevelAbsentSuppressesEmission:
+  """When a request's ``_meta`` carries no ``io.modelcontextprotocol/logLevel`` opt-in, the
+  server emits NO log notifications for that request; a present recognized value sets the
+  minimum severity. ``resolved_min_log_level_index`` returns ``-1`` (emit nothing) for an
+  absent or invalid value, and the level's ascending-severity index otherwise. Live
+  emission gating lives in the logging suite; this pins the S05 rule itself. (S05-RQ-19;
+  R-4.3-l, R-4.3-m, R-15.3.3-a)
+  """
+
+  def test_absent_log_level_emits_nothing(self):
+    # An absent key reads as None from _meta → -1 → no notification emitted.
+    meta = valid_meta()
+    assert LOG_LEVEL_META_KEY not in meta
+    assert resolved_min_log_level_index(meta.get(LOG_LEVEL_META_KEY)) == -1
+    assert resolved_min_log_level_index(None) == -1
+
+  def test_invalid_log_level_emits_nothing(self):
+    assert resolved_min_log_level_index("verbose") == -1
+
+  def test_present_log_level_sets_minimum_severity(self):
+    assert resolved_min_log_level_index("warning") == logging_level_index("warning")
+    assert resolved_min_log_level_index("debug") == 0

@@ -21,12 +21,56 @@ import binascii
 import re
 import urllib.parse
 from dataclasses import dataclass
-from typing import Callable, Protocol, runtime_checkable
+from typing import Annotated, Callable, Literal, Protocol, runtime_checkable
+
+from pydantic import AfterValidator
+
+from mcp._model import McpModel, validates
+
+#: Background theme an icon targets (§14.2) — the closed set, as a field type.
+IconTheme = Literal["light", "dark"]
 
 #: Background themes an icon may target (§14.2). Closed set.
 ICON_THEMES = frozenset({"light", "dark"})
 
-_SIZES_RE = re.compile(r"^\d+x\d+$|^any$")
+# Each size entry is "WxH" or "any" (for scalable). (R-14.2-h) — fullmatch so a trailing
+# newline cannot sneak past, matching JS's `$` (which, unlike Python's, never does).
+_SIZES_RE = re.compile(r"\d+x\d+|any")
+
+
+def _require_icon_size(value: str) -> str:
+  """Field validator: reject an icon ``sizes`` entry that is not ``"WxH"`` or ``"any"``."""
+  if not _SIZES_RE.fullmatch(value):
+    raise ValueError('icon size MUST be "WxH" or "any" (R-14.2-h)')
+  return value
+
+
+#: An icon size string — the analogue of Zod ``z.string().regex(/^\d+x\d+$|^any$/)``.
+IconSize = Annotated[str, AfterValidator(_require_icon_size)]
+
+
+class Icon(McpModel):
+  """A single renderable icon image (§14.2) — the Python analogue of the TS ``IconSchema``.
+
+  ``src`` is REQUIRED; all other fields are OPTIONAL. ``theme`` is a closed enum; unknown
+  members pass through (forward-compatible).
+  """
+
+  #: REQUIRED. URI pointing to the icon resource (https: URL or data: URI). (R-14.2-c)
+  src: str
+  #: OPTIONAL. MIME-type override when the source type is missing or generic. (R-14.2-g)
+  mime_type: str | None = None
+  #: OPTIONAL. Intended-use sizes; each entry is ``"WxH"`` or ``"any"``. (R-14.2-h, R-14.2-i)
+  sizes: list[IconSize] | None = None
+  #: OPTIONAL. Background theme the icon is designed for. (R-14.2-j, R-14.2-k)
+  theme: IconTheme | None = None
+
+
+class Icons(McpModel):
+  """The ``Icons`` mixin — contributes the OPTIONAL ``icons`` array. (R-14.2-b, R-14.2-v)"""
+
+  #: OPTIONAL. A set of sized icons a consumer MAY display. Absent ⇒ none advertised.
+  icons: list[Icon] | None = None
 
 
 def is_valid_icon(value: object) -> bool:
@@ -34,30 +78,15 @@ def is_valid_icon(value: object) -> bool:
   ``mimeType`` (str), ``sizes`` (list of ``"WxH"``/``"any"``), ``theme`` (light/dark).
   Extra members tolerated.
   """
-  if not isinstance(value, dict) or not isinstance(value.get("src"), str):
-    return False
-  if "mimeType" in value and not isinstance(value["mimeType"], str):
-    return False
-  if "sizes" in value:
-    sizes = value["sizes"]
-    if not isinstance(sizes, list) or not all(isinstance(s, str) and _SIZES_RE.match(s) for s in sizes):
-      return False
-  if "theme" in value and value["theme"] not in ICON_THEMES:
-    return False
-  return True
+  return validates(Icon, value)
 
 
 def is_valid_icons(value: object) -> bool:
   """Return ``True`` for a valid ``Icons`` mixin (§14.2): an object with an OPTIONAL
-  ``icons`` array of valid :func:`is_valid_icon` entries. An absent or empty array is
-  valid; extra members are tolerated. (R-14.2-b, R-14.2-v)
+  ``icons`` array of valid :class:`Icon` entries. An absent or empty array is valid;
+  extra members are tolerated. (R-14.2-b, R-14.2-v)
   """
-  if not isinstance(value, dict):
-    return False
-  if "icons" not in value:
-    return True
-  icons = value["icons"]
-  return isinstance(icons, list) and all(is_valid_icon(i) for i in icons)
+  return validates(Icons, value)
 
 
 #: MIME types a consumer MUST support when rendering icons. (R-14.2-l)

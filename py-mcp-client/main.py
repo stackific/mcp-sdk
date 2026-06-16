@@ -11,7 +11,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 from collections.abc import Callable
 
 import uvicorn
@@ -22,7 +21,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from mcp.client import RequestError
 
 from auth_flow import run_auth_flow
-from config import DEEPSEEK_BASE_URL, DEEPSEEK_MODEL, HAS_KEY, MCP_SERVER_URL, PORT
+from config import DEEPSEEK_BASE_URL, DEEPSEEK_MODEL, HAS_KEY, PORT
 from debug_bus import bus
 from elicitation import list_pending, resolve_pending
 from mcp_client import (

@@ -25,7 +25,11 @@ schema into a ``is_valid_*`` predicate plus a matching ``build_*`` constructor.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any, Literal
 
+from pydantic import Field
+
+from mcp._model import McpModel, validates
 from mcp.json.meta_key import is_valid_baggage, is_valid_traceparent, is_valid_tracestate
 from mcp.protocol.errors import INVALID_PARAMS_CODE
 from mcp.protocol.meta import (
@@ -34,12 +38,20 @@ from mcp.protocol.meta import (
   logging_level_index,
 )
 
+#: The eight ascending-severity log levels as a field type (the analogue of the TS
+#: ``LoggingLevelSchema`` zod enum). (§15.3.1)
+LoggingLevel = Literal[
+  "debug", "info", "notice", "warning", "error", "critical", "alert", "emergency"
+]
+
 # Re-exported from :mod:`mcp.protocol.meta` for parity with the TS module's re-exports.
 __all__ = [
   "LOGGING_LEVELS",
   "logging_level_index",
   "is_at_or_above_log_level",
   "is_valid_logging_level",
+  "LoggingLevel",
+  "LoggingMessageNotificationParams",
   "LOGGING_MESSAGE_METHOD",
   "is_valid_logging_message_notification_params",
   "build_logging_message_notification_params",
@@ -76,26 +88,29 @@ def is_valid_logging_level(value: object) -> bool:
 LOGGING_MESSAGE_METHOD = "notifications/message"
 
 
+class LoggingMessageNotificationParams(McpModel):
+  """``notifications/message`` params (§15.3.2) — the Python analogue of the TS
+  ``LoggingMessageNotificationParamsSchema``.
+
+  ``level`` (REQUIRED) is one of the eight ``LoggingLevel`` strings (R-15.3.2-a); ``logger``
+  (OPTIONAL) identifies the emitting logger (R-15.3.2-b); ``data`` (REQUIRED — the key MUST
+  be present, value may be ``None`` or anything JSON-serializable, R-15.3.2-c). The payload
+  MUST NOT carry credentials/secrets/PII (R-15.3.2-e) — a content concern beyond this shape.
+  """
+
+  level: LoggingLevel
+  logger: str | None = None
+  data: Any
+  meta: dict[str, Any] | None = Field(default=None, alias="_meta")
+
+
 def is_valid_logging_message_notification_params(value: object) -> bool:
   """Return ``True`` for valid ``notifications/message`` params. (§15.3.2)
 
-  ``level`` (REQUIRED) is exactly one of the eight ``LoggingLevel`` strings (R-15.3.2-a);
-  ``logger`` (OPTIONAL) identifies the emitting logger (R-15.3.2-b); ``data`` (REQUIRED,
-  key MUST be present) is any JSON-serializable value — including ``None`` (R-15.3.2-c).
-  The payload MUST NOT carry credentials/secrets/PII (R-15.3.2-e) — a content concern this
-  shape check cannot enforce. Unknown extra keys pass through (Zod ``.passthrough()``).
+  See :class:`LoggingMessageNotificationParams`: ``level`` + ``data`` REQUIRED, ``logger``
+  OPTIONAL. (R-15.3.2-a/-b/-c)
   """
-  if not isinstance(value, dict):
-    return False
-  if not is_valid_logging_level(value.get("level")):
-    return False
-  if "logger" in value and not isinstance(value["logger"], str):
-    return False
-  # `data` is REQUIRED: the KEY must be present, though its value may be `None`/anything
-  # (mirrors the Zod `.superRefine` that asserts `'data' in val`). (R-15.3.2-c)
-  if "data" not in value:
-    return False
-  return "_meta" not in value or isinstance(value["_meta"], dict)
+  return validates(LoggingMessageNotificationParams, value)
 
 
 def build_logging_message_notification_params(

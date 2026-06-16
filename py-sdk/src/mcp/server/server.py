@@ -20,9 +20,13 @@ dependencies, each a clean seam:
 from __future__ import annotations
 
 import base64
+import hashlib
+import hmac
 import json
 import re
+import secrets
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -33,6 +37,7 @@ from mcp.protocol.errors import (
   METHOD_NOT_FOUND_CODE,
 )
 from mcp.protocol.meta import CURRENT_PROTOCOL_VERSION
+from mcp.protocol.security import validate_resource_uri_access
 from mcp.jsonrpc.payload import RESULT_TYPE_COMPLETE
 from mcp.protocol.multi_round_trip import build_input_required_result
 from mcp.protocol.tasks import (
@@ -111,18 +116,87 @@ class _InputCollector:
     raise InputRequired(key, {"method": method, "params": params})
 
 
-def _encode_request_state(accumulated: dict) -> str:
-  """Encode the accumulated input responses as an opaque base64 continuation token (§11.3)."""
-  return base64.b64encode(json.dumps(accumulated).encode("utf-8")).decode("ascii")
+#: The ``data.reason`` surfaced when a ``requestState`` continuation token fails its integrity
+#: check — a forged, tampered, truncated, or foreign token. (S44, TV-44.11, R-28.6-b)
+REQUEST_STATE_INTEGRITY_FAILURE = "integrity-validation-failed"
+
+#: The ``data.reason`` surfaced when an otherwise-valid ``requestState`` token has passed its
+#: expiry — bounds replay of a captured token without server-side state. (R-28.6-c)
+REQUEST_STATE_EXPIRED = "continuation-token-expired"
+
+#: Default lifetime of a ``requestState`` continuation token (10 minutes). Long enough for an
+#: interactive §11 multi-round-trip (the user answering an elicitation), short enough to bound
+#: how long a captured token could be replayed.
+DEFAULT_REQUEST_STATE_TTL_MS = 10 * 60 * 1000
 
 
-def _decode_request_state(state: str) -> dict:
-  """Decode an opaque ``requestState`` token back to accumulated responses; ``{}`` on failure."""
+@dataclass(frozen=True)
+class _RequestStateOutcome:
+  """Outcome of verifying a ``requestState`` continuation token.
+
+  ``ok`` is ``True`` with the decoded ``state`` only when the token's HMAC matches and it has
+  not expired; otherwise the token was forged/tampered/garbage
+  (:data:`REQUEST_STATE_INTEGRITY_FAILURE`) or stale (:data:`REQUEST_STATE_EXPIRED`). A failed
+  token is REJECTED by the caller — never silently treated as ``{}``. (R-28.6-b/-c)
+  """
+
+  ok: bool
+  state: dict = field(default_factory=dict)
+  reason: str | None = None
+
+
+def _sign_request_state(accumulated: dict, secret: bytes, *, ttl_ms: int, now_ms: int) -> str:
+  """Encode the accumulated input responses as an integrity-protected, time-bounded
+  continuation token. (§11.3, R-28.6-a/-b/-c)
+
+  Form: ``<base64(payload)>.<base64(HMAC-SHA256(secret, base64(payload)))>`` where ``payload``
+  wraps ``{"state": accumulated, "exp": now_ms + ttl_ms}``. The §11 continuation state travels
+  IN the token (statelessly, §4.4 — no server-side store, so an MRTR retry may land on any
+  instance sharing the secret); the HMAC binds it to this server so a client — an UNTRUSTED
+  relay that echoes ``requestState`` back (§11.4) — cannot forge or tamper with it undetected;
+  and the signed ``exp`` bounds how long a *captured* valid token can be replayed, without
+  requiring server-side single-use state.
+  """
+  envelope = {"state": accumulated, "exp": now_ms + ttl_ms}
+  payload = base64.b64encode(json.dumps(envelope, separators=(",", ":")).encode("utf-8")).decode("ascii")
+  tag = hmac.new(secret, payload.encode("ascii"), hashlib.sha256).digest()
+  return f"{payload}.{base64.b64encode(tag).decode('ascii')}"
+
+
+def _verify_request_state(token: str, secret: bytes, *, now_ms: int) -> _RequestStateOutcome:
+  """Verify and decode a ``requestState`` continuation token.
+
+  A token whose HMAC does not match — forged, tampered, truncated, or not minted by this
+  server (or its secret-sharing peers) — is REJECTED with
+  :data:`REQUEST_STATE_INTEGRITY_FAILURE`; an authentic token whose signed ``exp`` has passed
+  is REJECTED with :data:`REQUEST_STATE_EXPIRED`. Neither is silently decoded or coerced to
+  ``{}``: the server MUST NOT act on continuation state it cannot vouch for or that has gone
+  stale. The HMAC comparison is constant-time. (R-28.6-b/-c, TV-44.11)
+  """
+  parts = token.split(".")
+  if len(parts) != 2:
+    return _RequestStateOutcome(False, reason=REQUEST_STATE_INTEGRITY_FAILURE)
+  payload, presented = parts
   try:
-    decoded = json.loads(base64.b64decode(state.encode("ascii")).decode("utf-8"))
-    return decoded if isinstance(decoded, dict) else {}
-  except (ValueError, TypeError):
-    return {}
+    presented_tag = base64.b64decode(presented.encode("ascii"))
+    body = base64.b64decode(payload.encode("ascii"))
+  except ValueError:  # malformed base64 (binascii.Error is a ValueError subclass)
+    return _RequestStateOutcome(False, reason=REQUEST_STATE_INTEGRITY_FAILURE)
+  expected_tag = hmac.new(secret, payload.encode("ascii"), hashlib.sha256).digest()
+  if not hmac.compare_digest(presented_tag, expected_tag):
+    return _RequestStateOutcome(False, reason=REQUEST_STATE_INTEGRITY_FAILURE)
+  try:
+    envelope = json.loads(body.decode("utf-8"))
+  except ValueError:
+    return _RequestStateOutcome(False, reason=REQUEST_STATE_INTEGRITY_FAILURE)
+  if not isinstance(envelope, dict) or not isinstance(envelope.get("state"), dict):
+    return _RequestStateOutcome(False, reason=REQUEST_STATE_INTEGRITY_FAILURE)
+  expires_at = envelope.get("exp")
+  if not isinstance(expires_at, (int, float)) or isinstance(expires_at, bool):
+    return _RequestStateOutcome(False, reason=REQUEST_STATE_INTEGRITY_FAILURE)
+  if now_ms > expires_at:
+    return _RequestStateOutcome(False, reason=REQUEST_STATE_EXPIRED)
+  return _RequestStateOutcome(True, state=envelope["state"])
 
 
 class ServerError(Exception):
@@ -246,9 +320,31 @@ class McpServer:
     cache_ttl_ms: int = 0,
     cache_scope: str = "private",
     value_validator: ValueValidator | None = None,
+    request_state_secret: bytes | None = None,
+    request_state_ttl_ms: int = DEFAULT_REQUEST_STATE_TTL_MS,
+    request_state_clock: Callable[[], int] | None = None,
+    guard_resource_ssrf: bool = False,
+    resource_location_authorizer: Callable[[object], bool] | None = None,
   ) -> None:
     self.info = info
     self.capabilities = capabilities or {}
+    # §28.10 (R-28.10, RC-18): when enabled, a ``resources/read`` URI is SSRF-checked before
+    # dereference — private/loopback/link-local network targets are refused. Off by default
+    # (a host may legitimately serve loopback/file resources); ``resource_location_authorizer``
+    # supplies an additional host policy predicate over the parsed URL (default: authorize all,
+    # so the SSRF address guard is the only constraint).
+    self._guard_resource_ssrf = guard_resource_ssrf
+    self._resource_location_authorizer = resource_location_authorizer or (lambda _parsed: True)
+    # Secret that HMAC-signs §11 ``requestState`` continuation tokens (R-28.6-a/-b). Defaults
+    # to a fresh per-process random key, which protects integrity within this instance; a
+    # MULTI-instance stateless deployment MUST pass a stable shared secret so an MRTR retry
+    # routed to another instance still verifies.
+    self._request_state_secret = request_state_secret or secrets.token_bytes(32)
+    # Time-bound on a continuation token (R-28.6-c): a token older than this is rejected,
+    # bounding replay of a captured token without server-side state. ``request_state_clock``
+    # supplies "now" in epoch milliseconds (injectable for tests); defaults to the wall clock.
+    self._request_state_ttl_ms = request_state_ttl_ms
+    self._request_state_clock = request_state_clock or (lambda: int(time.time() * 1000))
     self._tools: dict[str, _Tool] = {}
     self._resources: dict[str, _Resource] = {}
     self._templates: list[_Template] = []
@@ -521,14 +617,36 @@ class McpServer:
     # requestState plus this round's inputResponses); the first unanswered solicitation
     # raises InputRequired, which we convert into the input_required result to retry against.
     input_responses = params.get("inputResponses") or {}
-    prior = _decode_request_state(params["requestState"]) if isinstance(params.get("requestState"), str) else {}
+    raw_state = params.get("requestState")
+    if isinstance(raw_state, str):
+      # A client-echoed requestState is attacker-controlled (§11.4): verify its integrity and
+      # freshness and REJECT a forged/tampered/expired token rather than acting on its
+      # contents. (R-28.6-b/-c)
+      outcome = _verify_request_state(raw_state, self._request_state_secret, now_ms=self._request_state_clock())
+      if not outcome.ok:
+        raise ServerError(
+          INVALID_PARAMS_CODE,
+          f"Invalid continuation token: requestState rejected ({outcome.reason}) (R-28.6-b/-c)",
+          {"reason": outcome.reason},
+        )
+      prior = outcome.state
+    else:
+      prior = {}
     accumulated = {**prior, **input_responses}
     collector = _InputCollector(accumulated)
 
     try:
       result = tool.handler(_apply_defaults(args, tool.input_schema), self._tool_context(ctx, task_param, collector))
     except InputRequired as needed:
-      return build_input_required_result({needed.key: needed.request}, _encode_request_state(accumulated))
+      return build_input_required_result(
+        {needed.key: needed.request},
+        _sign_request_state(
+          accumulated,
+          self._request_state_secret,
+          ttl_ms=self._request_state_ttl_ms,
+          now_ms=self._request_state_clock(),
+        ),
+      )
 
     # Validate declared outputSchema against returned structuredContent (§16.5/§16.6).
     if (
@@ -616,6 +734,15 @@ class McpServer:
     uri = params.get("uri")
     if not isinstance(uri, str):
       raise ServerError(INVALID_PARAMS_CODE, "resources/read requires a string uri")
+    if self._guard_resource_ssrf:
+      # SSRF guard (R-28.10, RC-18): refuse to dereference a URI aimed at a private/loopback/
+      # link-local network target (or one the host policy disallows) BEFORE the read callback
+      # can issue any request on its behalf.
+      verdict = validate_resource_uri_access(
+        uri, is_authorized_location=self._resource_location_authorizer, guard_ssrf=True
+      )
+      if not verdict.ok:
+        raise ServerError(INVALID_PARAMS_CODE, f"resources/read refused for {uri}: {verdict.reason}", {"uri": uri})
     direct = self._resources.get(uri)
     if direct is not None:
       return self._read_result(uri, direct.read(uri))

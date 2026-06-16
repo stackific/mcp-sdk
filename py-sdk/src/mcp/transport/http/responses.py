@@ -221,9 +221,12 @@ def format_sse_event(message: object) -> str:
   A ``data:`` field carrying the message as JSON, terminated by a blank line. The
   result ends with ``\\n\\n`` — the trailing blank line is the event terminator the
   ``text/event-stream`` framing requires. JSON is emitted compactly (no inserted
-  whitespace) so the wire form matches the TS ``JSON.stringify`` output.
+  whitespace) so the wire form matches the TS ``JSON.stringify`` output. ``allow_nan=False``
+  keeps a non-finite number off the wire — JSON has no ``NaN``/``Infinity`` (R-7.1-b).
+
+  :raises ValueError: when ``message`` contains a non-finite number.
   """
-  return f"data: {json.dumps(message, separators=(',', ':'))}\n\n"
+  return f"data: {json.dumps(message, separators=(',', ':'), allow_nan=False)}\n\n"
 
 
 @dataclass(frozen=True)

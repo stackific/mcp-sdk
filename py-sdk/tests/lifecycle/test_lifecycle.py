@@ -510,3 +510,109 @@ class TestEmitDeprecationWarning:
     captured = capsys.readouterr()
     assert "Roots capability" in captured.err
     assert entry.migration_note in captured.err
+
+
+# ─── §27.4 native-language deprecation markers (R-27.4-a — AC required) ─────────
+
+# R-27.4-a (S43-RQ-12, MUST): a Deprecated feature exposed through an API surface that
+# has a native-language deprecation mechanism MUST be marked using that mechanism. In
+# Python the idiomatic, tooling-recognised marker is a Sphinx ``.. deprecated::`` directive
+# in the public symbol's ``__doc__``. The TS reference marks six surfaces with
+# ``@deprecated``; these assertions pin the Python parity surfaces so a future edit that
+# drops a marker fails loudly (TS has no equivalent test — this closes that blind spot).
+
+
+class TestNativeDeprecationMarkers:
+  """Every Deprecated public surface carries a native ``.. deprecated::`` marker, and that
+  marker references the §27.3 migration path plus the earliest-removal window (which also
+  satisfies the Recommended S43-RC-5/RC-6). (R-27.4-a)
+  """
+
+  def _doc(self, obj) -> str:
+    doc = obj.__doc__
+    assert doc is not None, f"{getattr(obj, '__name__', obj)!r} has no docstring"
+    return doc
+
+  def test_roots_capability_value_marked(self):
+    from mcp.protocol.roots import (
+      Root,
+      RootsCapabilityValue,
+      is_valid_roots_capability_value,
+    )
+
+    for obj in (RootsCapabilityValue, is_valid_roots_capability_value, Root):
+      assert ".. deprecated::" in self._doc(obj)
+
+  def test_sampling_surfaces_marked(self):
+    from mcp.protocol.sampling import (
+      SamplingMessage,
+      is_deprecated_include_context,
+      is_valid_sampling_message,
+    )
+
+    for obj in (SamplingMessage, is_valid_sampling_message, is_deprecated_include_context):
+      assert ".. deprecated::" in self._doc(obj)
+
+  def test_logging_log_level_meta_key_marked(self):
+    from mcp.protocol.meta import is_valid_logging_level
+
+    assert ".. deprecated::" in self._doc(is_valid_logging_level)
+
+  def test_logging_notification_surface_marked(self):
+    from mcp.protocol.logging import is_valid_logging_message_notification
+
+    assert ".. deprecated::" in self._doc(is_valid_logging_message_notification)
+
+  def test_dynamic_client_registration_marked(self):
+    from mcp.protocol.authorization_flow import build_dynamic_client_registration_request
+
+    assert ".. deprecated::" in self._doc(build_dynamic_client_registration_request)
+
+  def test_legacy_titled_enum_marked(self):
+    from mcp.protocol.elicitation_form import (
+      LegacyTitledEnum,
+      is_legacy_titled_enum_schema,
+    )
+
+    for obj in (LegacyTitledEnum, is_legacy_titled_enum_schema):
+      assert ".. deprecated::" in self._doc(obj)
+
+  def test_markers_reference_migration_and_removal_window(self):
+    # The four S43-P0 surfaces must cite the §27.3 migration path and the 2026-07-28
+    # earliest-removal window (S43-RC-5 / RC-6), not merely the bare directive.
+    from mcp.protocol.roots import RootsCapabilityValue
+    from mcp.protocol.sampling import SamplingMessage, is_deprecated_include_context
+    from mcp.protocol.meta import is_valid_logging_level
+
+    for obj in (
+      RootsCapabilityValue,
+      SamplingMessage,
+      is_deprecated_include_context,
+      is_valid_logging_level,
+    ):
+      doc = self._doc(obj)
+      assert "§27.3" in doc
+      assert "2026-07-28" in doc
+
+  def test_exactly_six_source_files_carry_markers(self):
+    # The S43 worklist fixes four surfaces on top of the two already marked
+    # (logging, authorization_flow), for six source modules total. Lock that count so a
+    # dropped or stray marker is caught. (R-27.4-a; P0-verify)
+    from pathlib import Path
+
+    import mcp
+
+    mcp_root = Path(mcp.__file__).parent
+    marked = sorted(
+      p.relative_to(mcp_root).as_posix()
+      for p in mcp_root.rglob("*.py")
+      if ".. deprecated::" in p.read_text(encoding="utf-8")
+    )
+    assert marked == [
+      "protocol/authorization_flow.py",
+      "protocol/elicitation_form.py",
+      "protocol/logging.py",
+      "protocol/meta.py",
+      "protocol/roots.py",
+      "protocol/sampling.py",
+    ], marked

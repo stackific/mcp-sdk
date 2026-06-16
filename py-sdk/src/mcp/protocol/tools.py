@@ -12,15 +12,20 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import Annotated, Any, Literal
 
 from jsonschema import Draft202012Validator
+from pydantic import AfterValidator, Field, StrictBool, StrictInt
 
+from mcp._model import McpModel, validates
+from mcp.protocol.caching import CacheScope
 from mcp.protocol.capability_negotiation import (
   client_should_expect_notification,
   may_client_invoke,
   server_declares,
 )
-from mcp.types.base_metadata import is_valid_base_metadata, resolve_display_name
+from mcp.types.base_metadata import BaseMetadata, resolve_display_name
+from mcp.types.icon import Icon
 
 # ─── Method names ─────────────────────────────────────────────────────────────
 
@@ -32,13 +37,19 @@ TOOLS_LIST_CHANGED_METHOD = "notifications/tools/list_changed"
 
 # ─── §16.1 The `tools` server capability ──────────────────────────────────────
 
+class ToolsCapability(McpModel):
+  """The value of the ``tools`` key in a server's capabilities (§16.1) — an object with an
+  OPTIONAL strict-boolean ``listChanged`` sub-flag; extra members pass through.
+  """
+
+  list_changed: StrictBool | None = None
+
+
 def is_valid_tools_capability(value: object) -> bool:
   """Return ``True`` for a valid ``ToolsCapability``: an object with OPTIONAL boolean
   ``listChanged``; extra members tolerated. (§16.1)
   """
-  if not isinstance(value, dict):
-    return False
-  return "listChanged" not in value or isinstance(value["listChanged"], bool)
+  return validates(ToolsCapability, value)
 
 
 def server_exposes_tools(server_caps: dict) -> bool:
@@ -298,27 +309,53 @@ def is_conventional_tool_name(name: str) -> bool:
   return TOOL_NAME_MIN_LENGTH <= len(name) <= TOOL_NAME_MAX_LENGTH and bool(TOOL_NAME_PATTERN.match(name))
 
 
+def _require_object_root_schema(schema: dict) -> dict:
+  """Field validator: a tool ``inputSchema`` root ``type`` MUST be ``"object"``. (R-16.3-k, R-16.4-d)"""
+  if schema.get("type") != "object":
+    raise ValueError('inputSchema root type MUST be "object" (R-16.3-k, R-16.4-d)')
+  return schema
+
+
+#: A JSON Schema object whose root ``type`` is ``"object"`` — the analogue of the TS
+#: ``z.object({ type: z.literal('object') }).passthrough()`` for ``inputSchema``.
+_InputSchema = Annotated[dict[str, Any], AfterValidator(_require_object_root_schema)]
+
+
+class ToolAnnotations(McpModel):
+  """Untrusted behavior hints attached to a ``Tool`` (§16.3; semantics in S25). All fields
+  OPTIONAL; booleans are strict; unknown members pass through. (R-16.3-n)
+  """
+
+  title: str | None = None
+  read_only_hint: StrictBool | None = None
+  destructive_hint: StrictBool | None = None
+  idempotent_hint: StrictBool | None = None
+  open_world_hint: StrictBool | None = None
+
+
+class Tool(BaseMetadata):
+  """A single ``Tool`` definition (§16.3) — the Python analogue of the TS ``ToolSchema``.
+
+  Extends ``BaseMetadata`` (``name`` REQUIRED, ``title`` OPTIONAL) with the schema and
+  display fields. ``inputSchema`` is REQUIRED and its root ``type`` MUST be ``"object"``
+  (R-16.3-k, R-16.4-d); ``outputSchema`` / ``annotations`` / ``icons`` / ``_meta`` are
+  OPTIONAL. Unknown members pass through (forward-compatible).
+  """
+
+  description: str | None = None
+  input_schema: _InputSchema
+  output_schema: dict[str, Any] | None = None
+  annotations: ToolAnnotations | None = None
+  icons: list[Icon] | None = None
+  meta: dict[str, Any] | None = Field(default=None, alias="_meta")
+
+
 def is_valid_tool(value: object) -> bool:
   """Return ``True`` for a well-formed ``Tool`` (§16.3): ``BaseMetadata`` + REQUIRED
   ``inputSchema`` whose root ``type`` is ``"object"``; OPTIONAL ``description``,
   ``outputSchema``, ``annotations``, ``icons``, ``_meta``. (R-16.3-a/-k, R-16.4-d)
   """
-  if not is_valid_base_metadata(value):
-    return False
-  if "description" in value and not isinstance(value["description"], str):
-    return False
-  input_schema = value.get("inputSchema")
-  if not isinstance(input_schema, dict) or input_schema.get("type") != "object":
-    return False
-  if "outputSchema" in value and not isinstance(value["outputSchema"], dict):
-    return False
-  if "annotations" in value and not isinstance(value["annotations"], dict):
-    return False
-  if "icons" in value and not isinstance(value["icons"], list):
-    return False
-  if "_meta" in value and not isinstance(value["_meta"], dict):
-    return False
-  return True
+  return validates(Tool, value)
 
 
 def tool_display_name(tool: dict) -> str:
@@ -345,26 +382,29 @@ def disambiguate_tool_name(server_id: str, name: str, separator: str = ".") -> s
 
 # ─── §16.2 Listing tools: tools/list ──────────────────────────────────────────
 
+class ListToolsResult(McpModel):
+  """The result of ``tools/list`` (§16.2) — the Python analogue of the TS
+  ``ListToolsResultSchema``.
+
+  Simultaneously a paginated result (``nextCursor``, §12) and a cacheable result
+  (``ttlMs`` / ``cacheScope``, §13) wrapping the REQUIRED page of ``Tool`` definitions.
+  ``resultType`` is fixed to ``"complete"`` (R-16.2-m).
+  """
+
+  result_type: Literal["complete"]
+  tools: list[Tool]
+  next_cursor: str | None = None
+  ttl_ms: Annotated[StrictInt, Field(ge=0)]
+  cache_scope: CacheScope
+  meta: dict[str, Any] | None = Field(default=None, alias="_meta")
+
+
 def is_valid_list_tools_result(value: object) -> bool:
   """Return ``True`` for a well-formed ``ListToolsResult`` (§16.2): ``resultType``
   ``"complete"``, a ``tools`` list of valid Tools, OPTIONAL opaque ``nextCursor``,
   REQUIRED non-negative ``ttlMs`` and ``cacheScope``. (R-16.2-b/-c/-g/-j/-m)
   """
-  if not isinstance(value, dict):
-    return False
-  if value.get("resultType") != "complete":
-    return False
-  tools = value.get("tools")
-  if not isinstance(tools, list) or not all(is_valid_tool(t) for t in tools):
-    return False
-  if "nextCursor" in value and not isinstance(value["nextCursor"], str):
-    return False
-  ttl = value.get("ttlMs")
-  if not isinstance(ttl, int) or isinstance(ttl, bool) or ttl < 0:
-    return False
-  if value.get("cacheScope") not in ("public", "private"):
-    return False
-  return "_meta" not in value or isinstance(value["_meta"], dict)
+  return validates(ListToolsResult, value)
 
 
 @dataclass(frozen=True)
@@ -399,16 +439,20 @@ def build_list_tools_result(config: ListToolsResultConfig) -> dict:
   return result
 
 
+class ListToolsRequestParams(McpModel):
+  """The ``params`` of a ``tools/list`` request (§16.2): OPTIONAL opaque ``cursor`` and
+  OPTIONAL ``_meta``; a first-page request MAY omit both. (R-16.2-a)
+  """
+
+  cursor: str | None = None
+  meta: dict[str, Any] | None = Field(default=None, alias="_meta")
+
+
 def is_valid_list_tools_request_params(value: object) -> bool:
   """Return ``True`` for a valid ``tools/list`` ``params`` object (§16.2): OPTIONAL opaque
-  string ``cursor`` and OPTIONAL ``_meta`` map; extra members tolerated. A first-page
-  request MAY omit ``cursor`` (so ``{}`` is valid). (R-16.2-a; mirrors the S18 Cursor shape.)
+  string ``cursor`` and OPTIONAL ``_meta`` map; extra members tolerated. (R-16.2-a)
   """
-  if not isinstance(value, dict):
-    return False
-  if "cursor" in value and not isinstance(value["cursor"], str):
-    return False
-  return "_meta" not in value or isinstance(value["_meta"], dict)
+  return validates(ListToolsRequestParams, value)
 
 
 def is_valid_list_tools_request(value: object) -> bool:

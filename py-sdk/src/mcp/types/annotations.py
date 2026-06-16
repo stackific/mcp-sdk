@@ -7,11 +7,28 @@ or context-inclusion.
 
 from __future__ import annotations
 
-from mcp.types.role import is_role
+from typing import Annotated
+
+from pydantic import Field
+
+from mcp._model import JsonNumber, McpModel, validates
+from mcp.types.role import Role
 
 
-def _is_number(value: object) -> bool:
-  return isinstance(value, (int, float)) and not isinstance(value, bool)
+class Annotations(McpModel):
+  """Optional hints about a piece of content or a resource (§14.6) — the Python analogue
+  of the TS ``AnnotationsSchema``.
+
+  All fields are OPTIONAL; an absent or empty object is valid. Unknown members pass
+  through (forward-compatible).
+  """
+
+  #: OPTIONAL. Intended audience as ``Role`` values, e.g. ``["user", "assistant"]``. (R-14.6-b)
+  audience: list[Role] | None = None
+  #: OPTIONAL. Importance for operating the server, inclusive ``0..1``. (R-14.6-c, R-14.6-d)
+  priority: Annotated[JsonNumber, Field(ge=0, le=1)] | None = None
+  #: OPTIONAL. ISO-8601 last-modified timestamp, e.g. ``"2025-01-12T15:00:58Z"``. (R-14.6-e)
+  last_modified: str | None = None
 
 
 def is_valid_annotations(value: object) -> bool:
@@ -20,19 +37,7 @@ def is_valid_annotations(value: object) -> bool:
   All fields OPTIONAL (an empty object is valid); extra members are tolerated:
 
   * ``audience`` — list of ``Role`` values (R-14.6-b);
-  * ``priority`` — number in the inclusive range ``0..1`` (R-14.6-c, R-14.6-d);
+  * ``priority`` — number in the inclusive range ``0..1``, booleans rejected (R-14.6-c, R-14.6-d);
   * ``lastModified`` — ISO-8601 timestamp string (R-14.6-e).
   """
-  if not isinstance(value, dict):
-    return False
-  if "audience" in value:
-    audience = value["audience"]
-    if not isinstance(audience, list) or not all(is_role(r) for r in audience):
-      return False
-  if "priority" in value:
-    priority = value["priority"]
-    if not _is_number(priority) or not (0 <= priority <= 1):
-      return False
-  if "lastModified" in value and not isinstance(value["lastModified"], str):
-    return False
-  return True
+  return validates(Annotations, value)

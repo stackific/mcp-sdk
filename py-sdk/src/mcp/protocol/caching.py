@@ -12,8 +12,16 @@ as access control, and clients MAY ignore them. (R-13.4-f, R-13.3-d, R-13.3-e)
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Annotated, Any, Literal
+
+from pydantic import Field, StrictInt
+
+from mcp._model import McpModel, validates
 
 # ─── CacheScope (§13.3) ───────────────────────────────────────────────────────
+
+#: The two sharing-scope values as a field type (the analogue of the TS ``CacheScopeSchema``).
+CacheScope = Literal["public", "private"]
 
 #: The two sharing-scope values for a cached result. (§13.3) Unknown/absent → "private".
 #:
@@ -61,32 +69,33 @@ def has_both_or_neither_cache_hints(result: dict) -> bool:
 
 # ─── CacheableResult (§13.1) ──────────────────────────────────────────────────
 
+class CacheableResult(McpModel):
+  """A result augmented with the two REQUIRED caching-hint fields (§13.1) — the Python
+  analogue of the TS ``CacheableResultSchema``.
+
+  * REQUIRED string ``resultType`` (the §3.6 / S04 base discriminator).
+  * REQUIRED non-negative integer ``ttlMs`` (``0`` allowed; negatives / non-integers /
+    ``bool`` rejected — ``StrictInt`` accepts only a real ``int``). (R-13.1-a, R-13.2-a)
+  * REQUIRED ``cacheScope`` exactly ``"public"`` or ``"private"``. (R-13.1-d)
+  * OPTIONAL object ``_meta``.
+
+  Both hint fields MUST be present together (R-13.1-g); method-specific payload members
+  (``tools`` / ``contents`` / ``nextCursor`` …) pass through (forward-compatible).
+  """
+
+  result_type: str
+  ttl_ms: Annotated[StrictInt, Field(ge=0)]
+  cache_scope: CacheScope
+  meta: dict[str, Any] | None = Field(default=None, alias="_meta")
+
+
 def is_valid_cacheable_result(value: object) -> bool:
   """Return ``True`` for a valid ``CacheableResult`` wire object. (§13.1)
 
-  Python analogue of the TS ``CacheableResultSchema``: the base ``Result`` shape (§3.6)
-  augmented with the two REQUIRED caching-hint fields, both of which MUST appear and be
-  valid:
-
-  * REQUIRED string ``resultType`` (the §3.6 / S04 base discriminator). (R-3.6-a)
-  * OPTIONAL object ``_meta``. (R-3.6-c)
-  * REQUIRED non-negative integer ``ttlMs`` (``0`` allowed; negatives / non-integers /
-    ``bool`` rejected). (R-13.1-a, R-13.2-a)
-  * REQUIRED ``cacheScope`` exactly ``"public"`` or ``"private"``. (R-13.1-d)
-
-  Method-specific payload members (e.g. ``tools`` / ``contents`` / ``nextCursor``) are
-  preserved — the TS schema uses ``.passthrough()``; here additional members are simply
-  tolerated. Both hint fields MUST be present together on a cacheable result. (R-13.1-g)
+  The base ``Result`` shape augmented with the two REQUIRED caching-hint fields, both of
+  which MUST appear and be valid (see :class:`CacheableResult`). (R-13.1-a/-d/-g)
   """
-  if not isinstance(value, dict):
-    return False
-  if not isinstance(value.get("resultType"), str):
-    return False
-  if "_meta" in value and not isinstance(value["_meta"], dict):
-    return False
-  if "ttlMs" not in value or "cacheScope" not in value:
-    return False
-  return is_cache_hint_valid(value["ttlMs"], value["cacheScope"])
+  return validates(CacheableResult, value)
 
 
 def resolve_cache_scope(scope: object) -> str:

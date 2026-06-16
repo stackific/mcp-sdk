@@ -21,12 +21,28 @@ schema into a ``is_valid_*`` predicate plus a matching ``build_*`` constructor (
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Annotated, Any
 
+from pydantic import BeforeValidator, Field
+
+from mcp._model import JsonNumber, McpModel, validates
 from mcp.jsonrpc.payload import is_progress_token
 
 #: Re-export so callers can validate a ``ProgressToken`` from this module directly. A
 #: progress token is an opaque string or number; ``bool`` is rejected. (R-15.1.1-a)
 is_valid_progress_token = is_progress_token
+
+
+def _reject_bool(value: Any) -> Any:
+  """Reject ``bool`` so ``True``/``False`` are not accepted as a string-or-number token/id."""
+  if isinstance(value, bool):
+    raise ValueError("expected a string or number, not a boolean")
+  return value
+
+
+#: An opaque ``string | number`` progress token / request id — booleans rejected, like the
+#: TS ``ProgressTokenSchema`` / ``RequestIdSchema``. (R-15.1.1-a)
+StringOrNumber = Annotated[str | int | float, BeforeValidator(_reject_bool)]
 
 
 # ─── Method names ─────────────────────────────────────────────────────────────
@@ -52,26 +68,29 @@ def _is_number(value: object) -> bool:
 
 # ─── ProgressNotification (§15.1.3) ───────────────────────────────────────────
 
+class ProgressNotificationParams(McpModel):
+  """``notifications/progress`` params (§15.1.3) — the Python analogue of the TS
+  ``ProgressNotificationParamsSchema``.
+
+  ``progressToken`` (REQUIRED) correlates to the opted-in request; ``progress`` (REQUIRED)
+  is a number that MUST strictly increase across successive notifications (monotonicity is
+  enforced at runtime by :class:`ProgressTracker`); ``total`` / ``message`` are OPTIONAL.
+  """
+
+  progress_token: StringOrNumber
+  progress: JsonNumber
+  total: JsonNumber | None = None
+  message: str | None = None
+  meta: dict[str, Any] | None = Field(default=None, alias="_meta")
+
+
 def is_valid_progress_notification_params(value: object) -> bool:
   """Return ``True`` for valid ``notifications/progress`` params. (§15.1.3)
 
-  ``progressToken`` (REQUIRED) correlates the notification to the opted-in request
-  (R-15.1.3-a); ``progress`` (REQUIRED) is a number that MUST strictly increase across
-  successive notifications for the same token (R-15.1.3-d, R-15.1.3-e); ``total``
-  (OPTIONAL) and ``message`` (OPTIONAL) are a number and a string respectively
-  (R-15.1.3-g, R-15.1.3-j). Unknown extra keys pass through (Zod ``.passthrough()``).
+  ``progressToken`` + ``progress`` REQUIRED; ``total`` (number) / ``message`` (string)
+  OPTIONAL. (R-15.1.3-a/-d/-g/-j) See :class:`ProgressNotificationParams`.
   """
-  if not isinstance(value, dict):
-    return False
-  if not is_progress_token(value.get("progressToken")):
-    return False
-  if not _is_number(value.get("progress")):
-    return False
-  if "total" in value and not _is_number(value["total"]):
-    return False
-  if "message" in value and not isinstance(value["message"], str):
-    return False
-  return "_meta" not in value or isinstance(value["_meta"], dict)
+  return validates(ProgressNotificationParams, value)
 
 
 def build_progress_notification_params(
@@ -149,21 +168,28 @@ def _is_request_id(value: object) -> bool:
   return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
-def is_valid_cancelled_notification_params(value: object) -> bool:
-  """Return ``True`` for valid ``notifications/cancelled`` params. (§15.2.1)
+class CancelledNotificationParams(McpModel):
+  """``notifications/cancelled`` params (§15.2.1) — the Python analogue of the TS
+  ``CancelledNotificationParamsSchema``.
 
   ``requestId`` is OPTIONAL in the schema *shape* so a receiver tolerates malformed
   cancellations gracefully (R-15.2.2-f); when present it MUST be a string or number
-  referencing an in-flight request the sender issued (R-15.2.1-a, R-15.2.1-b). ``reason``
-  (OPTIONAL) is a human-readable string (R-15.2.1-c). Unknown extra keys pass through.
+  referencing an in-flight request the sender issued (R-15.2.1-a/-b). ``reason`` (OPTIONAL)
+  is a human-readable string (R-15.2.1-c).
   """
-  if not isinstance(value, dict):
-    return False
-  if "requestId" in value and not _is_request_id(value["requestId"]):
-    return False
-  if "reason" in value and not isinstance(value["reason"], str):
-    return False
-  return "_meta" not in value or isinstance(value["_meta"], dict)
+
+  request_id: StringOrNumber | None = None
+  reason: str | None = None
+  meta: dict[str, Any] | None = Field(default=None, alias="_meta")
+
+
+def is_valid_cancelled_notification_params(value: object) -> bool:
+  """Return ``True`` for valid ``notifications/cancelled`` params. (§15.2.1)
+
+  ``requestId`` OPTIONAL (string or number when present); ``reason`` OPTIONAL string. See
+  :class:`CancelledNotificationParams`. (R-15.2.1-a/-b/-c, R-15.2.2-f)
+  """
+  return validates(CancelledNotificationParams, value)
 
 
 def build_cancelled_notification_params(

@@ -8,16 +8,28 @@ Not sent as a standalone wire message; it contributes ``name`` (REQUIRED) and ``
 
 from __future__ import annotations
 
+from mcp._model import McpModel, validates
+
+
+class BaseMetadata(McpModel):
+  """The minimal name/title identity pair (§14.1) — the Python analogue of the TS
+  ``BaseMetadataSchema``.
+
+  All §14 field names are case-sensitive and reproduced exactly (R-14-a). Unknown members
+  pass through (forward-compatible); a reserved ``_meta`` member is therefore tolerated.
+  """
+
+  #: REQUIRED. Programmatic/logical identifier; stable key for code and protocol. (R-14.1-a)
+  name: str
+  #: OPTIONAL. Human display name for end users, including non-experts. (R-14.1-b)
+  title: str | None = None
+
 
 def is_valid_base_metadata(value: object) -> bool:
   """Return ``True`` for a valid ``BaseMetadata``: REQUIRED string ``name``, OPTIONAL
   string ``title``. (§14.1, R-14.1-a, R-14.1-b)
   """
-  if not isinstance(value, dict):
-    return False
-  if not isinstance(value.get("name"), str):
-    return False
-  return "title" not in value or isinstance(value["title"], str)
+  return validates(BaseMetadata, value)
 
 
 def resolve_display_name(name: str, title: str | None = None, annotations_title: str | None = None) -> str:

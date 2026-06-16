@@ -45,7 +45,11 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import Annotated, Any, Literal
 
+from pydantic import BeforeValidator, Field, StrictBool
+
+from mcp._model import JsonNumber, McpModel, validates
 from mcp.jsonrpc.framing import MalformedMessageError, classify_message
 from mcp.protocol.errors import (
   INTERNAL_ERROR_CODE,
@@ -55,11 +59,11 @@ from mcp.protocol.errors import (
 )
 from mcp.protocol.logging import LOGGING_MESSAGE_METHOD
 from mcp.protocol.ui import (
+  UiContentSecurityPolicy,
+  UiPermissions,
   host_should_reject_ui_originated_call,
-  is_ui_content_security_policy,
-  is_ui_permissions,
 )
-from mcp.types.content import is_valid_content_block
+from mcp.types.content import parse_content_block
 
 
 def _is_object(value: object) -> bool:
@@ -69,6 +73,18 @@ def _is_object(value: object) -> bool:
 def _is_number(value: object) -> bool:
   """Return ``True`` for a JSON number (``int``/``float``) that is not a ``bool``."""
   return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _validate_content_blocks(items: Any) -> list:
+  """Validate a §14 ``ContentBlock`` array (each via :func:`parse_content_block`)."""
+  if not isinstance(items, list):
+    raise ValueError("content MUST be an array of ContentBlock")
+  return [parse_content_block(block) for block in items]
+
+
+#: A display mode + a §14 ``ContentBlock`` array, as field types for the dialect models.
+UiDisplayMode = Literal["inline", "fullscreen", "pip"]
+_ContentBlockList = Annotated[list[Any], BeforeValidator(_validate_content_blocks)]
 
 
 # ─── §26.5 — Dialect protocol version ─────────────────────────────────────────
@@ -192,55 +208,52 @@ def ui_dialect_registry_entry(name: str) -> UiDialectRegistryEntry | None:
 # ─── §26.5.1 — ui/initialize request params ───────────────────────────────────
 
 
-def is_valid_ui_client_info(value: object) -> bool:
-  """Return ``True`` for valid ``UiClientInfo`` — REQUIRED string ``name`` and string
-  ``version``; forward-compatible extras allowed. (§26.5.1)
+class _ListChangedCapability(McpModel):
+  """A ``{ listChanged?: boolean }`` capability bag (strict bool)."""
+
+  list_changed: StrictBool | None = None
+
+
+class UiClientInfo(McpModel):
+  """``UiClientInfo`` (§26.5.1): REQUIRED string ``name`` + ``version``."""
+
+  name: str
+  version: str
+
+
+class UiAppCapabilities(McpModel):
+  """``UiAppCapabilities`` (§26.5.1): all OPTIONAL — ``experimental``, ``tools``
+  (``{listChanged?}``), ``availableDisplayModes`` (display-mode array).
   """
-  return isinstance(value, dict) and isinstance(value.get("name"), str) and isinstance(value.get("version"), str)
+
+  experimental: dict[str, Any] | None = None
+  tools: _ListChangedCapability | None = None
+  available_display_modes: list[UiDisplayMode] | None = None
+
+
+class UiInitializeParams(McpModel):
+  """``ui/initialize`` params (§26.5.1) — all OPTIONAL (a UI MAY open with no params):
+  ``protocolVersion``, ``clientInfo``, ``appCapabilities``.
+  """
+
+  protocol_version: str | None = None
+  client_info: UiClientInfo | None = None
+  app_capabilities: UiAppCapabilities | None = None
+
+
+def is_valid_ui_client_info(value: object) -> bool:
+  """Return ``True`` for valid ``UiClientInfo`` — REQUIRED string ``name`` and ``version``. (§26.5.1)"""
+  return validates(UiClientInfo, value)
 
 
 def is_valid_ui_app_capabilities(value: object) -> bool:
-  """Return ``True`` for valid ``UiAppCapabilities`` — capabilities the UI offers in
-  ``ui/initialize.params.appCapabilities``. (§26.5.1)
-
-  All members OPTIONAL: ``experimental`` (object), ``tools`` (object with optional
-  boolean ``listChanged``), ``availableDisplayModes`` (array of display-mode strings).
-  Forward-compatible extras allowed.
-  """
-  if not isinstance(value, dict):
-    return False
-  if "experimental" in value and not _is_object(value["experimental"]):
-    return False
-  if "tools" in value:
-    tools = value["tools"]
-    if not _is_object(tools):
-      return False
-    if "listChanged" in tools and not isinstance(tools["listChanged"], bool):
-      return False
-  if "availableDisplayModes" in value:
-    modes = value["availableDisplayModes"]
-    if not isinstance(modes, list) or not all(is_ui_display_mode(m) for m in modes):
-      return False
-  return True
+  """Return ``True`` for valid ``UiAppCapabilities``. (§26.5.1)"""
+  return validates(UiAppCapabilities, value)
 
 
 def is_valid_ui_initialize_params(value: object) -> bool:
-  """Return ``True`` for valid ``UiInitializeParams`` — params of the ``ui/initialize``
-  request the UI sends to open the channel. (§26.5.1)
-
-  Every field is OPTIONAL: a UI MAY open the channel with no params at all. When present:
-  ``protocolVersion`` (string), ``clientInfo`` (``UiClientInfo``), ``appCapabilities``
-  (``UiAppCapabilities``). Forward-compatible extras allowed.
-  """
-  if not isinstance(value, dict):
-    return False
-  if "protocolVersion" in value and not isinstance(value["protocolVersion"], str):
-    return False
-  if "clientInfo" in value and not is_valid_ui_client_info(value["clientInfo"]):
-    return False
-  if "appCapabilities" in value and not is_valid_ui_app_capabilities(value["appCapabilities"]):
-    return False
-  return True
+  """Return ``True`` for valid ``UiInitializeParams``. (§26.5.1)"""
+  return validates(UiInitializeParams, value)
 
 
 # ─── §26.5.1 — UiHostContext ──────────────────────────────────────────────────
@@ -251,279 +264,285 @@ UI_THEMES = ("light", "dark")
 UI_PLATFORMS = ("web", "desktop", "mobile")
 
 
-def is_valid_ui_host_info(value: object) -> bool:
-  """Return ``True`` for valid ``UiHostInfo`` — REQUIRED string ``name`` and string
-  ``version``; forward-compatible extras allowed. (§26.5.1)
+class UiHostInfo(McpModel):
+  """``UiHostInfo`` (§26.5.1): REQUIRED string ``name`` + ``version``."""
+
+  name: str
+  version: str
+
+
+class _UiToolInfo(McpModel):
+  """``UiHostContext.toolInfo``: OPTIONAL ``id`` (string/number) + REQUIRED ``tool`` object."""
+
+  id: str | JsonNumber | None = None
+  tool: dict[str, Any]
+
+
+class _UiCss(McpModel):
+  fonts: str | None = None
+
+
+class _UiStyles(McpModel):
+  variables: dict[str, str] | None = None
+  css: _UiCss | None = None
+
+
+class _UiContainerDimensions(McpModel):
+  height: JsonNumber | None = None
+  max_height: JsonNumber | None = None
+  width: JsonNumber | None = None
+  max_width: JsonNumber | None = None
+
+
+class _UiDeviceCapabilities(McpModel):
+  touch: StrictBool | None = None
+  hover: StrictBool | None = None
+
+
+class _UiSafeAreaInsets(McpModel):
+  top: JsonNumber
+  right: JsonNumber
+  bottom: JsonNumber
+  left: JsonNumber
+
+
+class UiHostContext(McpModel):
+  """The rendering environment a host delivers to a UI (§26.5.1) — also the PARTIAL shape of
+  ``ui/notifications/host-context-changed`` (§26.5.4). Every member is OPTIONAL, so the same
+  model accepts the full initial context and a partial change (``{}`` is valid).
   """
-  return isinstance(value, dict) and isinstance(value.get("name"), str) and isinstance(value.get("version"), str)
+
+  tool_info: _UiToolInfo | None = None
+  theme: Literal["light", "dark"] | None = None
+  styles: _UiStyles | None = None
+  display_mode: UiDisplayMode | None = None
+  available_display_modes: list[str] | None = None
+  container_dimensions: _UiContainerDimensions | None = None
+  locale: str | None = None
+  time_zone: str | None = None
+  user_agent: str | None = None
+  platform: Literal["web", "desktop", "mobile"] | None = None
+  device_capabilities: _UiDeviceCapabilities | None = None
+  safe_area_insets: _UiSafeAreaInsets | None = None
+
+
+def is_valid_ui_host_info(value: object) -> bool:
+  """Return ``True`` for valid ``UiHostInfo`` — REQUIRED string ``name`` and ``version``. (§26.5.1)"""
+  return validates(UiHostInfo, value)
 
 
 def is_valid_ui_host_context(value: object) -> bool:
   """Return ``True`` for valid ``UiHostContext`` — the rendering environment the host
   delivers to the UI in the initialize result, and (as a PARTIAL) in
-  ``ui/notifications/host-context-changed``. (§26.5.1, §26.5.4)
-
-  Every member is OPTIONAL, so the same validator accepts both the full initial context
-  and a partial change carrying only the changed members (``{}`` is valid). Each present
-  member is validated against its shape, mirroring the §26.5.1 ``UiHostContext`` interface:
-  ``toolInfo`` (object with OPTIONAL ``id`` string/number and REQUIRED ``tool`` object),
-  ``theme`` / ``platform`` (enums), ``styles`` (``variables`` string map + ``css.fonts``
-  string), ``displayMode`` (enum), ``availableDisplayModes`` (string array),
-  ``containerDimensions`` (OPTIONAL numeric ``height`` / ``maxHeight`` / ``width`` /
-  ``maxWidth``), the string members ``locale`` / ``timeZone`` / ``userAgent``,
-  ``deviceCapabilities`` (OPTIONAL boolean ``touch`` / ``hover``), and ``safeAreaInsets``
-  (REQUIRED numeric ``top`` / ``right`` / ``bottom`` / ``left``). Forward-compatible
-  extras are accepted.
+  ``ui/notifications/host-context-changed``. Every member is OPTIONAL. (§26.5.1, §26.5.4)
   """
-  if not isinstance(value, dict):
-    return False
-  if "toolInfo" in value:
-    tool_info = value["toolInfo"]
-    if not isinstance(tool_info, dict):
-      return False
-    if "id" in tool_info and not (isinstance(tool_info["id"], str) or _is_number(tool_info["id"])):
-      return False
-    if not _is_object(tool_info.get("tool")):
-      return False
-  if "theme" in value and value["theme"] not in UI_THEMES:
-    return False
-  if "styles" in value:
-    styles = value["styles"]
-    if not isinstance(styles, dict):
-      return False
-    if "variables" in styles:
-      variables = styles["variables"]
-      if not isinstance(variables, dict) or not all(isinstance(v, str) for v in variables.values()):
-        return False
-    if "css" in styles:
-      css = styles["css"]
-      if not isinstance(css, dict):
-        return False
-      if "fonts" in css and not isinstance(css["fonts"], str):
-        return False
-  if "displayMode" in value and not is_ui_display_mode(value["displayMode"]):
-    return False
-  if "availableDisplayModes" in value:
-    modes = value["availableDisplayModes"]
-    if not isinstance(modes, list) or not all(isinstance(m, str) for m in modes):
-      return False
-  if "containerDimensions" in value:
-    dims = value["containerDimensions"]
-    if not isinstance(dims, dict):
-      return False
-    for key in ("height", "maxHeight", "width", "maxWidth"):
-      if key in dims and not _is_number(dims[key]):
-        return False
-  for key in ("locale", "timeZone", "userAgent"):
-    if key in value and not isinstance(value[key], str):
-      return False
-  if "platform" in value and value["platform"] not in UI_PLATFORMS:
-    return False
-  if "deviceCapabilities" in value:
-    caps = value["deviceCapabilities"]
-    if not isinstance(caps, dict):
-      return False
-    for key in ("touch", "hover"):
-      if key in caps and not isinstance(caps[key], bool):
-        return False
-  if "safeAreaInsets" in value:
-    insets = value["safeAreaInsets"]
-    if not isinstance(insets, dict):
-      return False
-    for key in ("top", "right", "bottom", "left"):
-      if not _is_number(insets.get(key)):
-        return False
-  return True
+  return validates(UiHostContext, value)
 
 
 # ─── §26.5.1 — UiInitializeResult ─────────────────────────────────────────────
 
 
-def is_valid_ui_sandbox_report(value: object) -> bool:
-  """Return ``True`` for valid ``UiSandboxReport`` — what the host actually granted: the
-  effective CSP it applied and the permissions it granted. (§26.5.1, §26.7)
-
-  Both OPTIONAL: ``permissions`` reports the GRANTED set (R-26.7-h), ``csp`` reports the
-  EFFECTIVE policy (R-26.7-g). The shapes reuse :func:`~mcp.protocol.ui.is_ui_permissions`
-  / :func:`~mcp.protocol.ui.is_ui_content_security_policy`.
+class UiSandboxReport(McpModel):
+  """``UiSandboxReport`` (§26.5.1, §26.7): the EFFECTIVE ``csp`` the host applied and the
+  GRANTED ``permissions`` set; both OPTIONAL. (R-26.7-g/-h)
   """
-  if not isinstance(value, dict):
-    return False
-  if "permissions" in value and not is_ui_permissions(value["permissions"]):
-    return False
-  if "csp" in value and not is_ui_content_security_policy(value["csp"]):
-    return False
-  return True
+
+  permissions: UiPermissions | None = None
+  csp: UiContentSecurityPolicy | None = None
 
 
-def _is_listchanged_capability(value: object) -> bool:
-  """Return ``True`` for the ``{ listChanged?: boolean }`` capability-bag shape."""
-  if not isinstance(value, dict):
-    return False
-  return "listChanged" not in value or isinstance(value["listChanged"], bool)
+class UiHostCapabilities(McpModel):
+  """``UiHostCapabilities`` (§26.5.1): all OPTIONAL — ``experimental`` / ``openLinks`` /
+  ``logging`` objects, ``serverTools`` / ``serverResources`` (``{listChanged?}`` bags), and
+  the ``sandbox`` report.
+  """
+
+  experimental: dict[str, Any] | None = None
+  open_links: dict[str, Any] | None = None
+  logging: dict[str, Any] | None = None
+  server_tools: _ListChangedCapability | None = None
+  server_resources: _ListChangedCapability | None = None
+  sandbox: UiSandboxReport | None = None
+
+
+class UiInitializeResult(McpModel):
+  """The host's reply to ``ui/initialize`` (§26.5.1): REQUIRED string ``protocolVersion``;
+  OPTIONAL ``hostInfo`` / ``hostCapabilities`` / ``hostContext``. (R-26.5.1-b)
+  """
+
+  protocol_version: str
+  host_info: UiHostInfo | None = None
+  host_capabilities: UiHostCapabilities | None = None
+  host_context: UiHostContext | None = None
+
+
+def is_valid_ui_sandbox_report(value: object) -> bool:
+  """Return ``True`` for valid ``UiSandboxReport`` — effective CSP + granted permissions. (§26.5.1, §26.7)"""
+  return validates(UiSandboxReport, value)
 
 
 def is_valid_ui_host_capabilities(value: object) -> bool:
-  """Return ``True`` for valid ``UiHostCapabilities`` — host capabilities reported in the
-  initialize result. (§26.5.1)
-
-  All members OPTIONAL. The presence of ``openLinks`` signals the host honors
-  ``ui/open-link``; ``sandbox`` carries the effective CSP and granted permissions (§26.7,
-  validated by :func:`is_valid_ui_sandbox_report`). The plain-object members
-  ``experimental`` / ``openLinks`` / ``logging`` are validated structurally;
-  ``serverTools`` / ``serverResources`` are ``{ listChanged?: boolean }`` bags; forward-
-  compatible extras allowed.
-  """
-  if not isinstance(value, dict):
-    return False
-  for key in ("experimental", "openLinks", "logging"):
-    if key in value and not _is_object(value[key]):
-      return False
-  for key in ("serverTools", "serverResources"):
-    if key in value and not _is_listchanged_capability(value[key]):
-      return False
-  if "sandbox" in value and not is_valid_ui_sandbox_report(value["sandbox"]):
-    return False
-  return True
+  """Return ``True`` for valid ``UiHostCapabilities`` — host capabilities in the initialize result. (§26.5.1)"""
+  return validates(UiHostCapabilities, value)
 
 
 def is_ui_initialize_result(value: object) -> bool:
-  """Return ``True`` when ``value`` is a well-formed ``UiInitializeResult`` — the host's
-  reply to ``ui/initialize`` — in particular it carries a string ``protocolVersion``.
-  The absence of that field is a conformance failure. (§26.5.1, R-26.5.1-b; AC-42.4)
-
-  ``hostInfo``, ``hostCapabilities``, and ``hostContext`` are OPTIONAL; when present they
-  are validated against their respective shapes. Forward-compatible extras allowed.
+  """Return ``True`` for a well-formed ``UiInitializeResult`` — REQUIRED string
+  ``protocolVersion``; OPTIONAL host info/capabilities/context. (§26.5.1, R-26.5.1-b; AC-42.4)
   """
-  if not isinstance(value, dict):
-    return False
-  if not isinstance(value.get("protocolVersion"), str):
-    return False
-  if "hostInfo" in value and not is_valid_ui_host_info(value["hostInfo"]):
-    return False
-  if "hostCapabilities" in value and not is_valid_ui_host_capabilities(value["hostCapabilities"]):
-    return False
-  if "hostContext" in value and not is_valid_ui_host_context(value["hostContext"]):
-    return False
-  return True
+  return validates(UiInitializeResult, value)
 
 
 # ─── §26.5.2 — Host → UI delivery notification params ─────────────────────────
 
 
-def is_valid_tool_input_params(value: object) -> bool:
-  """Return ``True`` for valid ``ToolInputParams`` — params of ``ui/notifications/tool-input``
-  and, identically, ``ui/notifications/tool-input-partial``: a REQUIRED ``arguments``
-  object carrying the (complete or partial) tool arguments. (§26.5.2)
+class ToolInputParams(McpModel):
+  """``ui/notifications/tool-input`` (and ``-partial``) params (§26.5.2): a REQUIRED
+  ``arguments`` object (the complete or partial tool arguments).
   """
-  return isinstance(value, dict) and _is_object(value.get("arguments"))
+
+  arguments: dict[str, Any]
+
+
+class ToolResultParams(McpModel):
+  """``ui/notifications/tool-result`` params (§26.5.2): the §16 tool-result shape — all
+  OPTIONAL ``content`` (ContentBlock array), ``structuredContent`` (any), ``isError``, ``_meta``.
+  """
+
+  content: _ContentBlockList | None = None
+  structured_content: Any = None
+  is_error: StrictBool | None = None
+  meta: dict[str, Any] | None = Field(default=None, alias="_meta")
+
+
+class ToolCancelledParams(McpModel):
+  """``ui/notifications/tool-cancelled`` params (§26.5.2): a REQUIRED string ``reason``."""
+
+  reason: str
+
+
+def is_valid_tool_input_params(value: object) -> bool:
+  """Return ``True`` for valid ``ToolInputParams`` — a REQUIRED ``arguments`` object. (§26.5.2)"""
+  return validates(ToolInputParams, value)
 
 
 def is_valid_tool_result_params(value: object) -> bool:
-  """Return ``True`` for valid ``ToolResultParams`` — params of
-  ``ui/notifications/tool-result``, carrying the §16 tool-result shape. (§26.5.2)
-
-  All members OPTIONAL: ``content`` (array of valid §14 content blocks),
-  ``structuredContent`` (any JSON value), ``isError`` (bool), ``_meta`` (object).
-  """
-  if not isinstance(value, dict):
-    return False
-  if "content" in value:
-    content = value["content"]
-    if not isinstance(content, list) or not all(is_valid_content_block(b) for b in content):
-      return False
-  if "isError" in value and not isinstance(value["isError"], bool):
-    return False
-  if "_meta" in value and not _is_object(value["_meta"]):
-    return False
-  return True
+  """Return ``True`` for valid ``ToolResultParams`` — the §16 tool-result shape. (§26.5.2)"""
+  return validates(ToolResultParams, value)
 
 
 def is_valid_tool_cancelled_params(value: object) -> bool:
-  """Return ``True`` for valid ``ToolCancelledParams`` — params of
-  ``ui/notifications/tool-cancelled``: a REQUIRED string ``reason``. (§26.5.2)
-  """
-  return isinstance(value, dict) and isinstance(value.get("reason"), str)
+  """Return ``True`` for valid ``ToolCancelledParams`` — a REQUIRED string ``reason``. (§26.5.2)"""
+  return validates(ToolCancelledParams, value)
 
 
 # ─── §26.5.3 — UI → Host request params/results ───────────────────────────────
 
 
-def is_valid_tools_call_params(value: object) -> bool:
-  """Return ``True`` for valid ``ToolsCallParams`` — params of the UI-initiated
-  ``tools/call`` request, reusing the core §16 tool-call shape: REQUIRED string ``name``,
-  OPTIONAL ``arguments`` object. (§26.5.3)
+class _UiTextContent(McpModel):
+  """A single ``ui/message`` text block: ``type: "text"`` + string ``text``. (§26.5.3)"""
+
+  type: Literal["text"]
+  text: str
+
+
+class ToolsCallParams(McpModel):
+  """UI-initiated ``tools/call`` params (§26.5.3): REQUIRED string ``name``, OPTIONAL
+  ``arguments`` object.
   """
-  if not isinstance(value, dict) or not isinstance(value.get("name"), str):
-    return False
-  return "arguments" not in value or _is_object(value["arguments"])
+
+  name: str
+  arguments: dict[str, Any] | None = None
+
+
+class OpenLinkParams(McpModel):
+  """``ui/open-link`` params (§26.5.3): a REQUIRED string ``url``."""
+
+  url: str
+
+
+class UiMessageParams(McpModel):
+  """``ui/message`` params (§26.5.3): ``role`` always ``"user"``; ``content`` a single text block."""
+
+  role: Literal["user"]
+  content: _UiTextContent
+
+
+class RequestDisplayModeParams(McpModel):
+  """``ui/request-display-mode`` params (§26.5.3): a REQUIRED display-mode ``mode``."""
+
+  mode: UiDisplayMode
+
+
+class RequestDisplayModeResult(McpModel):
+  """``ui/request-display-mode`` result (§26.5.3): the display-mode ``mode`` the host actually
+  applied (MAY differ from the requested one). (R-26.5.3-e)
+  """
+
+  mode: UiDisplayMode
+
+
+class UpdateModelContextParams(McpModel):
+  """``ui/update-model-context`` params (§26.5.3): all OPTIONAL — ``content`` (ContentBlock
+  array), ``structuredContent`` (any).
+  """
+
+  content: _ContentBlockList | None = None
+  structured_content: Any = None
+
+
+def is_valid_tools_call_params(value: object) -> bool:
+  """Return ``True`` for valid ``ToolsCallParams`` — REQUIRED ``name``, OPTIONAL ``arguments``. (§26.5.3)"""
+  return validates(ToolsCallParams, value)
 
 
 def is_valid_open_link_params(value: object) -> bool:
-  """Return ``True`` for valid ``OpenLinkParams`` — params of ``ui/open-link``: a REQUIRED
-  string ``url``. Result is an empty object ``{}``. (§26.5.3)
-  """
-  return isinstance(value, dict) and isinstance(value.get("url"), str)
+  """Return ``True`` for valid ``OpenLinkParams`` — a REQUIRED string ``url``. (§26.5.3)"""
+  return validates(OpenLinkParams, value)
 
 
 def is_valid_ui_message_params(value: object) -> bool:
-  """Return ``True`` for valid ``UiMessageParams`` — params of ``ui/message`` (insert a
-  message into the conversation): ``role`` is always ``"user"``; ``content`` is a single
-  text block (``type: "text"`` + string ``text``). Result is ``{}``. (§26.5.3)
-  """
-  if not isinstance(value, dict) or value.get("role") != "user":
-    return False
-  content = value.get("content")
-  return isinstance(content, dict) and content.get("type") == "text" and isinstance(content.get("text"), str)
+  """Return ``True`` for valid ``UiMessageParams`` — ``role: "user"`` + a single text block. (§26.5.3)"""
+  return validates(UiMessageParams, value)
 
 
 def is_valid_request_display_mode_params(value: object) -> bool:
-  """Return ``True`` for valid ``RequestDisplayModeParams`` — params of
-  ``ui/request-display-mode``: a REQUIRED display-mode ``mode``. (§26.5.3)
-  """
-  return isinstance(value, dict) and is_ui_display_mode(value.get("mode"))
+  """Return ``True`` for valid ``RequestDisplayModeParams`` — a REQUIRED display-mode ``mode``. (§26.5.3)"""
+  return validates(RequestDisplayModeParams, value)
 
 
 def is_valid_request_display_mode_result(value: object) -> bool:
-  """Return ``True`` for valid ``RequestDisplayModeResult`` — result of
-  ``ui/request-display-mode``: a REQUIRED display-mode ``mode`` the host ACTUALLY applied,
-  which MAY differ from the requested mode. (§26.5.3, R-26.5.3-e; AC-42.9)
-  """
-  return isinstance(value, dict) and is_ui_display_mode(value.get("mode"))
+  """Return ``True`` for valid ``RequestDisplayModeResult`` — the applied display-mode ``mode``. (§26.5.3)"""
+  return validates(RequestDisplayModeResult, value)
 
 
 def is_valid_update_model_context_params(value: object) -> bool:
-  """Return ``True`` for valid ``UpdateModelContextParams`` — params of
-  ``ui/update-model-context`` (supply UI content into the model's context). Result is
-  ``{}``. (§26.5.3)
+  """Return ``True`` for valid ``UpdateModelContextParams`` — OPTIONAL ``content`` / ``structuredContent``. (§26.5.3)"""
+  return validates(UpdateModelContextParams, value)
 
-  All members OPTIONAL: ``content`` (array of valid §14 content blocks),
-  ``structuredContent`` (any JSON value).
-  """
-  if not isinstance(value, dict):
-    return False
-  if "content" in value:
-    content = value["content"]
-    if not isinstance(content, list) or not all(is_valid_content_block(b) for b in content):
-      return False
-  return True
+
+class PingParams(McpModel):
+  """``ping`` params (§26.5.3): an object carrying no required parameters. (R-26.5.3-f)"""
 
 
 def is_valid_ping_params(value: object) -> bool:
-  """Return ``True`` for valid ``PingParams`` — params of ``ping`` (either direction): an
-  object carrying no required parameters; the result is likewise ``{}``. (§26.5.3, R-26.5.3-f)
-  """
-  return isinstance(value, dict)
+  """Return ``True`` for valid ``PingParams`` — an object with no required parameters. (§26.5.3)"""
+  return validates(PingParams, value)
 
 
 # ─── §26.5.4 — Host → UI lifecycle / context-change params ────────────────────
 
 
+class SizeChangedParams(McpModel):
+  """``ui/notifications/size-changed`` params (§26.5.4): REQUIRED numeric ``width`` + ``height``."""
+
+  width: JsonNumber
+  height: JsonNumber
+
+
 def is_valid_size_changed_params(value: object) -> bool:
-  """Return ``True`` for valid ``SizeChangedParams`` — params of
-  ``ui/notifications/size-changed``: REQUIRED numeric ``width`` and ``height``. (§26.5.4)
-  """
-  return isinstance(value, dict) and _is_number(value.get("width")) and _is_number(value.get("height"))
+  """Return ``True`` for valid ``SizeChangedParams`` — REQUIRED numeric ``width`` and ``height``. (§26.5.4)"""
+  return validates(SizeChangedParams, value)
 
 
 def is_valid_host_context_changed_params(value: object) -> bool:
@@ -534,34 +553,36 @@ def is_valid_host_context_changed_params(value: object) -> bool:
   return is_valid_ui_host_context(value)
 
 
+class ResourceTeardownParams(McpModel):
+  """``ui/resource-teardown`` params (Host → UI, §26.5.4): a REQUIRED string ``reason``. (R-26.5.4-a)"""
+
+  reason: str
+
+
 def is_valid_resource_teardown_params(value: object) -> bool:
-  """Return ``True`` for valid ``ResourceTeardownParams`` — params of the
-  ``ui/resource-teardown`` request (Host → UI): a REQUIRED string ``reason``. The UI
-  SHOULD release resources and respond with ``{}``. (§26.5.4, R-26.5.4-a; AC-42.11)
-  """
-  return isinstance(value, dict) and isinstance(value.get("reason"), str)
+  """Return ``True`` for valid ``ResourceTeardownParams`` — a REQUIRED string ``reason``. (§26.5.4)"""
+  return validates(ResourceTeardownParams, value)
 
 
 # ─── §26.5.5 — Host-internal sandbox-proxy params ─────────────────────────────
 
 
-def is_valid_sandbox_resource_ready_params(value: object) -> bool:
-  """Return ``True`` for valid ``SandboxResourceReadyParams`` — params of the
-  host-internal ``ui/notifications/sandbox-resource-ready`` notification (Host → Sandbox):
-  delivers the resource HTML and the policy to apply. (§26.5.5)
-
-  REQUIRED string ``html``; OPTIONAL string ``sandbox``, ``csp`` (CSP shape),
-  ``permissions`` (permissions shape).
+class SandboxResourceReadyParams(McpModel):
+  """``ui/notifications/sandbox-resource-ready`` params (Host → Sandbox, §26.5.5): REQUIRED
+  string ``html``; OPTIONAL ``sandbox`` (string), ``csp``, ``permissions``.
   """
-  if not isinstance(value, dict) or not isinstance(value.get("html"), str):
-    return False
-  if "sandbox" in value and not isinstance(value["sandbox"], str):
-    return False
-  if "csp" in value and not is_ui_content_security_policy(value["csp"]):
-    return False
-  if "permissions" in value and not is_ui_permissions(value["permissions"]):
-    return False
-  return True
+
+  html: str
+  sandbox: str | None = None
+  csp: UiContentSecurityPolicy | None = None
+  permissions: UiPermissions | None = None
+
+
+def is_valid_sandbox_resource_ready_params(value: object) -> bool:
+  """Return ``True`` for valid ``SandboxResourceReadyParams`` — REQUIRED ``html`` + OPTIONAL
+  ``sandbox``/``csp``/``permissions``. (§26.5.5)
+  """
+  return validates(SandboxResourceReadyParams, value)
 
 
 # ─── §26.5.1 — Handshake ordering (R-26.5.1-a) ────────────────────────────────

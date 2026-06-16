@@ -14,7 +14,11 @@ choice + includeContext, the request params + result, the capability gating, and
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Annotated, Any, Literal
 
+from pydantic import BeforeValidator, Field, StrictBool, TypeAdapter
+
+from mcp._model import JsonNumber, McpModel, validates
 from mcp.protocol.capability_negotiation import (
   is_deprecated_client_capability,
   may_invoke_sampling,
@@ -22,16 +26,28 @@ from mcp.protocol.capability_negotiation import (
   may_use_sampling_tools,
 )
 from mcp.protocol.errors import INVALID_PARAMS_CODE
+# Re-exported as part of this module's surface: a sampling result carries a ``resultType``
+# discriminator (``"complete"``, or ``"input_required"`` for the §11 MRTR variant), so the
+# two values are available from ``mcp.protocol.sampling`` for callers building result vectors.
+# The redundant ``as`` aliases mark these as intentional re-exports (PEP 484), so they read as
+# public surface rather than dead imports.
 from mcp.jsonrpc.payload import (
-  RESULT_TYPE_COMPLETE,
-  RESULT_TYPE_INPUT_REQUIRED,
+  RESULT_TYPE_COMPLETE as RESULT_TYPE_COMPLETE,
+  RESULT_TYPE_INPUT_REQUIRED as RESULT_TYPE_INPUT_REQUIRED,
 )
 from mcp.types.content import (
-  is_valid_audio_content,
-  is_valid_content_block,
-  is_valid_image_content,
-  is_valid_text_content,
+  AudioContent,
+  ImageContent,
+  TextContent,
+  parse_content_block,
 )
+
+
+def _validate_content_blocks(items: Any) -> list:
+  """Validate a standard ``ContentBlock`` array (each via :func:`parse_content_block`)."""
+  if not isinstance(items, list):
+    raise ValueError("content MUST be an array of ContentBlock")
+  return [parse_content_block(block) for block in items]
 
 # Re-export the reused bindings so the sampling surface is discoverable in one place
 # WITHOUT redefining them (same objects, not duplicates). ``INVALID_PARAMS_CODE`` is the
@@ -58,30 +74,64 @@ def _is_number(value: object) -> bool:
   return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
-def is_tool_use_content(block: object) -> bool:
-  """Return ``True`` for a ``tool_use`` block: ``id``, ``name`` (str) + ``input`` (object).
-  (§21.2.6)
+class ToolUseContent(McpModel):
+  """A sampling ``tool_use`` content block (§21.2.6): ``id``, ``name`` + ``input`` object."""
+
+  type: Literal["tool_use"]
+  id: str
+  name: str
+  input: dict[str, Any]
+
+
+class ToolResultContent(McpModel):
+  """A sampling ``tool_result`` content block (§21.2.6): ``toolUseId`` + an S14 ``ContentBlock``
+  array; OPTIONAL boolean ``isError``, any-JSON ``structuredContent``, ``_meta``.
+  (R-21.2.6-d/-e/-f/-g/-h)
   """
-  if not isinstance(block, dict) or block.get("type") != "tool_use":
-    return False
-  return isinstance(block.get("id"), str) and isinstance(block.get("name"), str) and isinstance(block.get("input"), dict)
+
+  type: Literal["tool_result"]
+  tool_use_id: str
+  content: Annotated[list[Any], BeforeValidator(_validate_content_blocks)]
+  is_error: StrictBool | None = None
+  structured_content: Any = None
+  meta: dict[str, Any] | None = Field(default=None, alias="_meta")
+
+
+#: A sampling content block — tool_use/tool_result plus text/image/audio (resource_link /
+#: embedded resource are excluded from sampling). Discriminated by ``type``. (§21.2.6, R-21.2.6-d)
+SamplingContentBlock = Annotated[
+  ToolUseContent | ToolResultContent | TextContent | ImageContent | AudioContent,
+  Field(discriminator="type"),
+]
+
+_SAMPLING_CONTENT_BLOCK_ADAPTER: TypeAdapter[Any] = TypeAdapter(SamplingContentBlock)
+
+
+class SamplingMessage(McpModel):
+  """A ``SamplingMessage`` (§21.2.6): ``role`` (user/assistant) + ``content`` (a single block
+  or an array of blocks); OPTIONAL ``_meta``.
+
+  .. deprecated::
+    Sampling is a Deprecated client capability (§27.3). No direct replacement; use
+    Elicitation (§20) for structured user input. Earliest removal: 2026-07-28
+    (§27.2/§27.3, R-27.4-a/-b).
+  """
+
+  role: Literal["user", "assistant"]
+  content: SamplingContentBlock | list[SamplingContentBlock]
+  meta: dict[str, Any] | None = Field(default=None, alias="_meta")
+
+
+def is_tool_use_content(block: object) -> bool:
+  """Return ``True`` for a ``tool_use`` block: ``id``, ``name`` (str) + ``input`` (object). (§21.2.6)"""
+  return validates(ToolUseContent, block)
 
 
 def is_tool_result_content(block: object) -> bool:
   """Return ``True`` for a ``tool_result`` block: ``toolUseId`` (str) + ``content`` (an S14
-  ``ContentBlock`` array — text/image/audio/resource_link/embedded resource); OPTIONAL
-  boolean ``isError``, any-JSON ``structuredContent``, dict ``_meta``. (§21.2.6, R-21.2.6-d/-e/-f/-g/-h)
+  ``ContentBlock`` array); OPTIONAL ``isError``/``structuredContent``/``_meta``. (§21.2.6)
   """
-  if not isinstance(block, dict) or block.get("type") != "tool_result":
-    return False
-  content = block.get("content")
-  if not isinstance(block.get("toolUseId"), str) or not isinstance(content, list):
-    return False
-  if not all(is_valid_content_block(b) for b in content):
-    return False
-  if "isError" in block and not isinstance(block["isError"], bool):
-    return False
-  return "_meta" not in block or isinstance(block["_meta"], dict)
+  return validates(ToolResultContent, block)
 
 
 def tool_result_is_error(block: dict) -> bool:
@@ -93,13 +143,11 @@ def is_valid_sampling_content_block(block: object) -> bool:
   """Return ``True`` for a sampling content block: text/image/audio or tool_use/tool_result
   (resource_link/embedded resource are excluded from sampling). (§21.2.6, R-21.2.6-d)
   """
-  return (
-    is_tool_use_content(block)
-    or is_tool_result_content(block)
-    or is_valid_text_content(block)
-    or is_valid_image_content(block)
-    or is_valid_audio_content(block)
-  )
+  try:
+    _SAMPLING_CONTENT_BLOCK_ADAPTER.validate_python(block)
+    return True
+  except Exception:  # noqa: BLE001 — any validation failure means "not a sampling content block"
+    return False
 
 
 def is_valid_sampling_content(content: object) -> bool:
@@ -117,39 +165,48 @@ def as_content_array(content: object) -> list:
 def is_valid_sampling_message(value: object) -> bool:
   """Return ``True`` for a ``SamplingMessage``: ``role`` (user/assistant) + ``content``
   (single block or array); OPTIONAL ``_meta``. (§21.2.6)
+
+  .. deprecated::
+    Sampling is a Deprecated client capability (§27.3). No direct replacement; use
+    Elicitation (§20) for structured user input. Earliest removal: 2026-07-28
+    (§27.2/§27.3, R-27.4-a/-b).
   """
-  if not isinstance(value, dict) or value.get("role") not in ("user", "assistant"):
-    return False
-  if not is_valid_sampling_content(value.get("content")):
-    return False
-  return "_meta" not in value or isinstance(value["_meta"], dict)
+  return validates(SamplingMessage, value)
 
 
 # ─── ModelHint / ModelPreferences (§21.2.9) ───────────────────────────────────
+
+class ModelHint(McpModel):
+  """A ``ModelHint`` (§21.2.9): an object with an OPTIONAL string ``name``; other keys are
+  unspecified and pass through. (R-21.2.9-f/-g)
+  """
+
+  name: str | None = None
+
+
+class ModelPreferences(McpModel):
+  """``ModelPreferences`` (§21.2.9): OPTIONAL ``hints`` (``ModelHint`` list) and three OPTIONAL
+  ``0..1`` priorities.
+  """
+
+  hints: list[ModelHint] | None = None
+  cost_priority: Annotated[JsonNumber, Field(ge=0, le=1)] | None = None
+  speed_priority: Annotated[JsonNumber, Field(ge=0, le=1)] | None = None
+  intelligence_priority: Annotated[JsonNumber, Field(ge=0, le=1)] | None = None
+
 
 def is_valid_model_hint(value: object) -> bool:
   """Return ``True`` for a ``ModelHint``: an object with an OPTIONAL string ``name``;
   keys other than ``name`` are unspecified and pass through. (§21.2.9, R-21.2.9-f/-g)
   """
-  if not isinstance(value, dict):
-    return False
-  return "name" not in value or isinstance(value["name"], str)
+  return validates(ModelHint, value)
 
 
 def is_valid_model_preferences(value: object) -> bool:
   """Return ``True`` for ``ModelPreferences``: OPTIONAL ``hints`` (list of {name?}) and the
   three OPTIONAL 0–1 priorities. (§21.2.9)
   """
-  if not isinstance(value, dict):
-    return False
-  if "hints" in value:
-    hints = value["hints"]
-    if not isinstance(hints, list) or not all(is_valid_model_hint(h) for h in hints):
-      return False
-  for key in ("costPriority", "speedPriority", "intelligencePriority"):
-    if key in value and not (_is_number(value[key]) and 0 <= value[key] <= 1):
-      return False
-  return True
+  return validates(ModelPreferences, value)
 
 
 def select_first_hint_match(hints: list | None, available_models: list[str]) -> dict | None:
@@ -174,14 +231,20 @@ TOOL_CHOICE_MODES = ("auto", "required", "none")
 DEFAULT_TOOL_CHOICE = {"mode": "auto"}
 
 
+class ToolChoice(McpModel):
+  """A ``ToolChoice`` (§21.2.5): an object with an OPTIONAL ``mode`` of ``auto``/``required``/
+  ``none``; extra members pass through. (R-21.2.4-p, R-21.2.5-a/-b)
+  """
+
+  mode: Literal["auto", "required", "none"] | None = None
+
+
 def is_valid_tool_choice(value: object) -> bool:
   """Return ``True`` for a ``ToolChoice``: an object with an OPTIONAL ``mode`` that, when
   present, MUST be one of ``auto``/``required``/``none``. Extra members pass through.
   (§21.2.5, R-21.2.4-p, R-21.2.5-a/-b)
   """
-  if not isinstance(value, dict):
-    return False
-  return "mode" not in value or value["mode"] in TOOL_CHOICE_MODES
+  return validates(ToolChoice, value)
 
 
 def resolve_tool_choice(tool_choice: dict | None) -> dict:
@@ -192,59 +255,69 @@ def resolve_tool_choice(tool_choice: dict | None) -> dict:
 
 
 INCLUDE_CONTEXT_VALUES = ("none", "thisServer", "allServers")
+
+#: The ``includeContext`` values that are Deprecated and gated by ``sampling.context``.
+#:
+#: .. deprecated::
+#:   The ``includeContext`` values ``"thisServer"`` and ``"allServers"`` are Deprecated
+#:   (§27.3). No replacement; context management is now host-managed. Earliest removal:
+#:   2026-07-28 (§27.2/§27.3, R-27.4-a/-b).
 DEPRECATED_INCLUDE_CONTEXT_VALUES = frozenset({"thisServer", "allServers"})
 
 
 def is_deprecated_include_context(value: str) -> bool:
-  """Return ``True`` for a Deprecated ``includeContext`` value. (§21.2.4)"""
+  """Return ``True`` for a Deprecated ``includeContext`` value. (§21.2.4)
+
+  .. deprecated::
+    The ``includeContext`` values ``"thisServer"`` and ``"allServers"`` are Deprecated
+    (§27.3). No replacement; context management is now host-managed. Earliest removal:
+    2026-07-28 (§27.2/§27.3, R-27.4-a/-b).
+  """
   return value in DEPRECATED_INCLUDE_CONTEXT_VALUES
 
 
 # ─── CreateMessageRequestParams (§21.2.4) ─────────────────────────────────────
 
+class SamplingTool(McpModel):
+  """A request-scoped sampling ``Tool`` (§21.2.4): ``name`` + OPTIONAL ``description`` /
+  ``inputSchema``. (R-21.2.4-m)
+  """
+
+  name: str
+  description: str | None = None
+  input_schema: dict[str, Any] | None = None
+
+
+class CreateMessageRequestParams(McpModel):
+  """``sampling/createMessage`` params (§21.2.4) — the Python analogue of the TS
+  ``CreateMessageRequestParamsSchema``: REQUIRED ``messages`` + numeric ``maxTokens``, plus
+  OPTIONAL advisory fields.
+  """
+
+  messages: list[SamplingMessage]
+  max_tokens: JsonNumber
+  include_context: Literal["none", "thisServer", "allServers"] | None = None
+  system_prompt: str | None = None
+  temperature: JsonNumber | None = None
+  stop_sequences: list[str] | None = None
+  metadata: dict[str, Any] | None = None
+  model_preferences: ModelPreferences | None = None
+  tools: list[SamplingTool] | None = None
+  tool_choice: ToolChoice | None = None
+
+
 def is_valid_sampling_tool(value: object) -> bool:
   """Return ``True`` for a request-scoped sampling ``Tool``: ``name`` (str) + optional
   ``description``/``inputSchema``. (§21.2.4, R-21.2.4-m)
   """
-  if not isinstance(value, dict) or not isinstance(value.get("name"), str):
-    return False
-  if "description" in value and not isinstance(value["description"], str):
-    return False
-  return "inputSchema" not in value or isinstance(value["inputSchema"], dict)
+  return validates(SamplingTool, value)
 
 
 def is_valid_create_message_request_params(value: object) -> bool:
   """Return ``True`` for ``sampling/createMessage`` params: REQUIRED ``messages`` array +
   numeric ``maxTokens``; OPTIONAL advisory fields. (§21.2.4)
   """
-  if not isinstance(value, dict):
-    return False
-  messages = value.get("messages")
-  if not isinstance(messages, list) or not all(is_valid_sampling_message(m) for m in messages):
-    return False
-  if not _is_number(value.get("maxTokens")):
-    return False
-  if "includeContext" in value and value["includeContext"] not in INCLUDE_CONTEXT_VALUES:
-    return False
-  if "systemPrompt" in value and not isinstance(value["systemPrompt"], str):
-    return False
-  if "temperature" in value and not _is_number(value["temperature"]):
-    return False
-  if "stopSequences" in value:
-    seqs = value["stopSequences"]
-    if not isinstance(seqs, list) or not all(isinstance(s, str) for s in seqs):
-      return False
-  if "metadata" in value and not isinstance(value["metadata"], dict):
-    return False
-  if "modelPreferences" in value and not is_valid_model_preferences(value["modelPreferences"]):
-    return False
-  if "tools" in value:
-    tools = value["tools"]
-    if not isinstance(tools, list) or not all(is_valid_sampling_tool(t) for t in tools):
-      return False
-  if "toolChoice" in value and not is_valid_tool_choice(value["toolChoice"]):
-    return False
-  return True
+  return validates(CreateMessageRequestParams, value)
 
 
 def resolve_include_context(params: dict) -> str:
@@ -276,19 +349,25 @@ def is_standard_stop_reason(reason: str) -> bool:
   return reason in STANDARD_STOP_REASONS
 
 
+class CreateMessageResult(McpModel):
+  """A ``sampling/createMessage`` result (§21.2.8) — the Python analogue of the TS
+  ``CreateMessageResultSchema``: ``role`` + ``content`` + string ``model`` + ``resultType``
+  (open string); OPTIONAL open-string ``stopReason`` and ``_meta``.
+  """
+
+  role: Literal["user", "assistant"]
+  content: SamplingContentBlock | list[SamplingContentBlock]
+  model: str
+  result_type: str
+  stop_reason: str | None = None
+  meta: dict[str, Any] | None = Field(default=None, alias="_meta")
+
+
 def is_valid_sampling_create_message_result(value: object) -> bool:
   """Return ``True`` for a ``CreateMessageResult``: ``role`` + ``content`` + string ``model`` +
   ``resultType``; OPTIONAL open-string ``stopReason``, ``_meta``. (§21.2.8)
   """
-  if not isinstance(value, dict) or value.get("role") not in ("user", "assistant"):
-    return False
-  if not is_valid_sampling_content(value.get("content")):
-    return False
-  if not isinstance(value.get("model"), str) or not isinstance(value.get("resultType"), str):
-    return False
-  if "stopReason" in value and not isinstance(value["stopReason"], str):
-    return False
-  return "_meta" not in value or isinstance(value["_meta"], dict)
+  return validates(CreateMessageResult, value)
 
 
 # ─── capability gating (§21.2.3) ──────────────────────────────────────────────

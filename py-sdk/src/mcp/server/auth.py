@@ -22,27 +22,32 @@ from typing import Any
 
 from starlette.requests import Request
 
-from mcp.protocol.authorization import build_insufficient_scope_response
+from mcp.protocol.authorization import (
+  build_insufficient_scope_response,
+  resource_identifiers_equal,
+  strip_default_trailing_slash,
+)
 
 # ─── §23.6 Audience binding helpers ───────────────────────────────────────────
-
-_TRAILING_SLASH_RE = re.compile(r"/+$")
 
 
 def _audience_covers(token_audience: str | list[str], resource: str) -> bool:
   """Return ``True`` when a token's audience covers ``resource``. (§23.6, R-23.6-g)
 
-  Only a trailing-slash difference is tolerated; the comparison is otherwise exact. The
-  audience may be a single string or an array — covering holds if ANY entry matches.
-  Inlined (rather than importing the protocol-layer validator) to keep this server module
-  edge-safe.
+  Delegates to the S35 canonical comparator :func:`resource_identifiers_equal` so the
+  server gate binds audiences exactly as the §23/S37 protocol layer does, from one source
+  of truth: scheme and host are compared case-insensitively for robustness (R-23.1-p) —
+  which a naive string compare would miss — while path/query/port stay exact. Both sides
+  are first reduced to their trailing-slash-free form, since the slash is not significant
+  here (R-23.1-s), so ``…/mcp`` and ``…/mcp/`` denote the same resource. The audience may be
+  a single string or an array — covering holds if ANY entry matches.
   """
-  def norm(u: str) -> str:
-    return _TRAILING_SLASH_RE.sub("", u)
-
-  target = norm(resource)
+  target = strip_default_trailing_slash(resource)
   candidates = token_audience if isinstance(token_audience, list) else [token_audience]
-  return any(norm(a) == target for a in candidates)
+  return any(
+    isinstance(a, str) and resource_identifiers_equal(strip_default_trailing_slash(a), target)
+    for a in candidates
+  )
 
 
 def _audience_of(auth_info: Any) -> str | list[str] | None:

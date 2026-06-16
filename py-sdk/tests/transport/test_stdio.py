@@ -11,6 +11,7 @@ AC coverage (one or more tests each):
   AC-13.3  (R-8.2-h)         — empty/whitespace-only line ignored (not malformed)
   AC-13.4  (R-8.3-a, R-8.5-c)— client may not write a response to stdin
   AC-13.5  (R-8.3-b, R-8.5-a)— server may not write a request to stdout
+  AC-13.8  (R-8.3-e/f/g)     — cancellation via ``notifications/cancelled``, then silence
   AC-13.9/22 (R-8.4, R-8.1-a)— stderr captured, never parsed as protocol, never an error
   AC-13.11 (R-8.5-d/e/f/h)   — malformed line: no crash, discard, diagnostic, resync
   AC-13.14 (R-8.6.2-a/b)     — graceful: close stdin, await exit, clean close
@@ -254,6 +255,54 @@ class TestAC135ServerStdoutDirection:
     server.close()
     with pytest.raises(TransportError):
       server.send({"jsonrpc": "2.0", "id": 1, "result": {}})
+
+
+# ─── AC-13.8 — cancellation via notifications/cancelled, then silence ────────────
+
+
+class TestAC138CancellationThenSilence:
+  """AC-13.8 — a client cancels an in-flight request with ``notifications/cancelled``
+  referencing its id; a well-behaved server then sends no further message for that id.
+  The stdio transport carries the cancellation faithfully and never fabricates a frame of
+  its own — it is the transport that carries the rule and the server that obeys the
+  silence. Mirrors ``stdio.test.ts`` AC-13.8. (R-8.3-e, R-8.3-f, R-8.3-g)
+  """
+
+  def test_cancel_notification_written_then_no_inbound_message(self):
+    child = FakeChild()
+    client = client_with(child)
+
+    # The client issues request id 1, then cancels it referencing that id.
+    client.send(make_request(1))
+    client.send({"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 1}})
+
+    sent = drain(child.stdin)
+    cancel = next((m for m in sent if m.get("method") == "notifications/cancelled"), None)
+    assert cancel is not None
+    assert cancel["params"]["requestId"] == 1
+
+    # After cancellation the server sends nothing further: with no inbound bytes fed, the
+    # transport surfaces zero messages to its handler.
+    received: list[dict] = []
+    client.on_message(received.append)
+    assert received == []
+
+  def test_server_emits_nothing_on_its_own_after_cancellation(self):
+    # Server-side complement: a server receives the request and then its cancellation, and a
+    # well-behaved server that obeys the silence writes nothing to stdout — the transport
+    # delivers both inbound frames but never emits one itself.
+    out = io.BytesIO()
+    server = StdioServerTransport(stdout=out)
+    seen: list[dict] = []
+    server.on_message(seen.append)
+
+    server.feed_bytes(line_of(make_request(1)))
+    server.feed_bytes(
+      line_of({"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 1}})
+    )
+
+    assert [m.get("id", m.get("method")) for m in seen] == [1, "notifications/cancelled"]
+    assert out.getvalue() == b""
 
 
 # ─── AC-13.9 / AC-13.22 — stderr is diagnostics, never protocol ──────────────────

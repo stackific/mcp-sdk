@@ -34,7 +34,11 @@ of the same strings.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import Annotated, Any, Literal
 
+from pydantic import AfterValidator, StrictBool
+
+from mcp._model import McpModel, validates
 from mcp.jsonrpc.payload import RESULT_TYPE_COMPLETE
 from mcp.protocol.meta import CLIENT_CAPABILITIES_META_KEY
 from mcp.types.resource_contents import is_valid_resource_contents
@@ -192,18 +196,19 @@ def is_server_responsibility(responsibility: str) -> bool:
 # ─── §26.2 — UiHostExtensionCapability (the host's advertised value) ──────────
 
 
+class UiHostExtensionCapability(McpModel):
+  """The host's advertised apps-extension capability value (§26.2): a ``mimeTypes`` array of
+  strings; extra members pass through. (R-26.2-d)
+  """
+
+  mime_types: list[str]
+
+
 def is_ui_host_extension_capability(value: object) -> bool:
   """Return ``True`` when ``value`` is a well-formed ``UiHostExtensionCapability`` — an
   object carrying a ``mimeTypes`` array of strings. (§26.2, R-26.2-d)
-
-  This does NOT require the UI MIME type to be present — use :func:`capability_renders_ui`
-  for that. A malformed-but-parseable advertisement is still recognized as "advertised
-  the extension, but not conformingly". Forward-compatible extra members are allowed.
   """
-  if not isinstance(value, dict):
-    return False
-  mime_types = value.get("mimeTypes")
-  return isinstance(mime_types, list) and all(isinstance(m, str) for m in mime_types)
+  return validates(UiHostExtensionCapability, value)
 
 
 def capability_renders_ui(value: object) -> bool:
@@ -374,28 +379,27 @@ def is_ui_visibility(value: object) -> bool:
   return value in UI_VISIBILITY_VALUES
 
 
+def _require_ui_uri(value: str) -> str:
+  """Field validator: a ``ToolUiMeta.resourceUri`` MUST use the ``ui://`` scheme. (R-26.3-b)"""
+  if not is_ui_resource_uri(value):
+    raise ValueError(f"resourceUri MUST use the {UI_URI_SCHEME} scheme (R-26.3-b)")
+  return value
+
+
+class ToolUiMeta(McpModel):
+  """The ``_meta.ui`` declaration on a tool (§26.3) — a ``ui://`` ``resourceUri`` and an
+  OPTIONAL ``visibility`` array of ``"model"``/``"app"`` (omitted ⇒ both). (R-26.3-a/-b/-d)
+  """
+
+  resource_uri: Annotated[str, AfterValidator(_require_ui_uri)]
+  visibility: list[Literal["model", "app"]] | None = None
+
+
 def is_tool_ui_meta(value: object) -> bool:
   """Return ``True`` when ``value`` is a well-formed ``ToolUiMeta`` — the object at a
-  tool's ``_meta.ui`` declaring its associated interactive UI. (§26.3)
-
-  Shape:
-
-  * ``resourceUri`` REQUIRED: a ``ui://``-scheme URI of the UI resource (the schema
-    enforces the scheme, so a non-``ui://`` value is rejected). (R-26.3-a, R-26.3-b)
-  * ``visibility`` OPTIONAL: an array drawn from ``"model"`` / ``"app"``; omitted ⇒
-    ``["model", "app"]``. (R-26.3-d)
-
-  Forward-compatible extra members are allowed.
+  tool's ``_meta.ui`` declaring its associated interactive UI. (§26.3, R-26.3-a/-b/-d)
   """
-  if not isinstance(value, dict):
-    return False
-  if not is_ui_resource_uri(value.get("resourceUri")):
-    return False
-  if "visibility" in value:
-    vis = value["visibility"]
-    if not isinstance(vis, list) or not all(is_ui_visibility(v) for v in vis):
-      return False
-  return True
+  return validates(ToolUiMeta, value)
 
 
 def get_tool_ui_meta(tool: object) -> dict | None:
@@ -505,20 +509,22 @@ DENY_BY_DEFAULT_CSP: dict[str, list[str]] = {
 }
 
 
+class UiContentSecurityPolicy(McpModel):
+  """A ``UiContentSecurityPolicy`` (§26.4): OPTIONAL directive members, each an array of
+  origin strings; extra members pass through. (R-26.4-f, R-26.4-g)
+  """
+
+  connect_domains: list[str] | None = None
+  resource_domains: list[str] | None = None
+  frame_domains: list[str] | None = None
+  base_uri_domains: list[str] | None = None
+
+
 def is_ui_content_security_policy(value: object) -> bool:
   """Return ``True`` when ``value`` is a well-formed ``UiContentSecurityPolicy`` — an
-  object whose present directive members (:data:`UI_CSP_DIRECTIVES`) are each arrays of
-  origin strings. All members are OPTIONAL; forward-compatible extras are allowed.
-  (§26.4, R-26.4-f, R-26.4-g)
+  object whose present directive members are each arrays of origin strings. (§26.4, R-26.4-f/-g)
   """
-  if not isinstance(value, dict):
-    return False
-  for directive in UI_CSP_DIRECTIVES:
-    if directive in value:
-      origins = value[directive]
-      if not isinstance(origins, list) or not all(isinstance(o, str) for o in origins):
-        return False
-  return True
+  return validates(UiContentSecurityPolicy, value)
 
 
 def csp_allows_origin(csp: dict | None, directive: str, origin: str) -> bool:
@@ -551,18 +557,22 @@ def resolve_csp(csp: dict | None) -> dict:
 UI_PERMISSION_NAMES = ("camera", "microphone", "geolocation", "clipboardWrite")
 
 
+class UiPermissions(McpModel):
+  """A ``UiPermissions`` object (§26.4): OPTIONAL capability members, each an object ``{}``
+  whose presence requests that sandbox capability; extra members pass through. (R-26.4-i/-j)
+  """
+
+  camera: dict[str, Any] | None = None
+  microphone: dict[str, Any] | None = None
+  geolocation: dict[str, Any] | None = None
+  clipboard_write: dict[str, Any] | None = None
+
+
 def is_ui_permissions(value: object) -> bool:
   """Return ``True`` when ``value`` is a well-formed ``UiPermissions`` — an object whose
-  present capability members (:data:`UI_PERMISSION_NAMES`) are each empty-ish objects
-  ``{}``; presence requests that capability. All members are OPTIONAL; forward-compatible
-  extras are allowed. (§26.4, R-26.4-i, R-26.4-j)
+  present capability members are each objects ``{}``. (§26.4, R-26.4-i, R-26.4-j)
   """
-  if not isinstance(value, dict):
-    return False
-  for name in UI_PERMISSION_NAMES:
-    if name in value and not isinstance(value[name], dict):
-      return False
-  return True
+  return validates(UiPermissions, value)
 
 
 def permission_requested(permissions: dict | None, name: str) -> bool:
@@ -596,26 +606,24 @@ def may_grant_permission(permissions: dict | None, name: str, host_declines: boo
   return not host_declines  # MAY decline the requested (R-26.4-k)
 
 
+class ResourceUiMeta(McpModel):
+  """The optional presentation/security hints on a UI resource ``contents`` entry's
+  ``_meta.ui`` (§26.4): all OPTIONAL — ``csp``, ``permissions``, ``domain`` (string),
+  ``prefersBorder`` (boolean). Extra members pass through. (R-26.4-e/-f/-i/-l/-m)
+  """
+
+  csp: UiContentSecurityPolicy | None = None
+  permissions: UiPermissions | None = None
+  domain: str | None = None
+  prefers_border: StrictBool | None = None
+
+
 def is_resource_ui_meta(value: object) -> bool:
   """Return ``True`` when ``value`` is a well-formed ``ResourceUiMeta`` — the optional
   presentation and security hints carried on a UI resource's ``contents`` entry under its
   own ``_meta.ui``. (§26.4, R-26.4-e)
-
-  Fields (all OPTIONAL): ``csp`` (R-26.4-f), ``permissions`` (R-26.4-i), ``domain`` —
-  a string dedicated origin (R-26.4-l), ``prefersBorder`` — a boolean (R-26.4-m).
-  Forward-compatible extras are allowed.
   """
-  if not isinstance(value, dict):
-    return False
-  if "csp" in value and not is_ui_content_security_policy(value["csp"]):
-    return False
-  if "permissions" in value and not is_ui_permissions(value["permissions"]):
-    return False
-  if "domain" in value and not isinstance(value["domain"], str):
-    return False
-  if "prefersBorder" in value and not isinstance(value["prefersBorder"], bool):
-    return False
-  return True
+  return validates(ResourceUiMeta, value)
 
 
 # ─── §26.4 — The UI resource content ──────────────────────────────────────────

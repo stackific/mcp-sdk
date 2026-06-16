@@ -10,6 +10,8 @@ transport-conformance evaluator, and the §30 citation status. The feature-lifec
 vocabulary of :mod:`mcp.protocol.conformance` is exercised at the end.
 """
 
+import re
+
 from mcp.jsonrpc.payload import RESULT_TYPE_COMPLETE, RESULT_TYPE_INPUT_REQUIRED
 from mcp.protocol.conformance import (
   FEATURE_STATUS_ACTIVE,
@@ -71,6 +73,26 @@ from mcp.protocol.meta import (
 
 SUPPORTED = [CURRENT_PROTOCOL_VERSION]
 
+#: The complete, ordered set of §29–§30 conformance-requirement ids — the golden list the
+#: registry must reproduce exactly. Verified out of band to match the ts-sdk reference
+#: (``conformance-requirements.ts``) atom-for-atom. Embedded (not read from the sibling
+#: project at runtime) so the py-sdk suite stays self-contained.
+_GOLDEN_REQUIREMENT_IDS = (
+    "R-29.1-a", "R-29.1-b", "R-29.1-c", "R-29.1-d", "R-29.1-e", "R-29.1-f",
+    "R-29.2-a", "R-29.2-b", "R-29.2-c", "R-29.2-d", "R-29.2-e", "R-29.2-f",
+    "R-29.2-g", "R-29.2-h", "R-29.2-i", "R-29.2-j", "R-29.2-k", "R-29.2-l",
+    "R-29.2-m", "R-29.2-n", "R-29.3-a", "R-29.3-b", "R-29.3-c", "R-29.3-d",
+    "R-29.3-e", "R-29.3-f", "R-29.3-g", "R-29.3-h", "R-29.3-i", "R-29.3-j",
+    "R-29.3-k", "R-29.4-a", "R-29.4-b", "R-29.4-c", "R-29.4-d", "R-29.4-e",
+    "R-29.4-f", "R-29.4-g", "R-29.4-h", "R-29.4-i", "R-29.4-j", "R-29.4-k",
+    "R-29.4-l", "R-29.4-m", "R-29.4-n", "R-29.5-a", "R-29.5-b", "R-29.5-c",
+    "R-29.5-d", "R-29.5-e", "R-29.5-f", "R-29.6-a", "R-29.6-b", "R-29.6-c",
+    "R-29.6-d", "R-29.6-e", "R-29.6-f", "R-29.6-g", "R-29.6-h", "R-29.6-i",
+    "R-29.7-a", "R-29.7-b", "R-29.7-c", "R-29.7-d", "R-29.7-e", "R-29.8-a",
+    "R-29.8-b", "R-29.8-c", "R-29.8-d", "R-29.8-e", "R-29.8-f", "R-29.8-g",
+    "R-29.9-a", "R-29.9-b", "R-29.9-c", "R-30-a",
+)
+
 
 def baseline_meta(overrides: dict | None = None) -> dict:
   """Build a well-formed §4 client request ``_meta`` envelope."""
@@ -128,6 +150,26 @@ class TestRegistryAxesAndLevels:
   def test_every_requirement_has_known_keyword(self):
     for r in CONFORMANCE_REQUIREMENTS:
       assert r.keyword in REQUIREMENT_KEYWORDS
+
+  def test_registry_has_exactly_76_requirements(self):
+    # The §29–§30 registry mirrors the ts-sdk reference atom-for-atom (76 requirements). A
+    # bare uniqueness check would not catch a dropped atom; this pins the exact count.
+    assert len(CONFORMANCE_REQUIREMENTS) == 76
+
+  def test_every_requirement_id_is_well_formed(self):
+    # Every id is ``R-<section>-<suffix>`` where <section> is the §29.x / §30 number and
+    # <suffix> is a lowercase letter (id-format / coverage check).
+    pattern = re.compile(r"^R-(?:29\.\d+|30)-[a-z]$")
+    for r in CONFORMANCE_REQUIREMENTS:
+      assert pattern.match(r.id), r.id
+      # The id's section segment agrees with the requirement's own ``section`` field.
+      assert r.id.split("-")[1] == r.section
+
+  def test_requirement_ids_match_golden_list(self):
+    # Golden cross-check: the full ordered id list, frozen here, equals the ts-sdk
+    # reference (verified out of band). A dropped, renamed, reordered, or inserted atom
+    # fails loudly rather than silently drifting from the spec registry. (S45)
+    assert tuple(r.id for r in CONFORMANCE_REQUIREMENTS) == _GOLDEN_REQUIREMENT_IDS
 
 
 # ─── requirement-level classifier (RFC 2119 / §2) ──────────────────────────────

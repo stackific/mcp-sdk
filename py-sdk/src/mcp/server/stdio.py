@@ -52,9 +52,10 @@ def write_message(out: TextIO, message: dict) -> None:
   ``json.dumps`` escapes any embedded newline inside a string, so the produced line
   never contains a raw ``\\n`` other than the single terminator — keeping newline
   framing unambiguous (R-8.2-a – R-8.2-d). ``ensure_ascii=False`` emits real UTF-8 for
-  non-ASCII characters (R-8.2-a).
+  non-ASCII characters (R-8.2-a); ``allow_nan=False`` keeps a non-finite number off the
+  wire — JSON has no ``NaN``/``Infinity`` (R-7.1-b).
   """
-  out.write(json.dumps(message, ensure_ascii=False) + "\n")
+  out.write(json.dumps(message, ensure_ascii=False, allow_nan=False) + "\n")
   out.flush()
 
 

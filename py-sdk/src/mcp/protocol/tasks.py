@@ -31,6 +31,11 @@ tolerate (preserve) additional members, exactly as ``mcp.protocol.tools`` does.
 
 from __future__ import annotations
 
+from typing import Annotated, Any, Literal
+
+from pydantic import Field
+
+from mcp._model import JsonNumber, McpModel, validates
 from mcp.jsonrpc.payload import is_valid_mcp_error
 from mcp.protocol.errors import INVALID_PARAMS_CODE, MISSING_CLIENT_CAPABILITY_CODE
 from mcp.protocol.extension_mechanism import (
@@ -101,16 +106,17 @@ def is_task_lifecycle_method(method: str) -> bool:
 # ─── §25.2 — Capability declaration & settings ──────────────────────────────────
 
 
+class TasksExtensionCapability(McpModel):
+  """The Tasks extension settings value (§25.2) — any JSON object (canonically ``{}``);
+  unrecognized members pass through. (R-25.2-a, R-25.2-b)
+  """
+
+
 def is_tasks_extension_capability(value: object) -> bool:
   """Return ``True`` for a valid Tasks extension settings value — any JSON object.
   (§25.2, R-25.2-a, R-25.2-b)
-
-  The canonical value is ``{}``; a value carrying unrecognized members is still valid
-  (the receiver accepts the declaration and ignores those members, R-25.2-b). A
-  non-object value (array, scalar, ``None``) is NOT a settings object. ``bool`` is not
-  a mapping, so it too is rejected.
   """
-  return isinstance(value, dict)
+  return validates(TasksExtensionCapability, value)
 
 
 def _is_extension_advertised(extensions: object, extension_id: str) -> bool:
@@ -248,55 +254,56 @@ def is_valid_task_ttl_ms(value: object) -> bool:
   return isinstance(value, (int, float)) and value >= 0
 
 
+#: The five case-sensitive task lifecycle states as a field type. (§25.5)
+TaskStatus = Literal["working", "input_required", "completed", "failed", "cancelled"]
+
+
+class Task(McpModel):
+  """A durable task handle (§25.4) — the Python analogue of the TS ``TaskSchema``.
+
+  REQUIRED: ``taskId`` (opaque string), ``status``, ``createdAt`` / ``lastUpdatedAt``
+  (RFC 3339 strings), ``ttlMs`` (non-negative number or ``null`` = unbounded — the key MUST
+  be present). OPTIONAL: ``statusMessage``, ``pollIntervalMs`` (non-negative). Additional
+  members pass through. (R-25.4-a/-b/-c)
+  """
+
+  task_id: str
+  status: TaskStatus
+  created_at: str
+  last_updated_at: str
+  ttl_ms: Annotated[JsonNumber, Field(ge=0)] | None
+  status_message: str | None = None
+  poll_interval_ms: Annotated[JsonNumber, Field(ge=0)] | None = None
+
+
 def is_task(value: object) -> bool:
   """Return ``True`` for a well-formed ``Task``. (§25.4)
 
   REQUIRED (R-25.4-b): ``taskId`` (opaque string, R-25.4-a), ``status`` (one of the
   five values), ``createdAt`` / ``lastUpdatedAt`` (RFC 3339 strings), ``ttlMs``
   (non-negative number or ``null``). OPTIONAL: ``statusMessage`` (string),
-  ``pollIntervalMs`` (non-negative number). Additional members are tolerated
-  (mirrors the TS ``.passthrough()``).
+  ``pollIntervalMs`` (non-negative number). Additional members are tolerated.
   """
-  if not isinstance(value, dict):
-    return False
-  if not isinstance(value.get("taskId"), str):
-    return False
-  if not is_task_status(value.get("status")):
-    return False
-  if not isinstance(value.get("createdAt"), str):
-    return False
-  if not isinstance(value.get("lastUpdatedAt"), str):
-    return False
-  if "ttlMs" not in value or not is_valid_task_ttl_ms(value["ttlMs"]):
-    return False
-  if "statusMessage" in value and not isinstance(value["statusMessage"], str):
-    return False
-  if "pollIntervalMs" in value:
-    poll = value["pollIntervalMs"]
-    if isinstance(poll, bool) or not isinstance(poll, (int, float)) or poll < 0:
-      return False
-  return True
+  return validates(Task, value)
 
 
 # ─── §25.3 — CreateTaskResult (the task handle) ─────────────────────────────────
 
 
+class CreateTaskResult(Task):
+  """A ``CreateTaskResult`` task handle (§25.3) — a ``Result`` with ``resultType: "task"``
+  carrying all ``Task`` fields plus the OPTIONAL result-level ``_meta``. (R-25.3-c)
+  """
+
+  result_type: Literal["task"]
+  meta: dict[str, Any] | None = Field(default=None, alias="_meta")
+
+
 def is_create_task_result(value: object) -> bool:
   """Return ``True`` for a well-formed ``CreateTaskResult``: a ``Result`` with
   ``resultType: "task"`` carrying all ``Task`` fields. (§25.3, R-25.3-c, AC-39.8)
-
-  Carries every :func:`is_task` field directly, plus the result-level
-  ``resultType: "task"`` discriminator and the OPTIONAL ``_meta`` permitted on any
-  ``Result``. A client that declared the capability uses this to dispatch on the
-  ``"task"`` case after inspecting ``resultType`` on an eligible response.
   """
-  if not isinstance(value, dict):
-    return False
-  if not is_task_result_type(value.get("resultType")):
-    return False
-  if "_meta" in value and not isinstance(value["_meta"], dict):
-    return False
-  return is_task(value)
+  return validates(CreateTaskResult, value)
 
 
 #: The two dispositions of a result received for an eligible (task-capable) request.

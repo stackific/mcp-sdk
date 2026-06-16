@@ -52,8 +52,15 @@ def server(caps: dict | None = None, **kw) -> McpServer:
 
 
 def _decode_state(token: str) -> dict:
-  """Decode the opaque MRTR ``requestState`` continuation token back to a dict."""
-  return json.loads(base64.b64decode(token.encode("ascii")).decode("utf-8"))
+  """Decode the (HMAC-signed, time-bounded) MRTR ``requestState`` token's accumulated state.
+
+  The wire token is ``<base64(payload)>.<base64(hmac)>`` where ``payload`` wraps
+  ``{"state": …, "exp": …}`` (§11.3, R-28.6-b/-c); this inspects the ``state`` half only, to
+  assert what the server accumulated.
+  """
+  payload = token.split(".")[0]
+  envelope = json.loads(base64.b64decode(payload.encode("ascii")).decode("utf-8"))
+  return envelope["state"]
 
 
 # ── initialize ────────────────────────────────────────────────────────────────
@@ -639,15 +646,136 @@ class TestMrtr:
     assert r3["resultType"] == "complete"
     assert r3["content"][0]["text"] == "accept+decline"
 
-  def test_garbage_request_state_decodes_to_empty(self):
-    # An undecodable requestState is tolerated as {} (the tool re-solicits from scratch).
+  def test_garbage_request_state_is_rejected_for_integrity(self):
+    # S44 / R-28.6-b: a requestState that fails its integrity check (here, garbage that was
+    # never minted by this server) is REJECTED with -32602 + reason
+    # "integrity-validation-failed" — NOT silently tolerated as {} and acted upon.
     s = self._ask_server()
-    r = s.dispatch(
+    with pytest.raises(ServerError) as exc:
+      s.dispatch(
+        "tools/call",
+        {"name": "ask", "arguments": {}, "requestState": "!!!not-base64!!!"},
+        ctx(),
+      )
+    assert exc.value.code == INVALID_PARAMS_CODE
+    assert exc.value.data == {"reason": "integrity-validation-failed"}
+
+  def test_tampered_request_state_is_rejected_and_contents_not_acted_on(self):
+    # Mint a legitimate requestState, flip one byte of its signed payload, resubmit: the
+    # server rejects it for integrity rather than acting on the forged continuation state.
+    s = self._two_step_server()
+    r1 = s.dispatch("tools/call", {"name": "two", "arguments": {}}, ctx())
+    k1 = next(iter(r1["inputRequests"]))
+    r2 = s.dispatch(
       "tools/call",
-      {"name": "ask", "arguments": {}, "requestState": "!!!not-base64!!!"},
+      {
+        "name": "two",
+        "arguments": {},
+        "inputResponses": {k1: {"action": "accept"}},
+        "requestState": r1["requestState"],
+      },
       ctx(),
     )
-    assert r["resultType"] == "input_required"
+    good = r2["requestState"]
+    payload, mac = good.split(".")
+    # Tamper a byte of the payload (its HMAC no longer matches).
+    flipped = ("A" if payload[5] != "A" else "B")
+    tampered = payload[:5] + flipped + payload[6:] + "." + mac
+    with pytest.raises(ServerError) as exc:
+      s.dispatch(
+        "tools/call",
+        {"name": "two", "arguments": {}, "requestState": tampered},
+        ctx(),
+      )
+    assert exc.value.code == INVALID_PARAMS_CODE
+    assert exc.value.data == {"reason": "integrity-validation-failed"}
+
+  def test_request_state_from_another_server_is_rejected(self):
+    # A token minted by a DIFFERENT server (different secret) does not verify here — a forged
+    # token cannot be replayed across servers. (R-28.6-b)
+    minting = self._ask_server()
+    r1 = minting.dispatch("tools/call", {"name": "ask", "arguments": {}}, ctx())
+    other = self._ask_server()  # fresh server → fresh secret
+    with pytest.raises(ServerError) as exc:
+      other.dispatch(
+        "tools/call",
+        {"name": "ask", "arguments": {}, "requestState": r1["requestState"]},
+        ctx(),
+      )
+    assert exc.value.data == {"reason": "integrity-validation-failed"}
+
+  def test_shared_secret_verifies_across_instances(self):
+    # The stateless complement: two instances sharing a secret accept each other's tokens, so
+    # an MRTR retry routed to a peer instance still verifies. (§4.4 statelessness)
+    secret = b"shared-deployment-secret-0123456789"
+    a = McpServer(INFO, {"tools": {}, "elicitation": {}}, request_state_secret=secret)
+    b = McpServer(INFO, {"tools": {}, "elicitation": {}}, request_state_secret=secret)
+    for s in (a, b):
+      s.register_tool(
+        "ask",
+        lambda _a, c: {"content": [{"type": "text", "text": c.elicit_input({"mode": "form", "message": "name?"})["action"]}]},
+      )
+    r1 = a.dispatch("tools/call", {"name": "ask", "arguments": {}}, ctx())
+    key = next(iter(r1["inputRequests"]))
+    r2 = b.dispatch(
+      "tools/call",
+      {
+        "name": "ask",
+        "arguments": {},
+        "inputResponses": {key: {"action": "accept"}},
+        "requestState": r1["requestState"],
+      },
+      ctx(),
+    )
+    assert r2["resultType"] == "complete"
+    assert r2["content"][0]["text"] == "accept"
+
+  def _clocked_two_step(self, clock: dict, *, ttl_ms: int) -> McpServer:
+    s = McpServer(
+      INFO,
+      {"tools": {}, "elicitation": {}},
+      request_state_ttl_ms=ttl_ms,
+      request_state_clock=lambda: clock["ms"],
+    )
+
+    def two(_args, c):
+      a = c.elicit_input({"message": "first"})
+      b = c.elicit_input({"message": "second"})
+      return {"content": [{"type": "text", "text": f'{a["action"]}+{b["action"]}'}]}
+
+    s.register_tool("two", two)
+    return s
+
+  def test_expired_request_state_is_rejected(self):
+    # R-28.6-c: a captured-but-expired requestState is rejected (bounding replay) rather than
+    # honored. Mint at t=1000 with a 5s TTL (exp=6000), then submit at t=7000.
+    clock = {"ms": 1000}
+    s = self._clocked_two_step(clock, ttl_ms=5000)
+    r1 = s.dispatch("tools/call", {"name": "two", "arguments": {}}, ctx())
+    k1 = next(iter(r1["inputRequests"]))
+    clock["ms"] = 7000  # past expiry
+    with pytest.raises(ServerError) as exc:
+      s.dispatch(
+        "tools/call",
+        {"name": "two", "arguments": {}, "inputResponses": {k1: {"action": "accept"}}, "requestState": r1["requestState"]},
+        ctx(),
+      )
+    assert exc.value.code == INVALID_PARAMS_CODE
+    assert exc.value.data == {"reason": "continuation-token-expired"}
+
+  def test_request_state_within_ttl_is_accepted(self):
+    # The complement: still-fresh tokens verify normally (no over-rejection at the boundary).
+    clock = {"ms": 1000}
+    s = self._clocked_two_step(clock, ttl_ms=5000)
+    r1 = s.dispatch("tools/call", {"name": "two", "arguments": {}}, ctx())
+    k1 = next(iter(r1["inputRequests"]))
+    clock["ms"] = 6000  # exactly at expiry boundary — still valid (now_ms > exp rejects)
+    r2 = s.dispatch(
+      "tools/call",
+      {"name": "two", "arguments": {}, "inputResponses": {k1: {"action": "accept"}}, "requestState": r1["requestState"]},
+      ctx(),
+    )
+    assert r2["resultType"] == "input_required"  # advanced to the second solicitation
 
 
 # ── tools/call task augmentation (§25.3) ──────────────────────────────────────
@@ -745,6 +873,49 @@ class TestResourcesList:
     s.register_resource("d", "file:///d", lambda uri: {"contents": [{"uri": uri}]})
     r = s.dispatch("resources/list", {}, ctx())
     assert r["resultType"] == "complete" and r["ttlMs"] == 5 and r["cacheScope"] == "public"
+
+
+class TestResourceReadSsrfGuard:
+  """B3 / RC-18 (R-28.10): with ``guard_resource_ssrf`` enabled, a ``resources/read`` whose
+  URI targets a private/loopback/link-local address is refused BEFORE the read callback runs;
+  off by default so a host may serve loopback/file resources.
+  """
+
+  def _read(self, uri):
+    return {"contents": [{"uri": uri, "text": "secret"}]}
+
+  def _guarded(self, uri):
+    s = McpServer(INFO, {"resources": {}}, guard_resource_ssrf=True)
+    s.register_resource("r", uri, self._read)
+    return s
+
+  def test_loopback_uri_refused_when_guarded(self):
+    s = self._guarded("http://127.0.0.1:9000/x")
+    with pytest.raises(ServerError) as exc:
+      s.dispatch("resources/read", {"uri": "http://127.0.0.1:9000/x"}, ctx())
+    assert exc.value.code == INVALID_PARAMS_CODE
+    assert exc.value.data == {"uri": "http://127.0.0.1:9000/x"}
+
+  def test_link_local_metadata_uri_refused_when_guarded(self):
+    s = self._guarded("http://169.254.169.254/latest/meta-data")
+    with pytest.raises(ServerError):
+      s.dispatch("resources/read", {"uri": "http://169.254.169.254/latest/meta-data"}, ctx())
+
+  def test_public_https_uri_allowed_when_guarded(self):
+    s = self._guarded("https://example.com/x")
+    r = s.dispatch("resources/read", {"uri": "https://example.com/x"}, ctx())
+    assert r["contents"][0]["text"] == "secret"
+
+  def test_file_uri_allowed_when_guarded(self):
+    s = self._guarded("file:///etc/data")
+    r = s.dispatch("resources/read", {"uri": "file:///etc/data"}, ctx())
+    assert r["contents"][0]["text"] == "secret"
+
+  def test_loopback_allowed_when_unguarded_by_default(self):
+    s = McpServer(INFO, {"resources": {}})  # guard off (default)
+    s.register_resource("r", "http://127.0.0.1:9000/x", self._read)
+    r = s.dispatch("resources/read", {"uri": "http://127.0.0.1:9000/x"}, ctx())
+    assert r["contents"][0]["text"] == "secret"
 
   def test_pagination(self):
     s = server(page_size=2)

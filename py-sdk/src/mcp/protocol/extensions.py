@@ -73,8 +73,13 @@ _NAME_RE = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$")
 
 
 def _is_valid_prefix_label(label: str) -> bool:
-  """Return ``True`` when a single prefix label is well-formed. (R-6.5-b, R-6.5-c)"""
-  return bool(_LABEL_RE.match(label))
+  """Return ``True`` when a single prefix label is well-formed. (R-6.5-b, R-6.5-c)
+
+  Uses ``fullmatch`` so the whole string must match — Python's ``$`` also matches just
+  before a trailing newline (JS ``$`` does not), so ``re.match(... "$")`` would wrongly
+  accept a label ending in ``\\n``.
+  """
+  return bool(_LABEL_RE.fullmatch(label))
 
 
 def is_valid_extension_prefix(prefix: str) -> bool:
@@ -98,7 +103,7 @@ def is_valid_extension_name(name: str) -> bool:
   """
   if name == "":
     return True
-  return bool(_NAME_RE.match(name))
+  return bool(_NAME_RE.fullmatch(name))
 
 
 @dataclass(frozen=True)

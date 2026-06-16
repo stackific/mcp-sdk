@@ -30,7 +30,7 @@ import json
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from starlette.requests import Request
+from starlette.requests import ClientDisconnect, Request
 from starlette.responses import Response, StreamingResponse
 
 from mcp.jsonrpc.framing import MalformedMessageError, classify_message
@@ -46,6 +46,7 @@ from mcp.protocol.meta import (
   CURRENT_PROTOCOL_VERSION,
   validate_request_meta,
 )
+from mcp.protocol.security import DEFAULT_INPUT_BOUNDS
 from mcp.protocol.revision import MCP_PROTOCOL_VERSION_HEADER
 from mcp.protocol.streaming import (
   SUBSCRIPTION_ID_META_KEY,
@@ -75,8 +76,12 @@ _SENTINEL = object()
 
 
 def _sse(message: Any) -> str:
-  """Serialize one JSON-RPC message as a single SSE event (``data:`` + blank line)."""
-  return f"data: {json.dumps(message)}\n\n"
+  """Serialize one JSON-RPC message as a single SSE event (``data:`` + blank line).
+
+  ``allow_nan=False`` keeps a non-finite number (``NaN``/``Infinity``) off the wire — JSON
+  has no such value, so this raises rather than emitting an invalid bare token. (R-7.1-b)
+  """
+  return f"data: {json.dumps(message, allow_nan=False)}\n\n"
 
 
 def _http_status_for_error_code(code: int) -> int:
@@ -91,6 +96,7 @@ def create_asgi_mcp_handler(
   cors: str | None = "*",
   auth_gate: AuthGate | None = None,
   allowed_origins: set[str] | None = None,
+  max_request_bytes: int = DEFAULT_INPUT_BOUNDS.max_payload_bytes,
 ) -> Callable[[Request], Awaitable[Response]]:
   """Build an async Streamable HTTP handler for ``server`` (see module docstring)."""
   # Cross-request state held in the handler closure (no session — keyed by JSON-RPC id).
@@ -111,7 +117,8 @@ def create_asgi_mcp_handler(
 
   def json_response(status: int, payload: Any, extra: dict[str, str] | None = None) -> Response:
     headers = {"Content-Type": "application/json", **cors_headers(), **(extra or {})}
-    return Response(content=json.dumps(payload), status_code=status, headers=headers)
+    # allow_nan=False: a non-finite number is not valid JSON and must never reach the wire.
+    return Response(content=json.dumps(payload, allow_nan=False), status_code=status, headers=headers)
 
   def reject(request_id: Any, code: int, message: str, data: Any = None) -> Response:
     envelope = {"jsonrpc": "2.0", "id": request_id, "error": build_error_object(code, message, data)}
@@ -232,7 +239,21 @@ def create_asgi_mcp_handler(
     if request.method != "POST":
       return json_response(405, {"jsonrpc": "2.0", "id": None, "error": build_error_object(INVALID_REQUEST_CODE, "Method not allowed")})
 
-    raw = await request.body()
+    try:
+      raw = await request.body()
+    except ClientDisconnect:
+      # The client aborted before its request body fully arrived (e.g. a reconnect race or a
+      # navigation away). No peer remains to answer, so reject quietly instead of letting the
+      # ClientDisconnect surface as an unhandled ASGI exception in the server log.
+      return json_response(400, {"jsonrpc": "2.0", "id": None, "error": build_error_object(PARSE_ERROR_CODE, "Client disconnected before the request body was received")})
+    # §28.10 (R-28.10-l): bound the inbound payload before parsing — ``raw`` is the UTF-8 wire
+    # bytes, so its length is exactly the serialized-payload size :func:`enforce_input_bounds`
+    # would measure. Reject an oversized body (HTTP 413) rather than parsing it.
+    if len(raw) > max_request_bytes:
+      return json_response(
+        413,
+        {"jsonrpc": "2.0", "id": None, "error": build_error_object(INVALID_REQUEST_CODE, f"Request body exceeds the {max_request_bytes}-byte limit")},
+      )
     try:
       parsed = json.loads(raw.decode("utf-8") if isinstance(raw, (bytes, bytearray)) else raw)
     except (ValueError, UnicodeDecodeError):

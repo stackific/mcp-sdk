@@ -15,6 +15,10 @@ import pytest
 
 from mcp.client.client import Client, RequestError, SubscriptionHandle
 from mcp.client.transport import ClientTransport
+from mcp.protocol.negotiation import (
+  UNSUPPORTED_PROTOCOL_VERSION_CODE,
+  IncompatibleProtocolError,
+)
 from mcp.protocol.meta import (
   CLIENT_CAPABILITIES_META_KEY,
   CLIENT_INFO_META_KEY,
@@ -189,6 +193,218 @@ class TestDiscovery:
     }
     client.discover()
     assert client.protocol_version() == "2026-07-28"  # negotiated
+
+
+# ─── -32004 reselect-and-retry (§5.5 / §29.3, S45-1) ──────────────────────────
+
+
+def _unsupported(message_id, supported, requested="x"):
+  return {
+    "jsonrpc": "2.0",
+    "id": message_id,
+    "error": {
+      "code": UNSUPPORTED_PROTOCOL_VERSION_CODE,
+      "message": "Unsupported protocol version",
+      "data": {"requested": requested, "supported": supported},
+    },
+  }
+
+
+class TestUnsupportedVersionReselect:
+  """S45-1 (R-29.3-c, R-5.5-h/-i/-j): a ``-32004`` triggers ONE automatic reselect-and-retry
+  at a mutually supported revision; disjoint sets surface :class:`IncompatibleProtocolError`
+  rather than looping; unrelated errors and a re-failing retry stay bounded.
+  """
+
+  def test_reselects_and_retries_once_on_overlap(self):
+    transport = StubTransport()
+    client = Client(transport, CLIENT, protocol_versions=["2027-09-09", "2026-07-28"])
+    calls = {"n": 0}
+
+    def on_request(m):
+      calls["n"] += 1
+      if calls["n"] == 1:
+        # First attempt is stamped with the most-preferred (unsupported) revision.
+        assert m["params"]["_meta"][PROTOCOL_VERSION_META_KEY] == "2027-09-09"
+        return _unsupported(m["id"], ["2026-07-28"], requested="2027-09-09")
+      return {"jsonrpc": "2.0", "id": m["id"], "result": {"resultType": "complete", "ok": True}}
+
+    transport.on_request = on_request
+    result = client.request("tools/list", {})
+
+    assert result == {"resultType": "complete", "ok": True}
+    assert calls["n"] == 2  # exactly one retry
+    assert client.negotiated_version == "2026-07-28"  # adopted the server's revision
+    # The retry carried the reselected revision and a fresh request id.
+    assert transport.sent[1]["params"]["_meta"][PROTOCOL_VERSION_META_KEY] == "2026-07-28"
+    assert transport.sent[1]["id"] != transport.sent[0]["id"]
+
+  def test_disjoint_surfaces_incompatible_and_does_not_retry(self):
+    transport = StubTransport()
+    client = Client(transport, CLIENT, protocol_versions=["2027-09-09"])
+    transport.on_request = lambda m: _unsupported(m["id"], ["2025-01-01"], requested="2027-09-09")
+
+    with pytest.raises(IncompatibleProtocolError) as exc:
+      client.request("tools/list", {})
+
+    assert exc.value.client_preference == ["2027-09-09"]
+    assert exc.value.server_supported == ["2025-01-01"]
+    assert len(transport.sent) == 1  # no retry when there is no overlap
+
+  def test_non_version_error_is_not_retried(self):
+    transport = StubTransport()
+    client = Client(transport, CLIENT)
+    transport.on_request = lambda m: {
+      "jsonrpc": "2.0",
+      "id": m["id"],
+      "error": {"code": -32601, "message": "Method not found"},
+    }
+
+    with pytest.raises(RequestError) as exc:
+      client.request("tools/list", {})
+
+    assert exc.value.code == -32601
+    assert len(transport.sent) == 1
+
+  def test_retry_failing_again_is_bounded_no_loop(self):
+    # If the retried request ALSO returns -32004, the client surfaces the error rather than
+    # looping (the retry runs with version-retry disabled).
+    transport = StubTransport()
+    client = Client(transport, CLIENT, protocol_versions=["2027-09-09", "2026-07-28"])
+    transport.on_request = lambda m: _unsupported(m["id"], ["2026-07-28"])
+
+    with pytest.raises(RequestError) as exc:
+      client.request("tools/list", {})
+
+    assert exc.value.code == UNSUPPORTED_PROTOCOL_VERSION_CODE
+    assert len(transport.sent) == 2  # original + exactly one retry, then surfaced
+
+
+# ─── §28 receive-path / boundary guards (S44-B) ───────────────────────────────
+
+
+class TestRedactedFrameTap:
+  """B1 (RC-8/15/16): the debug/telemetry frame tap never surfaces a credential — sensitive
+  keys are redacted before the frame leaves the SDK, while the real wire frame is unchanged.
+  """
+
+  def test_tap_redacts_sensitive_keys_but_wire_is_unchanged(self):
+    client, transport = stub_client()
+    seen: list = []
+    client.set_frame_listener(lambda direction, frame: seen.append((direction, frame)))
+    transport.on_request = lambda m: {"jsonrpc": "2.0", "id": m["id"], "result": {"resultType": "complete"}}
+
+    client.request("tools/list", {"token": "super-secret", "keep": "visible"})
+
+    tapped = next(f for d, f in seen if d == "send")
+    assert tapped["params"]["token"] == "[REDACTED]"
+    assert tapped["params"]["keep"] == "visible"
+    # The actual frame on the wire keeps the real value (redaction is only for the observer).
+    assert transport.sent[0]["params"]["token"] == "super-secret"
+
+
+class TestStructuredContentValidation:
+  """B2 (RC-17): a tool result's ``structuredContent`` is validated against the tool's
+  learned ``outputSchema`` on the receive path; a violation is refused with ``-32602``.
+  """
+
+  _SCHEMA = {"type": "object", "properties": {"count": {"type": "integer"}}, "required": ["count"]}
+
+  def _client(self, structured):
+    transport = StubTransport()
+    client = Client(transport, CLIENT)
+
+    def on_request(m):
+      if m["method"] == "tools/list":
+        return {
+          "jsonrpc": "2.0", "id": m["id"],
+          "result": {"resultType": "complete", "tools": [{"name": "counter", "outputSchema": self._SCHEMA}]},
+        }
+      return {
+        "jsonrpc": "2.0", "id": m["id"],
+        "result": {"resultType": "complete", "content": [], "structuredContent": structured},
+      }
+
+    transport.on_request = on_request
+    return client
+
+  def test_violating_structured_content_is_rejected(self):
+    client = self._client({"count": "not-an-int"})
+    client.list_tools()  # learn the outputSchema
+    with pytest.raises(RequestError) as exc:
+      client.call_tool("counter")
+    assert exc.value.code == -32602
+
+  def test_conforming_structured_content_passes(self):
+    client = self._client({"count": 7})
+    client.list_tools()
+    result = client.call_tool("counter")
+    assert result["structuredContent"] == {"count": 7}
+
+  def test_unknown_schema_is_not_validated(self):
+    # Without a learned outputSchema the receive-path validation is skipped (best-effort).
+    client = self._client({"count": "anything"})
+    # NOTE: no list_tools() → schema unknown
+    result = client.call_tool("counter")
+    assert result["structuredContent"] == {"count": "anything"}
+
+
+class TestReceiveTextSanitization:
+  """B7 (RC-5): when enabled, control sequences are stripped from received tool/resource text;
+  by default results pass through verbatim.
+  """
+
+  def _tool_client(self, text, *, sanitize):
+    transport = StubTransport()
+    client = Client(transport, CLIENT, sanitize_tool_text=sanitize)
+    transport.on_request = lambda m: {
+      "jsonrpc": "2.0", "id": m["id"],
+      "result": {"resultType": "complete", "content": [{"type": "text", "text": text}]},
+    }
+    return client
+
+  def test_strips_control_sequences_when_enabled(self):
+    client = self._tool_client("ok\x07\x1b[31mred\ttab\nnl", sanitize=True)
+    out = client.call_tool("t")["content"][0]["text"]
+    assert out == "ok[31mred\ttab\nnl"  # bell + ESC stripped, tab/newline preserved
+
+  def test_passthrough_by_default(self):
+    client = self._tool_client("raw\x07esc", sanitize=False)
+    assert client.call_tool("t")["content"][0]["text"] == "raw\x07esc"
+
+  def test_read_resource_sanitizes_when_enabled(self):
+    transport = StubTransport()
+    client = Client(transport, CLIENT, sanitize_tool_text=True)
+    transport.on_request = lambda m: {
+      "jsonrpc": "2.0", "id": m["id"],
+      "result": {"resultType": "complete", "contents": [{"uri": "file:///x", "text": "a\x1bb"}]},
+    }
+    assert client.read_resource("file:///x")["contents"][0]["text"] == "ab"
+
+
+class TestPreDispatchHook:
+  """B8 (RC-6): a pre-dispatch hook sees the exact arguments before a tools/call is sent and
+  may veto the call by raising.
+  """
+
+  def test_hook_receives_arguments_before_send(self):
+    client, transport = stub_client()
+    seen: list = []
+    client.set_pre_dispatch_hook(lambda name, args: seen.append((name, dict(args))))
+    transport.on_request = lambda m: {"jsonrpc": "2.0", "id": m["id"], "result": {"resultType": "complete"}}
+    client.call_tool("do", {"x": 1})
+    assert seen == [("do", {"x": 1})]
+
+  def test_hook_can_veto_before_anything_is_sent(self):
+    client, transport = stub_client()
+
+    def veto(_name, _args):
+      raise RuntimeError("blocked by review")
+
+    client.set_pre_dispatch_hook(veto)
+    with pytest.raises(RuntimeError, match="blocked by review"):
+      client.call_tool("do", {"x": 1})
+    assert transport.sent == []  # vetoed before any transport send
 
 
 # ─── Outgoing request envelope (§4.3) ─────────────────────────────────────────

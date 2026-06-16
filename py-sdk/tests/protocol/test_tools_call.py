@@ -66,6 +66,40 @@ class TestRequest:
     assert not is_call_tool_request({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {}})
     assert not is_call_tool_request({"jsonrpc": "2.0", "method": "tools/call", "params": {"name": "x"}})
 
+  def test_rejects_malformed_params_shape(self):
+    # P1-2 parity: the request-shape contract matches TS `CallToolRequestParamsSchema`,
+    # which rejects more than a missing/non-string `name`. (R-16.5-c/-f/-h/-k)
+    def req(params):
+      return {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": params}
+
+    # `arguments` MUST be an object when present (R-16.5-c).
+    assert not is_call_tool_request(req({"name": "x", "arguments": [1, 2]}))
+    assert not is_call_tool_request(req({"name": "x", "arguments": "not-an-object"}))
+    # `inputResponses` MUST be an object when present (R-16.5-f).
+    assert not is_call_tool_request(req({"name": "x", "inputResponses": "nope"}))
+    # `requestState` MUST be a string when present (R-16.5-h).
+    assert not is_call_tool_request(req({"name": "x", "requestState": 123}))
+    # `_meta` MUST be an object when present (R-16.5-k).
+    assert not is_call_tool_request(req({"name": "x", "_meta": "nope"}))
+    # params itself must be an object.
+    assert not is_call_tool_request(req("not-an-object"))
+
+  def test_accepts_well_formed_optional_params(self):
+    # The complement: every optional field, when well-typed, is accepted (no over-rejection).
+    req = {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+        "name": "x",
+        "arguments": {"a": 1},
+        "inputResponses": {"k": "v"},
+        "requestState": "tok",
+        "_meta": {"progressToken": "p"},
+      },
+    }
+    assert is_call_tool_request(req)
+
   def test_resolve_arguments_defaults_to_empty(self):
     assert resolve_call_tool_arguments({"name": "x"}) == {}
     assert resolve_call_tool_arguments({"name": "x", "arguments": {"a": 1}}) == {"a": 1}

@@ -27,6 +27,17 @@ from mcp.transport.contract import TransportError
 NEWLINE_BYTE = 0x0A
 
 
+def _reject_non_finite(token: str) -> float:
+  """``json.loads`` ``parse_constant`` hook that rejects the non-finite JSON-extension
+  tokens ``NaN`` / ``Infinity`` / ``-Infinity``.
+
+  RFC 8259 (and the §3 JSON value model) admit only finite numbers, so a unit carrying one
+  of these literals is not valid JSON and MUST be rejected — never silently substituted
+  with a Python ``float('nan')``/``float('inf')``. (R-7.1-b, R-7.6-b)
+  """
+  raise ValueError(f"non-finite JSON number token {token!r} is not a valid JSON value")
+
+
 def encode_message_unit(message: dict) -> bytes:
   """Encode a message to its UTF-8 JSON bytes, **without** any framing.
 
@@ -34,21 +45,36 @@ def encode_message_unit(message: dict) -> bytes:
   ``\\`` ``n``, so the produced bytes never contain a raw ``0x0A`` — which is what
   makes newline framing unambiguous (R-7.2-d). ``ensure_ascii=False`` emits real
   UTF-8 for non-ASCII characters (R-7.1-b).
+
+  ``allow_nan=False`` makes a non-finite number (``NaN``/``Infinity``/``-Infinity``) an
+  observable failure rather than emitting the invalid bare ``NaN``/``Infinity`` tokens
+  Python's ``json`` produces by default — JSON has no non-finite numbers (R-7.1-b), and
+  this module never puts a malformed value on the wire.
+
+  :raises TransportError: when ``message`` contains a non-finite number.
   """
-  return json.dumps(message, ensure_ascii=False).encode("utf-8")
+  try:
+    return json.dumps(message, ensure_ascii=False, allow_nan=False).encode("utf-8")
+  except ValueError as cause:
+    raise TransportError(
+      "cannot encode message: it contains a non-finite number (NaN/Infinity), "
+      "which is not a valid JSON value (R-7.1-b)"
+    ) from cause
 
 
 def decode_message_unit(data: bytes) -> dict:
   """Decode one framed unit's bytes (framing already removed) into a message.
 
   Enforces, in order: (1) well-formed UTF-8 (R-7.6-a–R-7.6-c); (2) exactly one JSON
-  value — trailing or multiple values are rejected (R-7.1-b, R-7.6-b); (3) the value
-  classifies as a valid JSON-RPC message via :func:`classify_message`.
+  value — trailing or multiple values are rejected (R-7.1-b, R-7.6-b), and the non-finite
+  JSON-extension tokens ``NaN``/``Infinity``/``-Infinity`` are rejected rather than
+  silently parsed (R-7.1-b); (3) the value classifies as a valid JSON-RPC message via
+  :func:`classify_message`.
 
   Never returns a substituted/partial message and never returns ``None`` for a
   malformed unit — every failure is an observable raise. (R-7.2-q, R-7.6-c)
 
-  :raises TransportError: when the unit is not well-formed UTF-8, not a single JSON
+  :raises TransportError: when the unit is not well-formed UTF-8, not a single finite-JSON
     value, or not a valid JSON-RPC message.
   """
   try:
@@ -57,8 +83,11 @@ def decode_message_unit(data: bytes) -> dict:
     raise TransportError("received unit is not well-formed UTF-8") from cause
 
   try:
-    value = json.loads(text)  # raises on no value, trailing data, or invalid JSON
-  except json.JSONDecodeError as cause:
+    # ``parse_constant`` turns the non-finite extension tokens into an observable raise;
+    # ``json.JSONDecodeError`` is itself a ``ValueError`` subclass, so one except covers
+    # both no-value/trailing-data and the non-finite rejection.
+    value = json.loads(text, parse_constant=_reject_non_finite)
+  except ValueError as cause:
     raise TransportError("received unit does not parse as a single JSON value") from cause
 
   try:

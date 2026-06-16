@@ -13,7 +13,11 @@ the sub-flag usage rules, and the graceful-degradation decision.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
+from pydantic import StrictBool
+
+from mcp._model import McpModel, validates
 from mcp.protocol.errors import INVALID_PARAMS_CODE, MISSING_CLIENT_CAPABILITY_CODE
 from mcp.protocol.meta import build_missing_capability_error, validate_request_meta
 
@@ -26,6 +30,8 @@ __all__ = [
   "DEPRECATED_SERVER_CAPABILITIES",
   "is_deprecated_client_capability",
   "is_deprecated_server_capability",
+  "ClientCapabilities",
+  "ServerCapabilities",
   "is_valid_client_capabilities",
   "is_valid_server_capabilities",
   "client_declares",
@@ -65,102 +71,93 @@ def _nested(obj: dict, key: str) -> dict | None:
   return v if isinstance(v, dict) else None
 
 
-def _is_record_of_objects(value: object) -> bool:
-  """Mirror ``z.record(z.record(z.unknown()))``: an object whose every value is an object.
+# ─── Declaration schemas (§6.1, §6.2, §6.3) ───────────────────────────────────
+#
+# The Python analogues of the TS ``ClientCapabilitiesSchema`` / ``ServerCapabilitiesSchema``
+# (Zod ``.passthrough()`` objects). ``extra="allow"`` (from :class:`McpModel`) tolerates
+# unknown top-level keys (forward-compatible §2.6); each declared field validates its shape.
+# The ``experimental`` / ``extensions`` maps are records whose values MUST be objects (§6.2,
+# §6.3: "map of string → object"); the boolean sub-flags use ``StrictBool`` so ``1`` /
+# ``"true"`` are rejected, matching Zod's strict ``z.boolean()``.
 
-  Used for the ``experimental`` / ``extensions`` maps, whose keys are arbitrary capability
-  identifiers and whose values are settings objects of arbitrary structure. (§6.2, §6.3)
+
+class _ElicitationCapability(McpModel):
+  """Client ``elicitation`` capability with optional object ``form`` / ``url`` sub-flags."""
+
+  form: dict[str, Any] | None = None
+  url: dict[str, Any] | None = None
+
+
+class _SamplingCapability(McpModel):
+  """Client ``sampling`` capability (Deprecated) with optional ``context`` / ``tools`` sub-flags."""
+
+  context: dict[str, Any] | None = None
+  tools: dict[str, Any] | None = None
+
+
+class ClientCapabilities(McpModel):
+  """The optional client behaviors, supplied on every request (§6.2). An empty ``{}`` is
+  valid; all fields are OPTIONAL; ``roots`` / ``sampling`` are Deprecated.
   """
-  return isinstance(value, dict) and all(isinstance(v, dict) for v in value.values())
+
+  experimental: dict[str, dict[str, Any]] | None = None
+  elicitation: _ElicitationCapability | None = None
+  roots: dict[str, Any] | None = None
+  sampling: _SamplingCapability | None = None
+  extensions: dict[str, dict[str, Any]] | None = None
 
 
-def _optional_object_subflags(value: object, subflags: tuple[str, ...]) -> bool:
-  """Mirror ``z.object({ <subflag>: z.record(z.unknown()).optional() }).passthrough()``.
+class _PromptsCapability(McpModel):
+  """Server ``prompts`` capability; optional boolean ``listChanged`` sub-flag."""
 
-  The capability value MUST be an object; each named sub-flag, when present, MUST be an
-  object (an empty ``{}`` declares the mode with no settings). Unknown extra keys pass
-  through (``.passthrough()``) and are ignored. (§6.2: ``elicitation``, ``sampling``)
+  list_changed: StrictBool | None = None
+
+
+class _ResourcesCapability(McpModel):
+  """Server ``resources`` capability; optional boolean ``subscribe`` / ``listChanged`` sub-flags."""
+
+  subscribe: StrictBool | None = None
+  list_changed: StrictBool | None = None
+
+
+class _ToolsCapability(McpModel):
+  """Server ``tools`` capability; optional boolean ``listChanged`` sub-flag."""
+
+  list_changed: StrictBool | None = None
+
+
+class ServerCapabilities(McpModel):
+  """The optional server behaviors, learned from ``server/discover`` (§6.3). An empty ``{}``
+  is valid; all fields are OPTIONAL; ``logging`` is Deprecated.
   """
-  if not isinstance(value, dict):
-    return False
-  return all(k not in value or isinstance(value[k], dict) for k in subflags)
 
+  experimental: dict[str, dict[str, Any]] | None = None
+  completions: dict[str, Any] | None = None
+  prompts: _PromptsCapability | None = None
+  resources: _ResourcesCapability | None = None
+  tools: _ToolsCapability | None = None
+  logging: dict[str, Any] | None = None
+  extensions: dict[str, dict[str, Any]] | None = None
 
-def _optional_boolean_subflags(value: object, subflags: tuple[str, ...]) -> bool:
-  """Mirror ``z.object({ <subflag>: z.boolean().optional() }).passthrough()``.
-
-  The capability value MUST be an object; each named sub-flag, when present, MUST be a
-  ``bool`` (note ``bool`` is the only JSON boolean — ``0``/``1`` are NOT accepted, matching
-  Zod's strict ``z.boolean()``). Unknown extra keys pass through. (§6.3: ``prompts``,
-  ``resources``, ``tools``)
-  """
-  if not isinstance(value, dict):
-    return False
-  return all(
-    k not in value or (isinstance(value[k], bool))
-    for k in subflags
-  )
-
-
-# ─── Declaration validators (§6.1, §6.2, §6.3) ────────────────────────────────
 
 def is_valid_client_capabilities(value: object) -> bool:
   """Return ``True`` for a structurally valid ``ClientCapabilities`` object (§6.2, R-6.2-s).
 
-  The Python analogue of the TS ``ClientCapabilitiesSchema`` (a Zod ``.passthrough()`` object).
   An empty ``{}`` is valid (declares no optional behaviors), all fields are OPTIONAL, and
   unknown top-level keys are tolerated (forward-compatible §2.6). When present, each known
-  field MUST have the right shape:
-
-  * ``experimental`` / ``extensions`` — an object map whose every value is an object.
-  * ``elicitation`` — an object; optional ``form`` / ``url`` sub-flags are objects.
-  * ``sampling`` (Deprecated) — an object; optional ``context`` / ``tools`` sub-flags are objects.
-  * ``roots`` (Deprecated) — an object (``{}``).
+  field MUST have the right shape (see :class:`ClientCapabilities`).
   """
-  if not isinstance(value, dict):
-    return False
-  if "experimental" in value and not _is_record_of_objects(value["experimental"]):
-    return False
-  if "extensions" in value and not _is_record_of_objects(value["extensions"]):
-    return False
-  if "elicitation" in value and not _optional_object_subflags(value["elicitation"], ("form", "url")):
-    return False
-  if "sampling" in value and not _optional_object_subflags(value["sampling"], ("context", "tools")):
-    return False
-  if "roots" in value and not isinstance(value["roots"], dict):
-    return False
-  return True
+  return validates(ClientCapabilities, value)
 
 
 def is_valid_server_capabilities(value: object) -> bool:
   """Return ``True`` for a structurally valid ``ServerCapabilities`` object (§6.3, R-6.3-s).
 
-  The Python analogue of the TS ``ServerCapabilitiesSchema`` (a Zod ``.passthrough()`` object).
-  An empty ``{}`` is valid, all fields are OPTIONAL, and unknown top-level keys are tolerated.
-  When present, each known field MUST have the right shape:
-
-  * ``experimental`` / ``extensions`` — an object map whose every value is an object.
-  * ``completions`` / ``logging`` (Deprecated) — an object.
-  * ``prompts`` / ``tools`` — an object; optional ``listChanged`` sub-flag is a ``bool``.
-  * ``resources`` — an object; optional ``subscribe`` / ``listChanged`` sub-flags are ``bool``.
+  An empty ``{}`` is valid, all fields are OPTIONAL, and unknown top-level keys are
+  tolerated. When present, each known field MUST have the right shape (see
+  :class:`ServerCapabilities`).
   """
-  if not isinstance(value, dict):
-    return False
-  if "experimental" in value and not _is_record_of_objects(value["experimental"]):
-    return False
-  if "extensions" in value and not _is_record_of_objects(value["extensions"]):
-    return False
-  if "completions" in value and not isinstance(value["completions"], dict):
-    return False
-  if "logging" in value and not isinstance(value["logging"], dict):
-    return False
-  if "prompts" in value and not _optional_boolean_subflags(value["prompts"], ("listChanged",)):
-    return False
-  if "resources" in value and not _optional_boolean_subflags(value["resources"], ("subscribe", "listChanged")):
-    return False
-  if "tools" in value and not _optional_boolean_subflags(value["tools"], ("listChanged",)):
-    return False
-  return True
+  return validates(ServerCapabilities, value)
 
 
 # ─── Deprecated capabilities (§6.1, §6.2) ─────────────────────────────────────

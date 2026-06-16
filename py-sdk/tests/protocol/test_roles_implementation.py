@@ -26,6 +26,7 @@ from mcp.protocol.implementation import (
   parse_implementation,
 )
 from mcp.protocol.roles import MCP_ROLES, McpRole, is_mcp_role, peer_role
+from mcp.types.icon import Icon
 
 
 # ─── McpRole — §1.1, §2.2 (AC-01.1) ───────────────────────────────────────────
@@ -222,7 +223,7 @@ class TestOptionalFields:
     assert impl.version == "2.4.1"
     assert impl.description == "Provides filesystem and search tools."
     assert impl.website_url == "https://example.com/mcp"
-    assert impl.icons == [{"src": "https://example.com/icon.png", "mimeType": "image/png"}]
+    assert impl.icons == [Icon(src="https://example.com/icon.png", mime_type="image/png")]
     assert impl.extra == {}
 
 

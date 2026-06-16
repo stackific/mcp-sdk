@@ -52,7 +52,7 @@ from mcp.protocol.authorization_registration import (
   validate_exact_issuer,
 )
 from mcp.protocol.elicitation_form import assert_form_mode_may_collect
-from mcp.protocol.pagination import INVALID_CURSOR_CODE, build_invalid_cursor_error
+from mcp.protocol.pagination import build_invalid_cursor_error
 from mcp.protocol.sampling import (
   SamplingConsentObligations,
   unmet_required_consent_obligations,
@@ -697,6 +697,21 @@ def access_controls_are_commensurate(data_sensitivity: str, applied_control: str
 
 
 # ─── §28.5 — Authorization security (restates §23; R-28.5-a – R-28.5-q) ─────────
+#
+# PKCE (R-28.5-j/k) and ``state`` (R-28.5-l/m) appear in :data:`SECURITY_REQUIREMENTS`
+# above for traceability, but this §28 security-considerations module deliberately ships no
+# PKCE/``state`` validator of its own — §28.5 *restates* §23, and the actual mechanism is
+# owned by the S36/S37 authorization-flow module: PKCE by
+# :func:`mcp.protocol.authorization_flow.create_pkce_challenge` /
+# :func:`~mcp.protocol.authorization_flow.verify_pkce` /
+# :func:`~mcp.protocol.authorization_flow.confirm_pkce_support`, and ``state`` by
+# :func:`~mcp.protocol.authorization_flow.generate_state` /
+# :func:`~mcp.protocol.authorization_flow.verify_redirect_state`. The ts-sdk reference makes
+# the same split (no validator in its security module). Re-implementing the check here would
+# duplicate that enforcement, so the obligation is enumerated, not re-coded.
+
+
+
 
 
 @dataclass(frozen=True)

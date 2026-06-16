@@ -32,7 +32,6 @@ from __future__ import annotations
 
 from concurrent.futures import Future
 
-from mcp.client.transport import ClientTransportError
 from mcp.jsonrpc.framing import InFlightTracker, RequestId, id_echo_matches
 from mcp.protocol.errors import PARSE_ERROR_CODE
 
