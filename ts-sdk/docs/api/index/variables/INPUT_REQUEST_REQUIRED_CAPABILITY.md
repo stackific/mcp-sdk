@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / INPUT\_REQUEST\_REQUIRED\_CAPABILITY
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / INPUT\_REQUEST\_REQUIRED\_CAPABILITY
 
 # Variable: INPUT\_REQUEST\_REQUIRED\_CAPABILITY
 

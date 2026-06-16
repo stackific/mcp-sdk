@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / MAX\_COMPLETION\_VALUES
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / MAX\_COMPLETION\_VALUES
 
 # Variable: MAX\_COMPLETION\_VALUES
 

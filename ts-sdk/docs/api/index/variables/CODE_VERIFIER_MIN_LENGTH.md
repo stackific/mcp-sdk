@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / CODE\_VERIFIER\_MIN\_LENGTH
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / CODE\_VERIFIER\_MIN\_LENGTH
 
 # Variable: CODE\_VERIFIER\_MIN\_LENGTH
 

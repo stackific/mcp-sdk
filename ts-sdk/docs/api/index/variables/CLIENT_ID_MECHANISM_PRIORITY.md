@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / CLIENT\_ID\_MECHANISM\_PRIORITY
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / CLIENT\_ID\_MECHANISM\_PRIORITY
 
 # Variable: CLIENT\_ID\_MECHANISM\_PRIORITY
 

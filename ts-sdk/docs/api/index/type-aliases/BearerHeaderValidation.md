@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / BearerHeaderValidation
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / BearerHeaderValidation
 
 # Type Alias: BearerHeaderValidation
 

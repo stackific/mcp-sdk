@@ -1,6 +1,6 @@
 # MCP V2 SDK — with a full-featured demo (multi-language)
 
-A runnable companion to the **MCP V2 RC specification**. The shared frontend can be backed by any of
+A runnable companion to the **[MCP V2 RC specification](docs/model-context-protocol.md)**. The shared frontend can be backed by any of
 several **language stacks** — pick one on the home page and it repoints at that stack's MCP **client
 host** (a different backend + server configuration on its own ports):
 
@@ -22,18 +22,19 @@ configuration.
 
 > All three full stacks speak the V2 RC revision `2026-07-28` — **stateless and handshake-less**
 > (`server/discover` replaces `initialize`; no `Mcp-Session-Id`). The TypeScript stack uses
-> `@stackific/mcp-sdk-ts` (in `ts-sdk/`), the Python stack uses `stackific-mcp` (in `py-sdk/`), and the
+> `@stackific/mcp-sdk` (in `ts-sdk/`), the Python stack uses `stackific-mcp` (imported as `stackific.mcp`, in `py-sdk/`), and the
 > C# stack uses `Stackific.Mcp` (in `csharp-sdk/`). The active stack + negotiated version are shown live
 > in the sidebar.
 
 ## Repository layout
 
 ```
-frontend/            Shared Vite + TanStack Router + shadcn-style SPA (:8000) — the language switcher
-ts-sdk/              @stackific/mcp-sdk-ts — the MCP SDK (client + server runtimes)
-ts-mcp-client/       TypeScript MCP client host (Hono, :8002) — full implementation
-ts-mcp-server/       TypeScript reference MCP server + OAuth AS (Hono, :8001 / :8003)
-py-sdk/              stackific-mcp — the Python MCP SDK (client + server runtimes), parity port of ts-sdk
+docs/                The full MCP V2 RC specification (model-context-protocol.md)
+frontend/            @stackific/mcp-frontend-demo — shared Vite + TanStack Router + shadcn-style SPA (:8000), the language switcher
+ts-sdk/              @stackific/mcp-sdk — the MCP SDK (client + server runtimes)
+ts-mcp-client/       @stackific/mcp-client-demo — TypeScript MCP client host (Hono, :8002), full implementation
+ts-mcp-server/       @stackific/mcp-server-demo — TypeScript reference MCP server + OAuth AS (Hono, :8001 / :8003)
+py-sdk/              stackific-mcp — the Python MCP SDK, imported as stackific.mcp (client + server runtimes), parity port of ts-sdk
 py-mcp-client/       Python MCP client host on py-sdk (FastAPI, :8102) — full implementation
 py-mcp-server/       Python reference MCP server + OAuth AS on py-sdk (FastAPI, :8101 / :8103)
 csharp-sdk/          Stackific.Mcp — the MCP SDK for .NET 10 (client + server runtimes, built from the spec)

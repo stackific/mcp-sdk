@@ -9,8 +9,8 @@ cases. Every existing test is retained.
 
 import pytest
 
-from mcp.protocol.errors import INVALID_PARAMS_CODE, UNSUPPORTED_PROTOCOL_VERSION_CODE
-from mcp.protocol.discovery import (
+from stackific.mcp.protocol.errors import INVALID_PARAMS_CODE, UNSUPPORTED_PROTOCOL_VERSION_CODE
+from stackific.mcp.protocol.discovery import (
   CURRENT_PROTOCOL_VERSION,
   SERVER_DISCOVER_METHOD,
   DiscoverConfig,
@@ -25,7 +25,7 @@ from mcp.protocol.discovery import (
   select_revision,
   validate_discover_request,
 )
-from mcp.protocol.meta import (
+from stackific.mcp.protocol.meta import (
   CLIENT_CAPABILITIES_META_KEY,
   CLIENT_INFO_META_KEY,
   PROTOCOL_VERSION_META_KEY,

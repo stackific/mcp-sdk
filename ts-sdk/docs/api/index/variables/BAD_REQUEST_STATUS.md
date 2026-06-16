@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / BAD\_REQUEST\_STATUS
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / BAD\_REQUEST\_STATUS
 
 # Variable: BAD\_REQUEST\_STATUS
 

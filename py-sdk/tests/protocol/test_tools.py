@@ -9,7 +9,7 @@ so a TS ``safeParse(x).success`` assertion maps to the corresponding ``is_valid_
 
 import pytest
 
-from mcp.protocol.tools import (
+from stackific.mcp.protocol.tools import (
   DEFAULT_SCHEMA_DIALECT,
   DEFAULT_SCHEMA_LIMITS,
   SUPPORTED_SCHEMA_DIALECTS,

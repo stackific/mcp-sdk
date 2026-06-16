@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / DECLINABLE\_UI\_REQUESTS
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / DECLINABLE\_UI\_REQUESTS
 
 # Variable: DECLINABLE\_UI\_REQUESTS
 

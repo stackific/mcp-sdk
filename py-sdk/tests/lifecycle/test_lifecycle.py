@@ -19,7 +19,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from mcp.lifecycle.policy import (
+from stackific.mcp.lifecycle.policy import (
   EXPEDITED_MINIMUM_DAYS,
   STANDARD_DEPRECATION_MONTHS,
   add_calendar_months,
@@ -27,12 +27,12 @@ from mcp.lifecycle.policy import (
   can_transition,
   is_eligible_for_removal,
 )
-from mcp.lifecycle.registry import (
+from stackific.mcp.lifecycle.registry import (
   DEPRECATED_REGISTRY,
   emit_deprecation_warning,
   find_deprecated_entry,
 )
-from mcp.lifecycle.state import (
+from stackific.mcp.lifecycle.state import (
   LIFECYCLE_STATES,
   DeprecatedRegistryEntry,
   LifecycleRecord,
@@ -534,7 +534,7 @@ class TestNativeDeprecationMarkers:
     return doc
 
   def test_roots_capability_value_marked(self):
-    from mcp.protocol.roots import (
+    from stackific.mcp.protocol.roots import (
       Root,
       RootsCapabilityValue,
       is_valid_roots_capability_value,
@@ -544,7 +544,7 @@ class TestNativeDeprecationMarkers:
       assert ".. deprecated::" in self._doc(obj)
 
   def test_sampling_surfaces_marked(self):
-    from mcp.protocol.sampling import (
+    from stackific.mcp.protocol.sampling import (
       SamplingMessage,
       is_deprecated_include_context,
       is_valid_sampling_message,
@@ -554,22 +554,22 @@ class TestNativeDeprecationMarkers:
       assert ".. deprecated::" in self._doc(obj)
 
   def test_logging_log_level_meta_key_marked(self):
-    from mcp.protocol.meta import is_valid_logging_level
+    from stackific.mcp.protocol.meta import is_valid_logging_level
 
     assert ".. deprecated::" in self._doc(is_valid_logging_level)
 
   def test_logging_notification_surface_marked(self):
-    from mcp.protocol.logging import is_valid_logging_message_notification
+    from stackific.mcp.protocol.logging import is_valid_logging_message_notification
 
     assert ".. deprecated::" in self._doc(is_valid_logging_message_notification)
 
   def test_dynamic_client_registration_marked(self):
-    from mcp.protocol.authorization_flow import build_dynamic_client_registration_request
+    from stackific.mcp.protocol.authorization_flow import build_dynamic_client_registration_request
 
     assert ".. deprecated::" in self._doc(build_dynamic_client_registration_request)
 
   def test_legacy_titled_enum_marked(self):
-    from mcp.protocol.elicitation_form import (
+    from stackific.mcp.protocol.elicitation_form import (
       LegacyTitledEnum,
       is_legacy_titled_enum_schema,
     )
@@ -580,9 +580,9 @@ class TestNativeDeprecationMarkers:
   def test_markers_reference_migration_and_removal_window(self):
     # The four S43-P0 surfaces must cite the §27.3 migration path and the 2026-07-28
     # earliest-removal window (S43-RC-5 / RC-6), not merely the bare directive.
-    from mcp.protocol.roots import RootsCapabilityValue
-    from mcp.protocol.sampling import SamplingMessage, is_deprecated_include_context
-    from mcp.protocol.meta import is_valid_logging_level
+    from stackific.mcp.protocol.roots import RootsCapabilityValue
+    from stackific.mcp.protocol.sampling import SamplingMessage, is_deprecated_include_context
+    from stackific.mcp.protocol.meta import is_valid_logging_level
 
     for obj in (
       RootsCapabilityValue,
@@ -600,7 +600,7 @@ class TestNativeDeprecationMarkers:
     # dropped or stray marker is caught. (R-27.4-a; P0-verify)
     from pathlib import Path
 
-    import mcp
+    from stackific import mcp
 
     mcp_root = Path(mcp.__file__).parent
     marked = sorted(

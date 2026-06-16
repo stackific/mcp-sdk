@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / CursorValidation
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / CursorValidation
 
 # Type Alias: CursorValidation
 

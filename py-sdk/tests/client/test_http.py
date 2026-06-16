@@ -26,13 +26,13 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
-from mcp.client.client import Client, RequestError
-from mcp.client.http import StreamableHttpClientTransport
-from mcp.client.transport import ClientTransportError
-from mcp.protocol.discovery import is_discover_result
-from mcp.protocol.meta import PROTOCOL_VERSION_META_KEY
-from mcp.server.http import create_mcp_request_handler
-from mcp.server.server import McpServer
+from stackific.mcp.client.client import Client, RequestError
+from stackific.mcp.client.http import StreamableHttpClientTransport
+from stackific.mcp.client.transport import ClientTransportError
+from stackific.mcp.protocol.discovery import is_discover_result
+from stackific.mcp.protocol.meta import PROTOCOL_VERSION_META_KEY
+from stackific.mcp.server.http import create_mcp_request_handler
+from stackific.mcp.server.server import McpServer
 
 INFO = {"name": "srv", "version": "1.0"}
 CLIENT = {"name": "cli", "version": "0.1"}

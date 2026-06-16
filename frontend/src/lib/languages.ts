@@ -28,7 +28,7 @@ export const LANGUAGES: readonly LanguageStack[] = [
   {
     id: 'typescript',
     label: 'TypeScript',
-    tagline: 'Hono + @stackific/mcp-sdk-ts · Node',
+    tagline: 'Hono + @stackific/mcp-sdk · Node',
     // Honour the legacy VITE_BACKEND_URL so existing TS-only setups keep working.
     clientUrl: env.VITE_TS_CLIENT_URL ?? env.VITE_BACKEND_URL ?? 'http://localhost:8002',
     status: 'ready',

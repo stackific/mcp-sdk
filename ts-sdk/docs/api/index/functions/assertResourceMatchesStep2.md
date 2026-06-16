@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / assertResourceMatchesStep2
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / assertResourceMatchesStep2
 
 # Function: assertResourceMatchesStep2()
 

@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / MALFORMED\_INPUT\_REQUIRED\_RESULT\_ERROR
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / MALFORMED\_INPUT\_REQUIRED\_RESULT\_ERROR
 
 # Variable: MALFORMED\_INPUT\_REQUIRED\_RESULT\_ERROR
 

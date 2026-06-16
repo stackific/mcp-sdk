@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / ListToolsRequest
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / ListToolsRequest
 
 # Type Alias: ListToolsRequest
 

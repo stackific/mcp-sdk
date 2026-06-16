@@ -12,13 +12,13 @@ Mirrors the TS suite ``src/__tests__/protocol/revision.test.ts``, AC-mapped:
   AC-07.8 (R-5.2-e) — header mismatches _meta value → 400 Bad Request.
 """
 
-from mcp.protocol.meta import (
+from stackific.mcp.protocol.meta import (
   CLIENT_CAPABILITIES_META_KEY,
   CLIENT_INFO_META_KEY,
   PROTOCOL_VERSION_META_KEY,
   validate_request_meta,
 )
-from mcp.protocol.revision import (
+from stackific.mcp.protocol.revision import (
   CURRENT_PROTOCOL_VERSION,
   HTTP_REVISION_MISMATCH_STATUS,
   MCP_PROTOCOL_VERSION_HEADER,

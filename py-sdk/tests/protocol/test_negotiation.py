@@ -5,8 +5,8 @@ AC-09.18) case-for-case, adapting the dataclass/dict convention, plus edge cases
 existing test is retained.
 """
 
-from mcp.protocol.discovery import build_discover_response, DiscoverConfig
-from mcp.protocol.negotiation import (
+from stackific.mcp.protocol.discovery import build_discover_response, DiscoverConfig
+from stackific.mcp.protocol.negotiation import (
   MISSING_CLIENT_CAPABILITY_CODE,
   NEGOTIATION_ERROR_HTTP_STATUS,
   SERVER_DISCOVER_IS_OPTIONAL,

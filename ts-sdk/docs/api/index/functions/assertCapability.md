@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / assertCapability
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / assertCapability
 
 # Function: assertCapability()
 

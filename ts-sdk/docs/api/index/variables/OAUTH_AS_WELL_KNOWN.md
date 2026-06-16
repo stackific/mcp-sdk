@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / OAUTH\_AS\_WELL\_KNOWN
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / OAUTH\_AS\_WELL\_KNOWN
 
 # Variable: OAUTH\_AS\_WELL\_KNOWN
 

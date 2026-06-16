@@ -1,4 +1,4 @@
-// ESLint flat config for @stackific/mcp-sdk-ts (ESLint 10 + typescript-eslint 8).
+// ESLint flat config for @stackific/mcp-sdk (ESLint 10 + typescript-eslint 8).
 //
 // Scope: this SDK only (the monorepo's sibling stacks own their own linting).
 // The codebase is edge-safe TypeScript, so `tsc --noEmit` (see `task typecheck`)

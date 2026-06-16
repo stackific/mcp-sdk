@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [client](../README.md) / discoverOAuthMetadata
+[@stackific/mcp-sdk](../../README.md) / [client](../README.md) / discoverOAuthMetadata
 
 # Function: discoverOAuthMetadata()
 

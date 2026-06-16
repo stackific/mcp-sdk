@@ -2,7 +2,7 @@
 
 import pytest
 
-from mcp.transport.contract import (
+from stackific.mcp.transport.contract import (
   STATELESS_TRANSPORT_RULES,
   TRANSPORT_GUARANTEES,
   Transport,

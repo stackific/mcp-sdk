@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / UI\_CSP\_DIRECTIVES
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / UI\_CSP\_DIRECTIVES
 
 # Variable: UI\_CSP\_DIRECTIVES
 

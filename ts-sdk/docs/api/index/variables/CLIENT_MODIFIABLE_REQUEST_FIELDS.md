@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / CLIENT\_MODIFIABLE\_REQUEST\_FIELDS
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / CLIENT\_MODIFIABLE\_REQUEST\_FIELDS
 
 # Variable: CLIENT\_MODIFIABLE\_REQUEST\_FIELDS
 

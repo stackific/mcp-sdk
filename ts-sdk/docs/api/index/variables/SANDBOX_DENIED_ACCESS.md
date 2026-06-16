@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / SANDBOX\_DENIED\_ACCESS
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / SANDBOX\_DENIED\_ACCESS
 
 # Variable: SANDBOX\_DENIED\_ACCESS
 

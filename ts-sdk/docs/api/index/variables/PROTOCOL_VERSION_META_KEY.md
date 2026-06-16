@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / PROTOCOL\_VERSION\_META\_KEY
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / PROTOCOL\_VERSION\_META\_KEY
 
 # Variable: PROTOCOL\_VERSION\_META\_KEY
 

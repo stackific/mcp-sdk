@@ -1,8 +1,8 @@
-**@stackific/mcp-sdk-ts**
+**@stackific/mcp-sdk**
 
 ***
 
-# @stackific/mcp-sdk-ts
+# @stackific/mcp-sdk
 
 ## Modules
 

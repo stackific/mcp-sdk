@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / FORBIDDEN\_CONTENT\_BLOCK\_TYPES
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / FORBIDDEN\_CONTENT\_BLOCK\_TYPES
 
 # Variable: FORBIDDEN\_CONTENT\_BLOCK\_TYPES
 

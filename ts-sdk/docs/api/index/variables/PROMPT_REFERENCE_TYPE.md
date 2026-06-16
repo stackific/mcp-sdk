@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / PROMPT\_REFERENCE\_TYPE
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / PROMPT\_REFERENCE\_TYPE
 
 # Variable: PROMPT\_REFERENCE\_TYPE
 

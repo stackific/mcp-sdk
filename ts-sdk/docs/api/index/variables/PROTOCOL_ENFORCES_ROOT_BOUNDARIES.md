@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / PROTOCOL\_ENFORCES\_ROOT\_BOUNDARIES
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / PROTOCOL\_ENFORCES\_ROOT\_BOUNDARIES
 
 # Variable: PROTOCOL\_ENFORCES\_ROOT\_BOUNDARIES
 

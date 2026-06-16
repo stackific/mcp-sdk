@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / LOOPBACK\_BIND\_ADDRESS
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / LOOPBACK\_BIND\_ADDRESS
 
 # Variable: LOOPBACK\_BIND\_ADDRESS
 

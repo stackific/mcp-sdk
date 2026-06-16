@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / RATE\_LIMIT\_REJECTION\_CODE
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / RATE\_LIMIT\_REJECTION\_CODE
 
 # Variable: RATE\_LIMIT\_REJECTION\_CODE
 

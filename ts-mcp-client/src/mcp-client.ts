@@ -1,6 +1,6 @@
 /**
  * Hosts the MCP *client* for the companion backend, now built on the home-grown,
- * edge-friendly `@stackific/mcp-sdk-ts` client runtime (2026-07-28, stateless)
+ * edge-friendly `@stackific/mcp-sdk` client runtime (2026-07-28, stateless)
  * instead of the Node-only alpha client.
  *
  * The SDK's `Client` owns the request/response lifecycle: it stamps every request
@@ -11,7 +11,7 @@
  * wrapping `transport.send`, inbound via `transport.onMessage` — and relay them to
  * the debug bus for the SPA's "under the hood" view.
  */
-import { Client, StreamableHTTPClientTransport } from '@stackific/mcp-sdk-ts';
+import { Client, StreamableHTTPClientTransport } from '@stackific/mcp-sdk';
 
 import { MCP_SERVER_URL } from './config.js';
 import { bus, type FrameKind } from './debug-bus.js';

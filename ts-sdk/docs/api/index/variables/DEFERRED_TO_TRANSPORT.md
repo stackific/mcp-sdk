@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / DEFERRED\_TO\_TRANSPORT
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / DEFERRED\_TO\_TRANSPORT
 
 # Variable: DEFERRED\_TO\_TRANSPORT
 

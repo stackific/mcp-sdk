@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / PARSE\_ERROR\_CODE
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / PARSE\_ERROR\_CODE
 
 # Variable: PARSE\_ERROR\_CODE
 

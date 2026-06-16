@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / VALIDATION\_ERROR\_CODE
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / VALIDATION\_ERROR\_CODE
 
 # Variable: VALIDATION\_ERROR\_CODE
 

@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / GRANT\_TYPE\_AUTHORIZATION\_CODE
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / GRANT\_TYPE\_AUTHORIZATION\_CODE
 
 # Variable: GRANT\_TYPE\_AUTHORIZATION\_CODE
 

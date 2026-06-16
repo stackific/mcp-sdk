@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / StrictListRootsResult
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / StrictListRootsResult
 
 # Type Alias: StrictListRootsResult
 

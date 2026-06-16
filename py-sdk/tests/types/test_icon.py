@@ -3,7 +3,7 @@ fetch (§14.2). Mirrors ts-sdk/src/__tests__/types/icon.test.ts and icon-fetch.t
 
 import pytest
 
-from mcp.types.icon import (
+from stackific.mcp.types.icon import (
   DEFAULT_IMAGE_ALLOWLIST,
   RECOMMENDED_IMAGE_TYPES,
   REQUIRED_IMAGE_TYPES,

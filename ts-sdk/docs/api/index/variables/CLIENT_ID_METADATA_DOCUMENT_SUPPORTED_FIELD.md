@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / CLIENT\_ID\_METADATA\_DOCUMENT\_SUPPORTED\_FIELD
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / CLIENT\_ID\_METADATA\_DOCUMENT\_SUPPORTED\_FIELD
 
 # Variable: CLIENT\_ID\_METADATA\_DOCUMENT\_SUPPORTED\_FIELD
 

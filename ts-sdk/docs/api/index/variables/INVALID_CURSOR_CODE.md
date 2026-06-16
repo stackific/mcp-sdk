@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / INVALID\_CURSOR\_CODE
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / INVALID\_CURSOR\_CODE
 
 # Variable: INVALID\_CURSOR\_CODE
 

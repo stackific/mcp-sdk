@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / STATELESS\_TRANSPORT\_RULES
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / STATELESS\_TRANSPORT\_RULES
 
 # Variable: STATELESS\_TRANSPORT\_RULES
 

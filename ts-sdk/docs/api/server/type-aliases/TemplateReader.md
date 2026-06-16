@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [server](../README.md) / TemplateReader
+[@stackific/mcp-sdk](../../README.md) / [server](../README.md) / TemplateReader
 
 # Type Alias: TemplateReader
 

@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / TRACE\_CONTEXT\_BARE\_KEYS
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / TRACE\_CONTEXT\_BARE\_KEYS
 
 # Variable: TRACE\_CONTEXT\_BARE\_KEYS
 

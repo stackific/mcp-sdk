@@ -16,7 +16,7 @@ The Python convention translates each TS Zod ``safeParse(...).success`` into an
 fields such as the S03 ``jsonrpc`` envelope marker.
 """
 
-from mcp.protocol.messages import (
+from stackific.mcp.protocol.messages import (
   is_notification,
   is_request,
   is_valid_abstract_notification,

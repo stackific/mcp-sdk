@@ -1,6 +1,6 @@
 """Tests for ``_meta`` key naming + W3C trace-context validation (§2.6.2)."""
 
-from mcp.json.meta_key import (
+from stackific.mcp.json.meta_key import (
   is_reserved_meta_key_prefix,
   is_valid_baggage,
   is_valid_meta_key,

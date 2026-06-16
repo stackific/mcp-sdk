@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / INODE\_DIRECTORY\_MIME\_TYPE
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / INODE\_DIRECTORY\_MIME\_TYPE
 
 # Variable: INODE\_DIRECTORY\_MIME\_TYPE
 

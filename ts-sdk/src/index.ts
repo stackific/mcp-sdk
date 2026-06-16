@@ -1,5 +1,5 @@
 /**
- * @stackific/mcp-sdk-ts — Model Context Protocol SDK for Node.js.
+ * @stackific/mcp-sdk — Model Context Protocol SDK for Node.js.
  *
  * Wave 1 (S01): Protocol Foundations — roles, message kinds, conformance model,
  *   capability negotiation.

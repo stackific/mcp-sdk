@@ -1,7 +1,7 @@
 """Tests for Streamable HTTP request framing, headers & routing (§9.1–§9.4).
 
 Mirrors the TS conformance suite (AC-14.x) and adds Python-specific edge cases. Every
-public export of :mod:`mcp.transport.http.headers` is exercised, including
+public export of :mod:`stackific.mcp.transport.http.headers` is exercised, including
 case-insensitive header access, ``Content-Type`` with parameters, ``Accept`` missing a
 media type, ``Mcp-Name`` required/forbidden per method + mismatch, protocol-version
 header absence/mismatch/unsupported, routing-header validation, and the notification
@@ -10,12 +10,12 @@ response shape.
 
 import pytest
 
-from mcp.protocol.errors import (
+from stackific.mcp.protocol.errors import (
   HEADER_MISMATCH_CODE,
   UNSUPPORTED_PROTOCOL_VERSION_CODE,
 )
-from mcp.protocol.meta import PROTOCOL_VERSION_META_KEY
-from mcp.transport.http.headers import (
+from stackific.mcp.protocol.meta import PROTOCOL_VERSION_META_KEY
+from stackific.mcp.transport.http.headers import (
   ACCEPT_HEADER,
   ACCEPT_MEDIA_TYPES,
   BAD_REQUEST_STATUS,

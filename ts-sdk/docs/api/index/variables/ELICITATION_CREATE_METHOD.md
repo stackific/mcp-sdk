@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / ELICITATION\_CREATE\_METHOD
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / ELICITATION\_CREATE\_METHOD
 
 # Variable: ELICITATION\_CREATE\_METHOD
 

@@ -56,10 +56,10 @@ import json
 
 import pytest
 
-from mcp.jsonrpc.payload import RESULT_TYPE_COMPLETE
-from mcp.protocol.errors import INVALID_PARAMS_CODE, MISSING_CLIENT_CAPABILITY_CODE
-from mcp.protocol.tasks import is_terminal_task_status
-from mcp.protocol.tasks_lifecycle import (
+from stackific.mcp.jsonrpc.payload import RESULT_TYPE_COMPLETE
+from stackific.mcp.protocol.errors import INVALID_PARAMS_CODE, MISSING_CLIENT_CAPABILITY_CODE
+from stackific.mcp.protocol.tasks import is_terminal_task_status
+from stackific.mcp.protocol.tasks_lifecycle import (
   CANCELLED_NOTIFICATION_METHOD,
   LOGGING_MESSAGE_METHOD,
   PROGRESS_NOTIFICATION_METHOD,

@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / CONTENT\_TYPE\_JSON
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / CONTENT\_TYPE\_JSON
 
 # Variable: CONTENT\_TYPE\_JSON
 

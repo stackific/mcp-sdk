@@ -3,8 +3,8 @@
 Mirrors ts-sdk/src/__tests__/types/role.test.ts and annotations.test.ts.
 """
 
-from mcp.types.annotations import is_valid_annotations
-from mcp.types.role import is_role
+from stackific.mcp.types.annotations import is_valid_annotations
+from stackific.mcp.types.role import is_role
 
 
 class TestRole:

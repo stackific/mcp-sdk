@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / APPENDIX\_B\_RESERVED\_CODE\_SET
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / APPENDIX\_B\_RESERVED\_CODE\_SET
 
 # Variable: APPENDIX\_B\_RESERVED\_CODE\_SET
 

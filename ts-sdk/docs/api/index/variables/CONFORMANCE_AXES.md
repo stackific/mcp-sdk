@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / CONFORMANCE\_AXES
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / CONFORMANCE\_AXES
 
 # Variable: CONFORMANCE\_AXES
 

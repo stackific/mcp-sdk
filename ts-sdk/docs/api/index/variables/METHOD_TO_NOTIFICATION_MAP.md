@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / METHOD\_TO\_NOTIFICATION\_MAP
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / METHOD\_TO\_NOTIFICATION\_MAP
 
 # Variable: METHOD\_TO\_NOTIFICATION\_MAP
 

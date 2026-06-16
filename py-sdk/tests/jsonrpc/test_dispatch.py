@@ -1,6 +1,6 @@
 """Tests for JSON-RPC method dispatch (§3.3)."""
 
-from mcp.jsonrpc.dispatch import MethodDescriptor, dispatch_request
+from stackific.mcp.jsonrpc.dispatch import MethodDescriptor, dispatch_request
 
 
 def _request(method: str, **extra) -> dict:

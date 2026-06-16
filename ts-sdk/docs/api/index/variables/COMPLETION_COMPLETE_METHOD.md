@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / COMPLETION\_COMPLETE\_METHOD
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / COMPLETION\_COMPLETE\_METHOD
 
 # Variable: COMPLETION\_COMPLETE\_METHOD
 

@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / LOGGING\_LEVELS
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / LOGGING\_LEVELS
 
 # Variable: LOGGING\_LEVELS
 

@@ -2,7 +2,7 @@
 
 import pytest
 
-from mcp.protocol.prompts import (
+from stackific.mcp.protocol.prompts import (
   MRTR_RESULT_TYPE_INPUT_REQUIRED,
   PROMPTS_GET_METHOD,
   PROMPTS_INTERNAL_ERROR_CODE,
@@ -38,7 +38,7 @@ from mcp.protocol.prompts import (
   server_declares_prompts,
   validate_get_prompt_request,
 )
-from mcp.types.base_metadata import resolve_display_name
+from stackific.mcp.types.base_metadata import resolve_display_name
 
 PROMPT = {"name": "greet", "arguments": [{"name": "who", "required": True}, {"name": "style"}]}
 MSG = {"role": "user", "content": {"type": "text", "text": "hi"}}

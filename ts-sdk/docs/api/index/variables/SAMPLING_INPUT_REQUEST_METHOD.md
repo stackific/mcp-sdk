@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / SAMPLING\_INPUT\_REQUEST\_METHOD
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / SAMPLING\_INPUT\_REQUEST\_METHOD
 
 # Variable: SAMPLING\_INPUT\_REQUEST\_METHOD
 

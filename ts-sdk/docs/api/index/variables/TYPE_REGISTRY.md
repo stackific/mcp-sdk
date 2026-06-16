@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / TYPE\_REGISTRY
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / TYPE\_REGISTRY
 
 # Variable: TYPE\_REGISTRY
 

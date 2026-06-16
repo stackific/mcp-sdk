@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / RESOURCE\_SUBSCRIBE\_REQUEST\_METHODS
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / RESOURCE\_SUBSCRIBE\_REQUEST\_METHODS
 
 # Variable: RESOURCE\_SUBSCRIBE\_REQUEST\_METHODS
 

@@ -15,7 +15,7 @@ import os
 import uvicorn
 from fastapi import FastAPI, Request, Response
 
-from mcp.server import create_asgi_mcp_handler
+from stackific.mcp.server import create_asgi_mcp_handler
 
 from auth_app import create_auth_app
 from features import build_companion_server

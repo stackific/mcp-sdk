@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / UNSUPPORTED\_PROTOCOL\_VERSION\_CODE
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / UNSUPPORTED\_PROTOCOL\_VERSION\_CODE
 
 # Variable: UNSUPPORTED\_PROTOCOL\_VERSION\_CODE
 

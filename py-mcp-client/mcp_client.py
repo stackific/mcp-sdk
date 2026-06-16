@@ -13,7 +13,7 @@ from __future__ import annotations
 import threading
 import uuid
 
-from mcp.client import Client, StreamableHttpClientTransport
+from stackific.mcp.client import Client, StreamableHttpClientTransport
 
 from config import MCP_SERVER_URL
 from debug_bus import bus

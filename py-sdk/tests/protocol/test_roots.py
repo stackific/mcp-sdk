@@ -6,12 +6,12 @@ Roots is DEPRECATED; these tests verify the wire contract is still honored fully
 capability remains published.
 """
 
-from mcp.protocol.capability_negotiation import (
+from stackific.mcp.protocol.capability_negotiation import (
   is_deprecated_client_capability,
   may_invoke_roots_list,
 )
-from mcp.protocol.multi_round_trip import is_valid_list_roots_result
-from mcp.protocol.roots import (
+from stackific.mcp.protocol.multi_round_trip import is_valid_list_roots_result
+from stackific.mcp.protocol.roots import (
   PROTOCOL_ENFORCES_ROOT_BOUNDARIES,
   ROOTS_CAPABILITY_NAME,
   ROOTS_LIST_CHANGED_NOTIFICATION_METHOD,

@@ -117,7 +117,7 @@ tasks:
   frontend:
     desc: Shared companion frontend (Vite, :8000)
     cmds:
-      - pnpm --filter @stackific/frontend dev
+      - pnpm --filter @stackific/mcp-frontend-demo dev
 
   ts:server:
     desc: TypeScript MCP server + OAuth AS (:8001 / :8003)
@@ -135,7 +135,7 @@ tasks:
       AUTH_SERVER_URL: 'http://localhost:{{.TS_AUTH_PORT}}'
       FRONTEND_URL: 'http://localhost:{{.FRONTEND_PORT}}'
     cmds:
-      - pnpm --filter @stackific/ts-mcp-client dev
+      - pnpm --filter @stackific/mcp-client-demo dev
 
   py:server:
     desc: Python MCP server + OAuth AS on py-sdk (FastAPI, :8101 / :8103)
@@ -203,7 +203,7 @@ tasks:
     desc: Run the TypeScript test suites (ts-sdk + ts-mcp-client)
     cmds:
       - pnpm --dir ts-sdk test
-      - pnpm --filter @stackific/ts-mcp-client test
+      - pnpm --filter @stackific/mcp-client-demo test
 
   test:py:
     desc: Run the Python test suites (py-sdk + py-mcp-server + py-mcp-client)

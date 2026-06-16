@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / DEFAULT\_SCHEMA\_DIALECT
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / DEFAULT\_SCHEMA\_DIALECT
 
 # Variable: DEFAULT\_SCHEMA\_DIALECT
 

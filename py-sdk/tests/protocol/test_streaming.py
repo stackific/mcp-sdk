@@ -6,7 +6,7 @@ Mirrors ``ts-sdk/src/__tests__/protocol/streaming.test.ts`` (AC-16.1 … AC-16.2
 
 import pytest
 
-from mcp.protocol.streaming import (
+from stackific.mcp.protocol.streaming import (
   CHANGE_NOTIFICATION_METHODS,
   PROMPTS_LIST_CHANGED_METHOD,
   REQUEST_SCOPED_NOTIFICATION_METHODS,

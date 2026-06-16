@@ -26,26 +26,26 @@ import threading
 
 import pytest
 
-from mcp.client.client import (
+from stackific.mcp.client.client import (
   INTERNAL_ERROR_CODE,
   METHOD_NOT_FOUND_CODE,
   Client,
   RequestError,
 )
-from mcp.client.http import (
+from stackific.mcp.client.http import (
   StreamableHttpClientTransport,
   _is_final_response,
   _iter_sse,
 )
-from mcp.client.transport import ClientTransport
-from mcp.protocol.meta import (
+from stackific.mcp.client.transport import ClientTransport
+from stackific.mcp.protocol.meta import (
   CLIENT_CAPABILITIES_META_KEY,
   CLIENT_INFO_META_KEY,
   CURRENT_PROTOCOL_VERSION,
   PROTOCOL_VERSION_META_KEY,
 )
-from mcp.testing import connect_in_memory
-from mcp.server.server import McpServer
+from stackific.mcp.testing import connect_in_memory
+from stackific.mcp.server.server import McpServer
 
 INFO = {"name": "srv", "version": "1.0"}
 CLIENT = {"name": "cli", "version": "0.1"}

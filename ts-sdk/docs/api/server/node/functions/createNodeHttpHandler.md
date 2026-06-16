@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../../README.md)
+[**@stackific/mcp-sdk**](../../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../../README.md) / [server/node](../README.md) / createNodeHttpHandler
+[@stackific/mcp-sdk](../../../README.md) / [server/node](../README.md) / createNodeHttpHandler
 
 # Function: createNodeHttpHandler()
 

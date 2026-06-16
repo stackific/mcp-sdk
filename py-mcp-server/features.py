@@ -16,8 +16,8 @@ import threading
 import time
 from datetime import datetime, timezone
 
-from mcp.protocol.tools import validate_value_against_schema
-from mcp.server import (
+from stackific.mcp.protocol.tools import validate_value_against_schema
+from stackific.mcp.server import (
   UI_MIME_TYPE,
   InMemoryTaskStore,
   McpServer,

@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / isUiResourceContents
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / isUiResourceContents
 
 # Function: isUiResourceContents()
 

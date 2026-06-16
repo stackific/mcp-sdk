@@ -3,7 +3,7 @@
  *
  * A thin entry point: it owns NO protocol abstractions — the `McpServer`
  * dispatcher, request context, tool/result types, task store, and the Streamable
- * HTTP handler all live in `@stackific/mcp-sdk-ts`. This package only registers
+ * HTTP handler all live in `@stackific/mcp-sdk`. This package only registers
  * features (`./features.ts`) and binds the SDK's `toHonoMcpHandler` into a Hono
  * app, run on Node via `@hono/node-server`. (On Workers/Deno/Bun the same Hono
  * app — or `createMcpRequestHandler` directly — runs unchanged; the SDK server
@@ -15,7 +15,7 @@
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 
-import { toHonoMcpHandler } from '@stackific/mcp-sdk-ts/server';
+import { toHonoMcpHandler } from '@stackific/mcp-sdk/server';
 
 import { buildCompanionServer } from './features.js';
 import { createAuthApp } from './auth.js';
@@ -30,7 +30,7 @@ app.all('/mcp', toHonoMcpHandler(buildCompanionServer(), { path: '/mcp' }));
 
 serve({ fetch: app.fetch, port: MCP_PORT }, () => {
   console.log(
-    `Companion MCP server (Hono + @stackific/mcp-sdk-ts, stateless Streamable HTTP 2026-07-28) on http://localhost:${MCP_PORT}/mcp`,
+    `Companion MCP server (Hono + @stackific/mcp-sdk, stateless Streamable HTTP 2026-07-28) on http://localhost:${MCP_PORT}/mcp`,
   );
 });
 

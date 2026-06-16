@@ -9,9 +9,9 @@ import json
 
 import pytest
 
-from mcp.protocol.errors import INVALID_PARAMS_CODE
-from mcp.protocol.tools import validate_tool_structured_content
-from mcp.protocol.tools_call import (
+from stackific.mcp.protocol.errors import INVALID_PARAMS_CODE
+from stackific.mcp.protocol.tools import validate_tool_structured_content
+from stackific.mcp.protocol.tools_call import (
   CallToolRequestConfig,
   CallToolResultConfig,
   CallToolRetryConfig,

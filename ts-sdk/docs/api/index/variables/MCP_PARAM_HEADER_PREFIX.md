@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / MCP\_PARAM\_HEADER\_PREFIX
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / MCP\_PARAM\_HEADER\_PREFIX
 
 # Variable: MCP\_PARAM\_HEADER\_PREFIX
 

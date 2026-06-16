@@ -1,7 +1,7 @@
 """Tests for the Streamable HTTP response half (§9.6–§9.12).
 
 Mirrors the TS conformance suite (AC-15.x) and adds Python-specific edge cases. Every
-public export of :mod:`mcp.transport.http.responses` is exercised: response-shape
+public export of :mod:`stackific.mcp.transport.http.responses` is exercised: response-shape
 selection, the single-JSON + event-stream builders, exact SSE byte framing
 (``data: ...\\n\\n``), the :class:`RequestEventStream` lifecycle (notification before
 final, final terminates, no-send-after-close, cancellation), ``-32001`` HeaderMismatch
@@ -14,7 +14,7 @@ import json
 
 import pytest
 
-from mcp.protocol.errors import (
+from stackific.mcp.protocol.errors import (
   HEADER_MISMATCH_CODE,
   INTERNAL_ERROR_CODE,
   INVALID_PARAMS_CODE,
@@ -24,7 +24,7 @@ from mcp.protocol.errors import (
   PARSE_ERROR_CODE,
   UNSUPPORTED_PROTOCOL_VERSION_CODE,
 )
-from mcp.transport.http.responses import (
+from stackific.mcp.transport.http.responses import (
   ALL_INTERFACES_BIND_ADDRESS,
   BAD_REQUEST_STATUS,
   EVENT_STREAM_CONTENT_TYPE,

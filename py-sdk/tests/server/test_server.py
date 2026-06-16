@@ -6,15 +6,15 @@ Mirrors the TS SDK server-runtime suites (``server-runtime.test.ts``,
 
 import pytest
 
-from mcp.protocol.errors import (
+from stackific.mcp.protocol.errors import (
   INTERNAL_ERROR_CODE,
   INVALID_PARAMS_CODE,
   METHOD_NOT_FOUND_CODE,
 )
-from mcp.protocol.discovery import is_discover_result
-from mcp.protocol.tasks import TASK_MISSING_CAPABILITY_CODE
-from mcp.server.server import McpServer, ServerError, ServerRequestContext
-from mcp.server.tasks import InMemoryTaskStore
+from stackific.mcp.protocol.discovery import is_discover_result
+from stackific.mcp.protocol.tasks import TASK_MISSING_CAPABILITY_CODE
+from stackific.mcp.server.server import McpServer, ServerError, ServerRequestContext
+from stackific.mcp.server.tasks import InMemoryTaskStore
 
 INFO = {"name": "srv", "version": "1.0"}
 CAPS = {"tools": {}, "resources": {}, "prompts": {}, "completions": {}}

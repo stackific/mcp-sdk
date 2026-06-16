@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / ProgressToken
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / ProgressToken
 
 # Type Alias: ProgressToken
 

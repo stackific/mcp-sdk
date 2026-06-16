@@ -12,7 +12,7 @@ import hashlib
 
 import pytest
 
-from mcp.protocol.authorization import (
+from stackific.mcp.protocol.authorization import (
   AUTHORIZATION_BAD_REQUEST_STATUS,
   AUTHORIZATION_FORBIDDEN_STATUS,
   BEARER_AUTH_SCHEME,
@@ -48,7 +48,7 @@ from mcp.protocol.authorization import (
   validate_authorization_server_metadata,
   validate_protected_resource_metadata,
 )
-from mcp.protocol.authorization_flow import (
+from stackific.mcp.protocol.authorization_flow import (
   CLIENT_ID_MECHANISM_PRIORITY,
   CODE_CHALLENGE_METHOD_S256,
   CODE_VERIFIER_MAX_LENGTH,
@@ -110,7 +110,7 @@ from mcp.protocol.authorization_flow import (
   verify_redirect_state,
   with_offline_access_scope,
 )
-from mcp.protocol.authorization_registration import (
+from stackific.mcp.protocol.authorization_registration import (
   CLIENT_ID_METADATA_DOCUMENT_SUPPORTED_FIELD,
   PRIVATE_KEY_JWT_AUTH_METHOD,
   CimdCacheControl,
@@ -1766,7 +1766,7 @@ class TestSecurityConsiderations:
     assert server_scopes_omit_offline_access(challenge_scope="files:read").ok is True
 
   def test_same_request_record_accepts_object(self):
-    from mcp.protocol.authorization_registration import SecureAuthorizationRequestRecord
+    from stackific.mcp.protocol.authorization_registration import SecureAuthorizationRequestRecord
 
     rec = SecureAuthorizationRequestRecord(recorded_issuer="i", code_verifier="v", state="s")
     assert same_request_record(rec).ok is True

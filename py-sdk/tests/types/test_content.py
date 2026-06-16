@@ -3,7 +3,7 @@
 Mirrors ts-sdk/src/__tests__/types/content.test.ts.
 """
 
-from mcp.types.content import (
+from stackific.mcp.types.content import (
   FORBIDDEN_CONTENT_BLOCK_TYPES,
   is_forbidden_content_block_type,
   is_known_content_block_type,

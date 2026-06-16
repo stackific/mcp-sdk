@@ -1,11 +1,11 @@
 """Tests for the §7.6 per-request context derived from a request's _meta envelope."""
 
-from mcp.protocol.meta import (
+from stackific.mcp.protocol.meta import (
   CLIENT_CAPABILITIES_META_KEY,
   CLIENT_INFO_META_KEY,
   PROTOCOL_VERSION_META_KEY,
 )
-from mcp.transport.contract import (
+from stackific.mcp.transport.contract import (
   derive_request_context,
   extract_envelope_for_mirroring,
   request_carries_meta_envelope,

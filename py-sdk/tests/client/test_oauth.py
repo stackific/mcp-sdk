@@ -16,7 +16,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
-from mcp.client.oauth import (
+from stackific.mcp.client.oauth import (
   PKCE_METHOD,
   AuthProvider,
   assert_pkce_supported,

@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / ACCEPT\_MEDIA\_TYPES
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / ACCEPT\_MEDIA\_TYPES
 
 # Variable: ACCEPT\_MEDIA\_TYPES
 

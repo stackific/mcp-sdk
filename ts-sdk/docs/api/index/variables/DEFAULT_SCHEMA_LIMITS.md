@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / DEFAULT\_SCHEMA\_LIMITS
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / DEFAULT\_SCHEMA\_LIMITS
 
 # Variable: DEFAULT\_SCHEMA\_LIMITS
 

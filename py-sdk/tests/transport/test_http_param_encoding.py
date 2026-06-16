@@ -1,6 +1,6 @@
 """Tests for ``Mcp-Param-*`` value encoding/decoding (§9.5.3).
 
-Covers every export of :mod:`mcp.transport.http.param_encoding`: the sentinel
+Covers every export of :mod:`stackific.mcp.transport.http.param_encoding`: the sentinel
 constants, the safe-integer range predicate, the per-type plain string form, sentinel
 detection, the ``needs_sentinel`` safety classifier, encode/decode round-trips
 (including special characters and the integer/boolean per-type forms), and edge cases
@@ -11,7 +11,7 @@ import base64
 
 import pytest
 
-from mcp.transport.http.param_encoding import (
+from stackific.mcp.transport.http.param_encoding import (
   BASE64_SENTINEL_PREFIX,
   BASE64_SENTINEL_SUFFIX,
   MAX_SAFE_ANNOTATED_INTEGER,

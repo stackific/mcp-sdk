@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / DENY\_BY\_DEFAULT\_CSP
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / DENY\_BY\_DEFAULT\_CSP
 
 # Variable: DENY\_BY\_DEFAULT\_CSP
 

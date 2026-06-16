@@ -13,19 +13,19 @@ Two harnesses are used, mirroring the TS client tests:
 
 import pytest
 
-from mcp.client.client import Client, RequestError, SubscriptionHandle
-from mcp.client.transport import ClientTransport
-from mcp.protocol.negotiation import (
+from stackific.mcp.client.client import Client, RequestError, SubscriptionHandle
+from stackific.mcp.client.transport import ClientTransport
+from stackific.mcp.protocol.negotiation import (
   UNSUPPORTED_PROTOCOL_VERSION_CODE,
   IncompatibleProtocolError,
 )
-from mcp.protocol.meta import (
+from stackific.mcp.protocol.meta import (
   CLIENT_CAPABILITIES_META_KEY,
   CLIENT_INFO_META_KEY,
   PROTOCOL_VERSION_META_KEY,
 )
-from mcp.server.runtime import process_message
-from mcp.server.server import McpServer
+from stackific.mcp.server.runtime import process_message
+from stackific.mcp.server.server import McpServer
 
 INFO = {"name": "srv", "version": "1.0"}
 CLIENT = {"name": "cli", "version": "0.1"}

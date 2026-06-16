@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / WWW\_AUTHENTICATE\_HEADER
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / WWW\_AUTHENTICATE\_HEADER
 
 # Variable: WWW\_AUTHENTICATE\_HEADER
 

@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / OPENID\_CONFIGURATION\_WELL\_KNOWN
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / OPENID\_CONFIGURATION\_WELL\_KNOWN
 
 # Variable: OPENID\_CONFIGURATION\_WELL\_KNOWN
 

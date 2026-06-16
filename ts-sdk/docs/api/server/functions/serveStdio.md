@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [server](../README.md) / serveStdio
+[@stackific/mcp-sdk](../../README.md) / [server](../README.md) / serveStdio
 
 # Function: serveStdio()
 
@@ -30,6 +30,6 @@ function that stops handling inbound messages.
 ## Example
 
 ```ts
-import { StdioServerTransport } from '@stackific/mcp-sdk-ts';
+import { StdioServerTransport } from '@stackific/mcp-sdk';
 serveStdio(server, new StdioServerTransport(process.stdin, process.stdout));
 ```

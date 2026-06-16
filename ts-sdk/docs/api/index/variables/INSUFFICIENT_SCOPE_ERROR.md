@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / INSUFFICIENT\_SCOPE\_ERROR
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / INSUFFICIENT\_SCOPE\_ERROR
 
 # Variable: INSUFFICIENT\_SCOPE\_ERROR
 

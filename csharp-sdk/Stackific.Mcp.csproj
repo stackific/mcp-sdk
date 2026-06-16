@@ -1,7 +1,7 @@
 <!--
   Stackific.Mcp — a from-the-spec implementation of the Model Context Protocol
   (wire revision 2026-07-28) for .NET 10. This is the C# counterpart of the
-  TypeScript `@stackific/mcp-sdk-ts` package: protocol primitives, transports, and
+  TypeScript `@stackific/mcp-sdk` package: protocol primitives, transports, and
   the client + server runtimes.
 
   The assembly references the ASP.NET Core shared framework so the server runtime

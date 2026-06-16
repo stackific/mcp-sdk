@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / OFFLINE\_ACCESS\_SCOPE
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / OFFLINE\_ACCESS\_SCOPE
 
 # Variable: OFFLINE\_ACCESS\_SCOPE
 

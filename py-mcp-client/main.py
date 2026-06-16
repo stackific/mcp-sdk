@@ -18,7 +18,7 @@ from fastapi import Body, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from mcp.client import RequestError
+from stackific.mcp.client import RequestError
 
 from auth_flow import run_auth_flow
 from config import DEEPSEEK_BASE_URL, DEEPSEEK_MODEL, HAS_KEY, PORT

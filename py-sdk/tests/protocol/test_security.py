@@ -40,10 +40,10 @@ AC coverage:
 
 import pytest
 
-from mcp.protocol.pagination import INVALID_CURSOR_CODE
-from mcp.protocol.sampling import SamplingConsentObligations
-from mcp.protocol.ui_host import ToolsCallMediationInput
-from mcp.protocol.security import (
+from stackific.mcp.protocol.pagination import INVALID_CURSOR_CODE
+from stackific.mcp.protocol.sampling import SamplingConsentObligations
+from stackific.mcp.protocol.ui_host import ToolsCallMediationInput
+from stackific.mcp.protocol.security import (
   DATA_SENSITIVITY_ORDER,
   DEFAULT_INPUT_BOUNDS,
   ELICITATION_USER_DECISIONS,

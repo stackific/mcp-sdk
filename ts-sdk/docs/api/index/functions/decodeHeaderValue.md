@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / decodeHeaderValue
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / decodeHeaderValue
 
 # Function: decodeHeaderValue()
 

@@ -1,6 +1,6 @@
 """Conformance tests for the request↔response correlator (§7.2, §7.5).
 
-Covers every export of :mod:`mcp.transport.correlation`:
+Covers every export of :mod:`stackific.mcp.transport.correlation`:
 
 * :class:`RequestCorrelator` — issue/deliver/fail/fail_all, id-only matching, ordering
   independence, multiplexing, reuse rejection, bookkeeping (``has``/``size``/
@@ -13,8 +13,8 @@ from concurrent.futures import Future
 
 import pytest
 
-from mcp.client.transport import ClientTransportError
-from mcp.transport.correlation import (
+from stackific.mcp.client.transport import ClientTransportError
+from stackific.mcp.transport.correlation import (
   PARSE_ERROR_CODE,
   RequestCorrelator,
   build_parse_error_response,

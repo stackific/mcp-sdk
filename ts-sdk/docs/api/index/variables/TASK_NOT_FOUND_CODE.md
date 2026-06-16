@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / TASK\_NOT\_FOUND\_CODE
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / TASK\_NOT\_FOUND\_CODE
 
 # Variable: TASK\_NOT\_FOUND\_CODE
 

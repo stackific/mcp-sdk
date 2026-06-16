@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / PROMPTS\_LIST\_CHANGED\_METHOD
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / PROMPTS\_LIST\_CHANGED\_METHOD
 
 # Variable: PROMPTS\_LIST\_CHANGED\_METHOD
 

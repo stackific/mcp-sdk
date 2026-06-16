@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / DUPLICATE\_INPUT\_REQUESTS\_KEY\_ERROR
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / DUPLICATE\_INPUT\_REQUESTS\_KEY\_ERROR
 
 # Variable: DUPLICATE\_INPUT\_REQUESTS\_KEY\_ERROR
 

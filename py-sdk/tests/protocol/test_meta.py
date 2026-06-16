@@ -1,7 +1,7 @@
 """Tests for the _meta object + per-request envelope validation (§4.1–§4.3, §5.1).
 
 Mirrors the TS suite ``src/__tests__/protocol/meta.test.ts`` (S05), AC-mapped. The
-key-naming grammar ACs (AC-05.8 – AC-05.16) are owned by :mod:`mcp.json.meta_key` and
+key-naming grammar ACs (AC-05.8 – AC-05.16) are owned by :mod:`stackific.mcp.json.meta_key` and
 covered by its own test module; here we cover the semantic layer S05 adds:
 ``is_valid_meta_object`` (``MetaObjectSchema``), ``is_valid_logging_level`` /
 ``LOGGING_LEVELS`` (``LoggingLevelSchema``), ``is_valid_request_meta_object``
@@ -23,10 +23,10 @@ AC coverage:
 
 import pytest
 
-from mcp.protocol.errors import INVALID_PARAMS_CODE, MISSING_CLIENT_CAPABILITY_CODE
-from mcp.protocol.logging import resolved_min_log_level_index
-from mcp.transport.http.responses import http_status_for_error_code
-from mcp.protocol.meta import (
+from stackific.mcp.protocol.errors import INVALID_PARAMS_CODE, MISSING_CLIENT_CAPABILITY_CODE
+from stackific.mcp.protocol.logging import resolved_min_log_level_index
+from stackific.mcp.transport.http.responses import http_status_for_error_code
+from stackific.mcp.protocol.meta import (
   CLIENT_CAPABILITIES_META_KEY,
   CLIENT_INFO_META_KEY,
   CURRENT_PROTOCOL_VERSION,

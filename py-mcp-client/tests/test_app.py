@@ -22,7 +22,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Route
 
-from mcp.server import McpServer, ToolContext, create_asgi_mcp_handler
+from stackific.mcp.server import McpServer, ToolContext, create_asgi_mcp_handler
 
 
 def _free_port() -> int:

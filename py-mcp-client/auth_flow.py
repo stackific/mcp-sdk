@@ -18,7 +18,7 @@ import uuid
 
 import httpx
 
-from mcp.client import (
+from stackific.mcp.client import (
   Client,
   StreamableHttpClientTransport,
   build_authorize_url,

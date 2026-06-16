@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / JSON\_RPC\_RESERVED\_RANGE
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / JSON\_RPC\_RESERVED\_RANGE
 
 # Variable: JSON\_RPC\_RESERVED\_RANGE
 

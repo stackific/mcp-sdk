@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / ERROR\_CODE\_REGISTRY
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / ERROR\_CODE\_REGISTRY
 
 # Variable: ERROR\_CODE\_REGISTRY
 

@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / classifyServerRequest
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / classifyServerRequest
 
 # Function: classifyServerRequest()
 

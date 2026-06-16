@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / DEFAULT\_IMAGE\_ALLOWLIST
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / DEFAULT\_IMAGE\_ALLOWLIST
 
 # Variable: DEFAULT\_IMAGE\_ALLOWLIST
 

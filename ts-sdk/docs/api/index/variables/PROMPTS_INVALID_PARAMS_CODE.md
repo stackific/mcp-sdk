@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / PROMPTS\_INVALID\_PARAMS\_CODE
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / PROMPTS\_INVALID\_PARAMS\_CODE
 
 # Variable: PROMPTS\_INVALID\_PARAMS\_CODE
 

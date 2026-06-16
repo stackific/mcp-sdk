@@ -6,7 +6,7 @@
  * server→client handlers (sampling, roots) are registered and respond.
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import { McpServer, createMcpRequestHandler } from '@stackific/mcp-sdk-ts/server';
+import { McpServer, createMcpRequestHandler } from '@stackific/mcp-sdk/server';
 
 // A fake MCP server whose tools exercise the backend's server→client handlers.
 function buildFakeServer(): McpServer {

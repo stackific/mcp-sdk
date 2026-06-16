@@ -2,9 +2,9 @@
 
 import pytest
 
-from mcp.transport.contract import TransportError
-from mcp.transport.framing import NewlineFramer
-from mcp.transport.in_memory import create_in_memory_transport_pair
+from stackific.mcp.transport.contract import TransportError
+from stackific.mcp.transport.framing import NewlineFramer
+from stackific.mcp.transport.in_memory import create_in_memory_transport_pair
 
 REQUEST = {"jsonrpc": "2.0", "id": 1, "method": "ping"}
 NOTE = {"jsonrpc": "2.0", "method": "note"}

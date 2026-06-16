@@ -22,7 +22,7 @@ Mirrors ``ts-sdk/src/__tests__/protocol/extensions.test.ts``. AC coverage:
 
 import pytest
 
-from mcp.protocol.extensions import (
+from stackific.mcp.protocol.extensions import (
   KNOWN_CLIENT_CAPABILITY_FIELDS,
   KNOWN_SERVER_CAPABILITY_FIELDS,
   ParsedExtensionId,

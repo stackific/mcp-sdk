@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / RESOURCE\_NOT\_FOUND\_LEGACY\_CODE
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / RESOURCE\_NOT\_FOUND\_LEGACY\_CODE
 
 # Variable: RESOURCE\_NOT\_FOUND\_LEGACY\_CODE
 

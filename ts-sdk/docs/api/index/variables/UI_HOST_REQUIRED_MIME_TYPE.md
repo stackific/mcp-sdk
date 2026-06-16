@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / UI\_HOST\_REQUIRED\_MIME\_TYPE
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / UI\_HOST\_REQUIRED\_MIME\_TYPE
 
 # Variable: UI\_HOST\_REQUIRED\_MIME\_TYPE
 

@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / hasBothOrNeitherCacheHints
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / hasBothOrNeitherCacheHints
 
 # Function: hasBothOrNeitherCacheHints()
 

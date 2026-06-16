@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / ALLOWED\_ENDPOINT\_METHODS
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / ALLOWED\_ENDPOINT\_METHODS
 
 # Variable: ALLOWED\_ENDPOINT\_METHODS
 

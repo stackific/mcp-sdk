@@ -7,8 +7,8 @@ AC-31.32), adapted to the Python predicate-based port (``is_valid_*`` /
 
 import pytest
 
-from mcp.protocol.elicitation import ELICITATION_MODE_FORM, ELICITATION_MODE_URL
-from mcp.protocol.elicitation_form import (
+from stackific.mcp.protocol.elicitation import ELICITATION_MODE_FORM, ELICITATION_MODE_URL
+from stackific.mcp.protocol.elicitation_form import (
   ELICITATION_COMPLETE_NOTIFICATION_METHOD,
   NUMBER_SCHEMA_TYPES,
   STRING_SCHEMA_FORMATS,
@@ -626,7 +626,7 @@ class TestNotAuthz:
 # multi-round-trip-owned `ElicitResultSchema` (Python: `is_valid_elicit_result`).
 class TestResultCrossModule:
   def test_built_results_parse_under_s17_anchor(self):
-    from mcp.protocol.multi_round_trip import is_valid_elicit_result
+    from stackific.mcp.protocol.multi_round_trip import is_valid_elicit_result
 
     accepted = build_accept_result({"name": "A", "email": "a@b.co", "age": 20}, SAMPLE_SCHEMA)
     assert accepted["action"] == "accept"

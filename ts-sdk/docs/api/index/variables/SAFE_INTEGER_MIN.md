@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / SAFE\_INTEGER\_MIN
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / SAFE\_INTEGER\_MIN
 
 # Variable: SAFE\_INTEGER\_MIN
 

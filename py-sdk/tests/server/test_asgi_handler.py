@@ -1,4 +1,4 @@
-"""Comprehensive async tests for the Streamable HTTP handler (``mcp.server.asgi``).
+"""Comprehensive async tests for the Streamable HTTP handler (``stackific.mcp.server.asgi``).
 
 These tests target :func:`mcp.server.asgi.create_asgi_mcp_handler` — the full §9
 Streamable HTTP transport with lazy-commit single-JSON ↔ ``text/event-stream``
@@ -34,7 +34,7 @@ import json
 
 from starlette.requests import Request
 
-from mcp.protocol.errors import (
+from stackific.mcp.protocol.errors import (
   HEADER_MISMATCH_CODE,
   INVALID_PARAMS_CODE,
   METHOD_NOT_FOUND_CODE,
@@ -42,10 +42,10 @@ from mcp.protocol.errors import (
   PARSE_ERROR_CODE,
   UNSUPPORTED_PROTOCOL_VERSION_CODE,
 )
-from mcp.protocol.tasks import TASKS_EXTENSION_ID
-from mcp.server.asgi import _sse, create_asgi_mcp_handler
-from mcp.server.server import McpServer
-from mcp.server.tasks import InMemoryTaskStore
+from stackific.mcp.protocol.tasks import TASKS_EXTENSION_ID
+from stackific.mcp.server.asgi import _sse, create_asgi_mcp_handler
+from stackific.mcp.server.server import McpServer
+from stackific.mcp.server.tasks import InMemoryTaskStore
 
 # ─── Fixtures: identity, protocol version, the _meta envelope ──────────────────
 
@@ -568,7 +568,7 @@ class TestBodyParsing:
 
   def test_batch_array_rejected_as_invalid_request(self):
     # A top-level JSON array (batch) is malformed → -32600 / 400.
-    from mcp.protocol.errors import INVALID_REQUEST_CODE
+    from stackific.mcp.protocol.errors import INVALID_REQUEST_CODE
 
     status, _, text = call(
       handler(),
@@ -689,7 +689,7 @@ class TestErrorStatusMapping:
     assert json_body(text)["error"]["code"] == METHOD_NOT_FOUND_CODE
 
   def test_internal_error_from_crashing_tool_maps_to_400(self):
-    from mcp.protocol.errors import INTERNAL_ERROR_CODE
+    from stackific.mcp.protocol.errors import INTERNAL_ERROR_CODE
 
     server = McpServer(INFO, {"tools": {}})
 

@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / CancelledNotification
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / CancelledNotification
 
 # Type Alias: CancelledNotification
 

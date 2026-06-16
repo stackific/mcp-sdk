@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / LAST\_EVENT\_ID\_HEADER
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / LAST\_EVENT\_ID\_HEADER
 
 # Variable: LAST\_EVENT\_ID\_HEADER
 

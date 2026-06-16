@@ -1,5 +1,5 @@
 {
-  "name": "@stackific/mcp-sdk-ts",
+  "name": "@stackific/mcp-sdk",
   "version": "0.1.0",
   "description": "Model Context Protocol SDK for Node.js — specification-compliant implementation",
   "type": "module",

@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / EVENT\_STREAM\_CONTENT\_TYPE
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / EVENT\_STREAM\_CONTENT\_TYPE
 
 # Variable: EVENT\_STREAM\_CONTENT\_TYPE
 

@@ -2,8 +2,8 @@
 AC-33.1 … AC-33.25 plus edge cases.
 """
 
-from mcp.protocol.errors import INVALID_PARAMS_CODE
-from mcp.protocol.sampling import (
+from stackific.mcp.protocol.errors import INVALID_PARAMS_CODE
+from stackific.mcp.protocol.sampling import (
   CLIENT_MODIFIABLE_REQUEST_FIELDS,
   DEFAULT_TOOL_CHOICE,
   DEPRECATED_INCLUDE_CONTEXT_VALUES,
@@ -979,7 +979,7 @@ class TestEdgeResult:
     )
 
   def test_accepts_input_required_result_type(self):
-    from mcp.protocol.sampling import RESULT_TYPE_INPUT_REQUIRED
+    from stackific.mcp.protocol.sampling import RESULT_TYPE_INPUT_REQUIRED
 
     assert is_valid_sampling_create_message_result(
       {"role": "assistant", "content": TEXT, "model": "m", "resultType": RESULT_TYPE_INPUT_REQUIRED}

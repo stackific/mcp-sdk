@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / DEFAULT\_TOOL\_CHOICE
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / DEFAULT\_TOOL\_CHOICE
 
 # Variable: DEFAULT\_TOOL\_CHOICE
 

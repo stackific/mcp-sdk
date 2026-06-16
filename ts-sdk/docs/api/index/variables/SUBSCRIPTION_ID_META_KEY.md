@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / SUBSCRIPTION\_ID\_META\_KEY
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / SUBSCRIPTION\_ID\_META\_KEY
 
 # Variable: SUBSCRIPTION\_ID\_META\_KEY
 

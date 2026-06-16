@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / CODE\_CHALLENGE\_METHOD\_S256
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / CODE\_CHALLENGE\_METHOD\_S256
 
 # Variable: CODE\_CHALLENGE\_METHOD\_S256
 

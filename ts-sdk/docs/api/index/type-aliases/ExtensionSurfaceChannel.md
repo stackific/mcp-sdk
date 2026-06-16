@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / ExtensionSurfaceChannel
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / ExtensionSurfaceChannel
 
 # Type Alias: ExtensionSurfaceChannel
 

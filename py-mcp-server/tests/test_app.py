@@ -15,7 +15,7 @@ import httpx
 import pytest
 import uvicorn
 
-from mcp.client import Client, StreamableHttpClientTransport
+from stackific.mcp.client import Client, StreamableHttpClientTransport
 
 from main import app
 

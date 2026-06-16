@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / DEPRECATED\_INPUT\_REQUEST\_METHODS
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / DEPRECATED\_INPUT\_REQUEST\_METHODS
 
 # Variable: DEPRECATED\_INPUT\_REQUEST\_METHODS
 

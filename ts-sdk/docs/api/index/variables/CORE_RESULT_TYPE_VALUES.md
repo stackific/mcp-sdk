@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / CORE\_RESULT\_TYPE\_VALUES
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / CORE\_RESULT\_TYPE\_VALUES
 
 # Variable: CORE\_RESULT\_TYPE\_VALUES
 

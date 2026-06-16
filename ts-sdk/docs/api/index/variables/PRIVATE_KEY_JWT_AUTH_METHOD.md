@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / PRIVATE\_KEY\_JWT\_AUTH\_METHOD
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / PRIVATE\_KEY\_JWT\_AUTH\_METHOD
 
 # Variable: PRIVATE\_KEY\_JWT\_AUTH\_METHOD
 

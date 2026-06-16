@@ -1,8 +1,8 @@
-[**@stackific/mcp-sdk-ts**](../../README.md)
+[**@stackific/mcp-sdk**](../../README.md)
 
 ***
 
-[@stackific/mcp-sdk-ts](../../README.md) / [index](../README.md) / ALLOWED\_UI\_EXPOSURE\_KEYS
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / ALLOWED\_UI\_EXPOSURE\_KEYS
 
 # Variable: ALLOWED\_UI\_EXPOSURE\_KEYS
 
