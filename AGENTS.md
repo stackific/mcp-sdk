@@ -2,12 +2,15 @@
 - For Python use `uv` and 2 spaces as indentation
 - For Node use `pnpm` and 2 spaces as indentation
 - For C#, use .NET 10
+- For JSON, YAML, HTML, CSS use 2 spaces as indentation
 - Never modify git history, git commit/push, PR management without explicit user permission, even if the user gave you permission in previous instances, because every occassion is unique
 - Never follow your sibling projects
 - You must write idiomatic code
 - Never attribute any AI in any commit/PR description. All Git history is owned by humans
-- Always make signed commits
+- Always make signed commits, must comply with DCO
 - When asked create a PR only from a worktree
+- Never directly push code to origin/main, rather always through a PR
+- Each PR will be reviewed by human reviewers
 - Always create worktrees off origin/main in the .worktrees folder
 - Must write in-depth inline documentation in the code
 - Must write adequate tests to cover all scenarios including edge cases

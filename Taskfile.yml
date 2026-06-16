@@ -15,18 +15,24 @@
 version: '3'
 
 vars:
+  # Pinned dev tools, run on demand via `uvx` (no project-dep pollution, reproducible).
+  RUFF: 'uvx ruff@0.15.17'
+  VULTURE: 'uvx vulture@2.16'
+  # The Python stacks ruff/vulture operate over.
+  PY_DIRS: 'py-sdk/src py-sdk/tests py-mcp-server py-mcp-client'
   FRONTEND_PORT: 8000
   TS_MCP_SERVER_PORT: 8001
   TS_MCP_CLIENT_PORT: 8002
   TS_AUTH_PORT: 8003
   PY_MCP_SERVER_PORT: 8101
   PY_MCP_CLIENT_PORT: 8102
+  PY_AUTH_PORT: 8103
   CSHARP_MCP_SERVER_PORT: 8201
   CSHARP_MCP_CLIENT_PORT: 8202
   # The full set of dev ports, derived from the above — consumed by `task stop`.
   ALL_PORTS: >-
     {{.FRONTEND_PORT}} {{.TS_MCP_SERVER_PORT}} {{.TS_MCP_CLIENT_PORT}} {{.TS_AUTH_PORT}}
-    {{.PY_MCP_SERVER_PORT}} {{.PY_MCP_CLIENT_PORT}}
+    {{.PY_MCP_SERVER_PORT}} {{.PY_MCP_CLIENT_PORT}} {{.PY_AUTH_PORT}}
     {{.CSHARP_MCP_SERVER_PORT}} {{.CSHARP_MCP_CLIENT_PORT}}
 
 tasks:
@@ -38,11 +44,17 @@ tasks:
 
   # ── Setup / install ──────────────────────────────────────────────────────────
   setup:
-    desc: Install dependencies for every stack (Node/pnpm, Python/uv, .NET)
+    desc: Install the pre-push git hooks + dependencies for every stack (Node/pnpm, Python/uv, .NET)
     cmds:
+      - task: setup:hooks
       - task: setup:ts
       - task: setup:py
       - task: setup:csharp
+
+  setup:hooks:
+    desc: Install the lefthook-managed git hooks (pre-push quality gate)
+    cmds:
+      - lefthook install
 
   setup:ts:
     desc: Install the TypeScript stack (pnpm; postinstall links ts-sdk + ts-mcp-server)
@@ -50,8 +62,9 @@ tasks:
       - pnpm install
 
   setup:py:
-    desc: Install the Python stack (uv sync for client + server)
+    desc: Install the Python stack (uv sync for py-sdk + client + server)
     cmds:
+      - task: py:sdk:install
       - task: py:server:install
       - task: py:client:install
 
@@ -60,6 +73,11 @@ tasks:
     cmds:
       - dotnet restore csharp-mcp-server/csharp-mcp-server.csproj
       - dotnet restore csharp-mcp-client/csharp-mcp-client.csproj
+
+  py:sdk:install:
+    internal: true
+    dir: py-sdk
+    cmds: [uv sync]
 
   py:server:install:
     internal: true
@@ -119,19 +137,23 @@ tasks:
       - pnpm --filter @stackific/ts-mcp-client dev
 
   py:server:
-    desc: Python MCP server placeholder (FastAPI, :8101)
+    desc: Python MCP server + OAuth AS on py-sdk (FastAPI, :8101 / :8103)
     dir: py-mcp-server
     env:
       PY_MCP_SERVER_PORT: '{{.PY_MCP_SERVER_PORT}}'
+      PY_AUTH_PORT: '{{.PY_AUTH_PORT}}'
+      FRONTEND_URL: 'http://localhost:{{.FRONTEND_PORT}}'
     cmds:
       - uv run python main.py
 
   py:client:
-    desc: Python MCP client host placeholder (FastAPI, :8102)
+    desc: Python MCP client host on py-sdk (FastAPI, :8102)
     dir: py-mcp-client
     env:
       PY_MCP_CLIENT_PORT: '{{.PY_MCP_CLIENT_PORT}}'
       PY_MCP_SERVER_URL: 'http://localhost:{{.PY_MCP_SERVER_PORT}}'
+      PY_AUTH_SERVER_URL: 'http://localhost:{{.PY_AUTH_PORT}}'
+      FRONTEND_URL: 'http://localhost:{{.FRONTEND_PORT}}'
     cmds:
       - uv run python main.py
 
@@ -160,6 +182,26 @@ tasks:
     cmds:
       - node scripts/stop-ports.mjs
 
+  # ── Test ─────────────────────────────────────────────────────────────────────
+  test:
+    desc: Run the test suites for every stack
+    cmds:
+      - task: test:ts
+      - task: test:py
+
+  test:ts:
+    desc: Run the TypeScript test suites (ts-sdk + ts-mcp-client)
+    cmds:
+      - pnpm --dir ts-sdk test
+      - pnpm --filter @stackific/ts-mcp-client test
+
+  test:py:
+    desc: Run the Python test suites (py-sdk + py-mcp-server + py-mcp-client)
+    cmds:
+      - uv run --directory py-sdk pytest
+      - uv run --directory py-mcp-server pytest
+      - uv run --directory py-mcp-client pytest
+
   # ── Build / typecheck ────────────────────────────────────────────────────────
   build:
     desc: Build/compile every stack
@@ -184,8 +226,9 @@ tasks:
   build:py:
     desc: Byte-compile the Python stack (smoke check)
     cmds:
-      - uv run --directory py-mcp-server python -m compileall main.py
-      - uv run --directory py-mcp-client python -m compileall main.py
+      - uv run --directory py-sdk python -m compileall -q src
+      - uv run --directory py-mcp-server python -m compileall -q .
+      - uv run --directory py-mcp-client python -m compileall -q .
 
   typecheck:
     desc: Typecheck/compile every stack without emitting artifacts
@@ -200,3 +243,34 @@ tasks:
     desc: Format the repo (Prettier for JS/TS/JSON/Markdown)
     cmds:
       - pnpm format
+
+  format:check:
+    desc: Check formatting without writing (Prettier; .prettierignore excludes vendored code)
+    cmds:
+      - pnpm exec prettier --check .
+
+  # ── Quality gate (lint / dead code / pre-push) ─────────────────────────────────
+  prepush:
+    desc: Run the full pre-push gate (lint → format → build → test) via lefthook
+    cmds:
+      - lefthook run pre-push --all-files
+
+  lint:
+    desc: Lint every stack (Python via ruff; add other stacks here as they gain linters)
+    cmds:
+      - task: lint:py
+
+  lint:py:
+    desc: Ruff static analysis over the Python stacks (unused imports/vars, redefinitions, F-rules)
+    cmds:
+      - '{{.RUFF}} check {{.PY_DIRS}}'
+
+  lint:fix:
+    desc: Ruff with --fix — auto-eliminates unused imports and other safe fixes (Python)
+    cmds:
+      - '{{.RUFF}} check --fix {{.PY_DIRS}}'
+
+  deadcode:
+    desc: Report dead Python code (unused functions/classes/vars) via vulture — advisory
+    cmds:
+      - '{{.VULTURE}} py-sdk/src --min-confidence 80'
