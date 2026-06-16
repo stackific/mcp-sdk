@@ -35,7 +35,8 @@ import {
   DiscoverResultSchema,
   type DiscoverResult,
 } from '../protocol/discovery.js';
-import { negotiateRevision } from '../protocol/negotiation.js';
+import { negotiateRevision, IncompatibleProtocolError } from '../protocol/negotiation.js';
+import { adoptLatestPollIntervalMs, isPollingTerminalResponse } from '../protocol/tasks-lifecycle.js';
 import { discriminateResultType, MrtrRoundGuard } from '../protocol/multi-round-trip.js';
 import {
   SUBSCRIPTIONS_LISTEN_METHOD,
@@ -59,6 +60,10 @@ import type { CompleteResult } from '../protocol/completion.js';
 const METHOD_NOT_FOUND_CODE = -32601;
 /** JSON-RPC "Internal error" — the fallback code for a throwing request handler. */
 const INTERNAL_ERROR_CODE = -32603;
+/** MCP "Unsupported protocol version" (§5.5) — triggers a one-shot revision reselect + retry. */
+const UNSUPPORTED_PROTOCOL_VERSION_CODE = -32004;
+/** HTTP "HeaderMismatch" (§9.8) — a missing/required custom `Mcp-Param-*` header triggers a schema refresh + retry. */
+const HEADER_MISMATCH_CODE = -32001;
 
 /**
  * Handles an inbound server→client request (e.g. `sampling/createMessage`,
@@ -94,6 +99,12 @@ export interface ClientOptions {
   capabilities?: Record<string, unknown>;
   /** Acceptable protocol revisions, most-preferred first. Defaults to `[CURRENT_PROTOCOL_VERSION]`. */
   protocolVersions?: string[];
+  /**
+   * Optional sink for advisory client warnings — e.g. a `tools/list` tool dropped
+   * because its `x-mcp-header` annotation is invalid (§9.5.1, R-9.5.1-k). Injected
+   * rather than a hard `console` dependency so the SDK stays edge-safe/testable.
+   */
+  logger?: { warn(message: string): void };
 }
 
 /**
@@ -273,14 +284,18 @@ export class Client {
    * rejects discovery (e.g. an older server that lacks the method).
    */
   async discover(): Promise<DiscoverResult> {
-    const id = this.nextId();
-    const request = buildDiscoverRequest(
-      id,
-      this.protocolVersion(),
-      this.clientInfo,
-      this.capabilities,
-    );
-    const result = await this.roundTrip(id, request as unknown as Record<string, unknown>);
+    let result: Record<string, unknown>;
+    try {
+      result = await this.sendDiscover();
+    } catch (e) {
+      // §5.5: discovery itself may be answered with -32004 — reselect + retry once.
+      if (e instanceof RequestError && e.code === UNSUPPORTED_PROTOCOL_VERSION_CODE) {
+        this.reselectRevisionOrThrow(e);
+        result = await this.sendDiscover();
+      } else {
+        throw e;
+      }
+    }
 
     const parsed = DiscoverResultSchema.safeParse(result);
     if (parsed.success) {
@@ -293,6 +308,30 @@ export class Client {
     return result as DiscoverResult;
   }
 
+  /** Sends one `server/discover` with the currently selected revision (no retry). */
+  private async sendDiscover(): Promise<Record<string, unknown>> {
+    const id = this.nextId();
+    const request = buildDiscoverRequest(id, this.protocolVersion(), this.clientInfo, this.capabilities);
+    return this.roundTrip(id, request as unknown as Record<string, unknown>);
+  }
+
+  /**
+   * Reacts to a `-32004` (UnsupportedProtocolVersion) error: reselects a mutually
+   * supported revision from the error's authoritative `data.supported` set and records
+   * it as the negotiated revision (so the caller's one-shot retry uses it). Throws
+   * {@link IncompatibleProtocolError} when no revision overlaps — the client MUST NOT
+   * retry indefinitely. (§5.5, R-5.5-h, R-5.5-i, R-5.5-j)
+   */
+  private reselectRevisionOrThrow(error: RequestError): void {
+    const data = error.data as { supported?: unknown } | undefined;
+    const supported = Array.isArray(data?.supported) ? (data.supported as string[]) : [];
+    const negotiation = negotiateRevision(this.preferredVersions, supported);
+    if (!negotiation.ok) {
+      throw new IncompatibleProtocolError(this.preferredVersions, supported);
+    }
+    this.negotiatedVersion = negotiation.selected;
+  }
+
   // ── Requests / notifications ─────────────────────────────────────────────────
 
   /**
@@ -301,6 +340,26 @@ export class Client {
    * error response, or {@link TransportError} for a channel failure / cancellation.
    */
   async request(
+    req: { method: string; params?: Record<string, unknown> },
+    options?: RequestOptions,
+  ): Promise<Record<string, unknown>> {
+    try {
+      return await this.sendOnce(req, options);
+    } catch (e) {
+      // §5.5 (R-5.5-h/i/j / R-29.3-c): on an UnsupportedProtocolVersion (-32004),
+      // reselect a mutually-supported revision from the server's authoritative
+      // `data.supported` set and retry ONCE; surface IncompatibleProtocolError when
+      // nothing overlaps. Never retry indefinitely.
+      if (e instanceof RequestError && e.code === UNSUPPORTED_PROTOCOL_VERSION_CODE) {
+        this.reselectRevisionOrThrow(e);
+        return this.sendOnce(req, options);
+      }
+      throw e;
+    }
+  }
+
+  /** Builds and sends one request with the currently selected revision (no retry). */
+  private async sendOnce(
     req: { method: string; params?: Record<string, unknown> },
     options?: RequestOptions,
   ): Promise<Record<string, unknown>> {
@@ -340,7 +399,19 @@ export class Client {
       arguments: params.arguments ?? {},
     };
     if (params._meta) toolParams['_meta'] = params._meta;
-    return (await this.request({ method: 'tools/call', params: toolParams }, options)) as CallToolResult;
+    try {
+      return (await this.request({ method: 'tools/call', params: toolParams }, options)) as CallToolResult;
+    } catch (e) {
+      // §9.5.2 (R-9.5.2-m): a -32001 (HeaderMismatch) may mean the server requires a
+      // custom Mcp-Param-* header the client didn't send because its cached tool schema
+      // is stale/absent. Refresh the schema via tools/list and retry the call ONCE with
+      // corrected headers; a second failure (or any other error) propagates. Single-shot.
+      if (e instanceof RequestError && e.code === HEADER_MISMATCH_CODE) {
+        await this.listTools();
+        return (await this.request({ method: 'tools/call', params: toolParams }, options)) as CallToolResult;
+      }
+      throw e;
+    }
   }
 
   /** Sends a one-way notification. */
@@ -359,11 +430,20 @@ export class Client {
 
   /** `tools/list` — one page of tools (pass a cursor, or use {@link listAllTools}). (§16.2) */
   async listTools(cursor?: string, options?: RequestOptions): Promise<ListToolsResult> {
-    const result = (await this.request({ method: 'tools/list', params: cursor ? { cursor } : {} }, options)) as ListToolsResult;
+    // §12.3 (R-12.3-e): an explicit cursor is echoed verbatim, including the empty
+    // string `""` (a present cursor). Gate on presence (`!== undefined`), never on
+    // truthiness — `cursor ? … : …` would silently drop a `""` the caller passed.
+    const result = (await this.request({ method: 'tools/list', params: cursor !== undefined ? { cursor } : {} }, options)) as ListToolsResult;
     // M1 (§9.5.1): exclude tools whose `x-mcp-header` parameter annotations are invalid,
     // keeping every valid tool usable. (R-9.5.1-i/j) Tools without annotations are unaffected.
     if (Array.isArray(result.tools)) {
-      result.tools = filterValidTools(result.tools as never).tools as never;
+      const { tools: validTools, warnings } = filterValidTools(result.tools as never);
+      result.tools = validTools as never;
+      // §9.5.1 (R-9.5.1-k): surface each dropped tool — naming the tool and the reason —
+      // through the injected logger so the host can see WHY a tool became unusable.
+      for (const warning of warnings) {
+        this.options.logger?.warn(`tools/list: dropped tool "${warning.tool}" — ${warning.reason}`);
+      }
       // §9.5.2: remember each tool's inputSchema so a later tools/call can emit Mcp-Param-*.
       for (const t of result.tools as Array<{ name?: unknown; inputSchema?: unknown }>) {
         if (typeof t.name === 'string') this.toolSchemas.set(t.name, t.inputSchema);
@@ -374,12 +454,14 @@ export class Client {
 
   /** `resources/list` — one page of resources. (§17.2) */
   async listResources(cursor?: string, options?: RequestOptions): Promise<ListResourcesResult> {
-    return (await this.request({ method: 'resources/list', params: cursor ? { cursor } : {} }, options)) as ListResourcesResult;
+    // Echo an explicit cursor verbatim, including `""`. (§12.3, R-12.3-e)
+    return (await this.request({ method: 'resources/list', params: cursor !== undefined ? { cursor } : {} }, options)) as ListResourcesResult;
   }
 
   /** `resources/templates/list` — one page of resource templates. (§17.3) */
   async listResourceTemplates(cursor?: string, options?: RequestOptions): Promise<ListResourceTemplatesResult> {
-    return (await this.request({ method: 'resources/templates/list', params: cursor ? { cursor } : {} }, options)) as ListResourceTemplatesResult;
+    // Echo an explicit cursor verbatim, including `""`. (§12.3, R-12.3-e)
+    return (await this.request({ method: 'resources/templates/list', params: cursor !== undefined ? { cursor } : {} }, options)) as ListResourceTemplatesResult;
   }
 
   /** `resources/read` — read a resource by URI. (§17.5) */
@@ -389,22 +471,26 @@ export class Client {
 
   /** `prompts/list` — one page of prompts. (§18.2) */
   async listPrompts(cursor?: string, options?: RequestOptions): Promise<ListPromptsResult> {
-    return (await this.request({ method: 'prompts/list', params: cursor ? { cursor } : {} }, options)) as ListPromptsResult;
+    // §18.1-b: a client MUST NOT issue a prompts/* request unless the server advertised
+    // the `prompts` capability. Fail fast on the gate rather than send an unsupported call.
+    this.assertServerCapability('prompts');
+    // Echo an explicit cursor verbatim, including `""`. (§12.3, R-12.3-e)
+    return (await this.request({ method: 'prompts/list', params: cursor !== undefined ? { cursor } : {} }, options)) as ListPromptsResult;
   }
 
   /** `prompts/get` — resolve a prompt with arguments. (§18.4) */
   async getPrompt(name: string, args?: Record<string, string>, options?: RequestOptions): Promise<GetPromptResult> {
+    // §18.1-b: gate on the advertised `prompts` capability before sending.
+    this.assertServerCapability('prompts');
     return (await this.request({ method: 'prompts/get', params: { name, arguments: args ?? {} } }, options)) as GetPromptResult;
   }
 
   /** `completion/complete` — argument autocompletion. (§19.2) */
   async complete(ref: unknown, argument: unknown, context?: unknown, options?: RequestOptions): Promise<CompleteResult> {
+    // §19.1-c: a client MUST NOT issue completion/complete unless the server advertised
+    // the `completions` capability. Fail fast on the gate.
+    this.assertServerCapability('completions');
     return (await this.request({ method: 'completion/complete', params: { ref, argument, ...(context !== undefined ? { context } : {}) } }, options)) as CompleteResult;
-  }
-
-  /** `logging/setLevel` — set the minimum log severity the server should emit. (§15.3, Deprecated) */
-  async setLoggingLevel(level: string, options?: RequestOptions): Promise<Record<string, unknown>> {
-    return this.request({ method: 'logging/setLevel', params: { level } }, options);
   }
 
   // ── C4: pagination auto-iteration (§12) ──────────────────────────────────────
@@ -421,12 +507,17 @@ export class Client {
     itemsKey: string,
     options?: RequestOptions,
   ): AsyncGenerator<T> {
-    let cursor: string | undefined;
+    // §12.3: drive the loop on a PRESENCE sentinel, not truthiness. A server may
+    // return `nextCursor: ""`; per R-12.3-d the empty string is a *present* cursor
+    // that means "more pages follow", and per R-12.3-e it MUST be echoed verbatim on
+    // the next request. The previous `while (cursor)` / `cursor ? { cursor } : {}`
+    // treated `""` as end-of-list and dropped it, truncating the iteration.
+    let cursor: string | undefined = undefined;
     do {
-      const result = await this.request({ method, params: cursor ? { cursor } : {} }, options);
+      const result = await this.request({ method, params: cursor !== undefined ? { cursor } : {} }, options);
       for (const item of (result[itemsKey] as T[] | undefined) ?? []) yield item;
       cursor = typeof result['nextCursor'] === 'string' ? (result['nextCursor'] as string) : undefined;
-    } while (cursor);
+    } while (cursor !== undefined);
   }
 
   /** Iterates all tools across pages. (§16.2) */
@@ -439,6 +530,8 @@ export class Client {
   }
   /** Iterates all prompts across pages. (§18.2) */
   listAllPrompts(options?: RequestOptions): AsyncGenerator<Record<string, unknown>> {
+    // §18.1-b: gate on the advertised `prompts` capability before paginating.
+    this.assertServerCapability('prompts');
     return this.paginate('prompts/list', 'prompts', options);
   }
 
@@ -499,12 +592,20 @@ export class Client {
     taskId: string,
     options?: { intervalMs?: number; timeoutMs?: number; signal?: AbortSignal },
   ): Promise<Record<string, unknown>> {
-    const intervalMs = options?.intervalMs ?? 500;
+    // §25.4 (R-25.4-d/e): pace polling by the task's advertised `pollIntervalMs`,
+    // ADOPTING the most-recent value each round (so a server can re-pace mid-flight)
+    // and falling back to the caller's `intervalMs` (else 1000ms) when none is
+    // advertised. Stop as soon as the response is terminal — a terminal DetailedTask —
+    // via the shared {@link isPollingTerminalResponse} classifier.
+    const fallbackMs = options?.intervalMs ?? 1000;
     const deadline = options?.timeoutMs ? Date.now() + options.timeoutMs : undefined;
+    let intervalMs: number | undefined;
     for (;;) {
       const task = await this.getTask(taskId);
-      const status = String(task['status'] ?? '');
-      if (status === 'completed' || status === 'failed' || status === 'cancelled') return task;
+      if (isPollingTerminalResponse(task)) return task;
+      // Adopt the latest advertised cadence for the NEXT wait.
+      const advertised = typeof task['pollIntervalMs'] === 'number' ? (task['pollIntervalMs'] as number) : undefined;
+      intervalMs = adoptLatestPollIntervalMs(advertised, intervalMs, fallbackMs);
       if (options?.signal?.aborted) throw new TransportError('poll aborted');
       if (deadline && Date.now() > deadline) throw new TransportError(`task ${taskId} did not finish within ${options!.timeoutMs}ms`);
       await new Promise((resolve) => setTimeout(resolve, intervalMs));
