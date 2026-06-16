@@ -438,6 +438,7 @@ public static class Cimd
 /// <param name="ResponseTypes">OPTIONAL requested response types.</param>
 /// <param name="TokenEndpointAuthMethod">OPTIONAL token-endpoint auth method.</param>
 /// <param name="Scope">OPTIONAL space-delimited scopes.</param>
+[Obsolete("Dynamic Client Registration (RFC 7591) is Deprecated for MCP (spec §23.11): prefer Client ID Metadata Documents. Still supported for backward compatibility.")]
 public sealed record DynamicClientRegistrationRequest(
   IReadOnlyList<string> RedirectUris,
   ApplicationType ApplicationType,

@@ -65,6 +65,12 @@ public sealed class RuntimeDispatchTests
       new Tool { Name = "hard_fail", InputSchema = Obj("""{"type":"object"}""") },
       _ => throw McpError.InvalidParams("handler rejected the call"));
 
+    // A tool whose handler throws a NON-McpError exception → an unexpected internal condition the
+    // runtime MUST report as -32603 (Internal error), §22.2 R-22.2-f.
+    server.RegisterTool(
+      new Tool { Name = "boom", InputSchema = Obj("""{"type":"object"}""") },
+      _ => throw new InvalidOperationException("unexpected internal condition"));
+
     // A tool that sets cache hints on its result.
     server.RegisterTool(
       new Tool { Name = "cached", InputSchema = Obj("""{"type":"object"}""") },
@@ -447,6 +453,17 @@ public sealed class RuntimeDispatchTests
     await client.DiscoverAsync();
     var error = await Assert.ThrowsAsync<McpError>(() => client.CallToolAsync("hard_fail", Obj("""{}""")));
     Assert.Equal(ErrorCodes.InvalidParams, error.Code);
+  }
+
+  [Fact]
+  public async Task Tool_that_throws_an_unexpected_exception_is_minus_32603()
+  {
+    // R-22.2-f: an unexpected internal condition — a handler throwing something other than McpError —
+    // MUST be surfaced to the client as -32603 (Internal error), not leaked as the raw exception.
+    await using var client = InMemory.Connect(FullServer());
+    await client.DiscoverAsync();
+    var error = await Assert.ThrowsAsync<McpError>(() => client.CallToolAsync("boom", Obj("""{}""")));
+    Assert.Equal(ErrorCodes.InternalError, error.Code);
   }
 
   [Fact]

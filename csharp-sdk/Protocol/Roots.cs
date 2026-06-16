@@ -14,6 +14,7 @@ namespace Stackific.Mcp.Protocol;
 /// server configuration. Roots are <em>not</em> an access-control mechanism: the protocol does not
 /// enforce that a server confines its operations to the listed roots.
 /// </remarks>
+[Obsolete("Roots (roots/list) is Deprecated (spec §21.1): prefer tool input parameters, resource URIs, or server configuration. Still accepted and round-tripped for backward compatibility.")]
 public sealed record Root
 {
   /// <summary>
@@ -48,6 +49,7 @@ public sealed record Root
 /// This type belongs to the <b>Deprecated</b> Roots capability (spec §21.1) and is retained for
 /// interoperability only.
 /// </remarks>
+[Obsolete("Roots (roots/list) is Deprecated (spec §21.1). Still accepted and round-tripped for backward compatibility.")]
 public sealed record ListRootsResult
 {
   /// <summary>The JSON-RPC method name of the input request answered by this result (spec §21.1.4).</summary>

@@ -257,6 +257,7 @@ public sealed record ToolChoice
 /// (spec §21.2.4, <c>includeContext</c>).
 /// </summary>
 [JsonConverter(typeof(JsonStringEnumConverter<IncludeContext>))]
+[Obsolete("includeContext is Deprecated (spec §21.2.4): servers SHOULD omit it or use IncludeContext.None. Still accepted for backward compatibility.")]
 public enum IncludeContext
 {
   /// <summary>No additional context. This is the default when the field is omitted (spec §21.2.4).</summary>
@@ -284,6 +285,7 @@ public enum IncludeContext
 /// completion by delegating the model call to the client; it is delivered as an input-required
 /// result and answered by retrying the originating request (§11).
 /// </summary>
+[Obsolete("Sampling (sampling/createMessage) is Deprecated (spec §21.2). Still accepted and round-tripped for backward compatibility.")]
 public sealed record CreateMessageRequestParams
 {
   /// <summary>The JSON-RPC method name of this input request (spec §21.2.4).</summary>

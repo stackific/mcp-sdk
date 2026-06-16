@@ -726,16 +726,16 @@ public sealed class ClientBehaviorTests
   }
 
   [Fact]
-  public async Task Tasks_method_on_a_non_tasks_server_is_method_not_found()
+  public async Task Tasks_method_on_a_non_tasks_server_is_missing_capability()
   {
-    // The behaviour server does not advertise the Tasks extension, so tasks/get is unavailable → -32601
-    // (§22.2). The complementary -32003 "client did not declare the extension" path against a
-    // tasks-advertising server is covered in TasksTests / TasksLifecycleTests.
+    // R-25.7-d: the behaviour server does not advertise the Tasks extension, so tasks/get is gated as
+    // -32003 (missing required capability), NOT -32601 — matching the TypeScript taskOp gate. The
+    // complementary "client did not declare the extension" path is covered in TasksLifecycleTests.
     var (client, _) = Connect();
     await using var __ = client;
     await client.DiscoverAsync();
     var error = await Assert.ThrowsAsync<McpError>(() => client.GetTaskAsync("task-123"));
-    Assert.Equal(ErrorCodes.MethodNotFound, error.Code);
+    Assert.Equal(ErrorCodes.MissingRequiredClientCapability, error.Code);
   }
 
   [Fact]

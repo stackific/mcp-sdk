@@ -286,6 +286,7 @@ public enum LoggingLevel
 /// Deprecated [SEP-2577]. Log <see cref="Data"/> MUST NOT contain credentials, secrets, personally
 /// identifying information, or internal details that could aid an attacker (§15.3.2).
 /// </remarks>
+[Obsolete("Logging (notifications/message) is Deprecated [SEP-2577] (spec §15.3). Still accepted and round-tripped for backward compatibility.")]
 public sealed record LoggingMessageNotificationParams
 {
   /// <summary>The method name of the notification these parameters belong to.</summary>

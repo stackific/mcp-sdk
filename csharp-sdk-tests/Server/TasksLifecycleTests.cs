@@ -14,8 +14,8 @@ namespace Stackific.Mcp.Tests.Server;
 /// <see cref="InMemoryTaskStore"/> directly to pin every state transition and the terminal-state
 /// immutability rule (§25.5); the second half drives the same behavior end-to-end through the
 /// in-memory harness, covering the <c>resultType: "task"</c> handle (§25.3), polling to a terminal
-/// state with the inline result (§25.7), capability gating with <c>-32003</c> (§25.2), and the
-/// <c>-32601</c> a server lacking the extension returns for <c>tasks/get</c>. Error CODES are
+/// state with the inline result (§25.7), and capability gating with <c>-32003</c> for both a server
+/// that never advertised the extension and a client that did not declare it (§25.2). Error CODES are
 /// asserted, never messages.
 /// </summary>
 public sealed class TasksLifecycleTests
@@ -589,24 +589,26 @@ public sealed class TasksLifecycleTests
   }
 
   [Fact]
-  public async Task A_server_without_the_tasks_extension_returns_method_not_found_for_tasks_get()
+  public async Task A_server_without_the_tasks_extension_rejects_tasks_get_with_missing_capability()
   {
-    // The server never advertised the Tasks extension, so tasks/get is gated as -32601 (§25.2).
+    // R-25.7-d: a Tasks method invoked when the SERVER has not advertised the extension is -32003
+    // (missing required capability), NOT -32601 — matching the TypeScript taskOp gate.
     await using var client = InMemory.Connect(BuildServerWithoutTasksExtension(), capabilities: WithTasks());
     await client.DiscoverAsync();
 
     var error = await Assert.ThrowsAsync<McpError>(() => client.GetTaskAsync("anything"));
-    Assert.Equal(ErrorCodes.MethodNotFound, error.Code);
+    Assert.Equal(ErrorCodes.MissingRequiredClientCapability, error.Code);
   }
 
   [Fact]
-  public async Task A_server_without_the_tasks_extension_returns_method_not_found_for_tasks_cancel()
+  public async Task A_server_without_the_tasks_extension_rejects_tasks_cancel_with_missing_capability()
   {
+    // R-25.9-d: same gate as tasks/get — server-not-advertised is -32003, not -32601.
     await using var client = InMemory.Connect(BuildServerWithoutTasksExtension(), capabilities: WithTasks());
     await client.DiscoverAsync();
 
     var error = await Assert.ThrowsAsync<McpError>(() => client.CancelTaskAsync("anything"));
-    Assert.Equal(ErrorCodes.MethodNotFound, error.Code);
+    Assert.Equal(ErrorCodes.MissingRequiredClientCapability, error.Code);
   }
 
   /// <summary>Polls <c>tasks/get</c> until the task leaves the <c>working</c> state or the budget elapses.</summary>

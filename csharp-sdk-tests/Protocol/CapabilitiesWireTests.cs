@@ -112,6 +112,20 @@ public sealed class CapabilitiesWireTests
     Assert.Equal(expected, caps.SupportsRoots);
   }
 
+  // R-21.1.2-a: the `roots` capability value MUST be a JSON object; a non-object value (boolean,
+  // array, string, number, null) is invalid and is NOT a declaration of the capability.
+  [Theory]
+  [InlineData("""{"roots":{}}""", true)]
+  [InlineData("""{"roots":{"listChanged":true}}""", true)]
+  [InlineData("""{"roots":true}""", false)]
+  [InlineData("""{"roots":[]}""", false)]
+  [InlineData("""{"roots":"yes"}""", false)]
+  [InlineData("""{"roots":1}""", false)]
+  [InlineData("""{"roots":null}""", false)]
+  [InlineData("""{}""", false)]
+  public void ClientDeclares_roots_only_when_the_value_is_a_json_object(string json, bool expected) =>
+    Assert.Equal(expected, CapabilityNegotiation.ClientDeclares(JsonNode.Parse(json)!.AsObject(), "roots"));
+
   // ----- Elicitation form/url presence round-trip (§6.2) -----
 
   [Fact]

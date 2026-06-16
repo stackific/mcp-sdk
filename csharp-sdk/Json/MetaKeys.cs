@@ -38,6 +38,7 @@ public static partial class MetaKeys
   public const string ClientCapabilities = "io.modelcontextprotocol/clientCapabilities";
 
   /// <summary>Reserved key carrying the optional, deprecated per-request log level (§4.3, §15.3).</summary>
+  [Obsolete("The io.modelcontextprotocol/logLevel _meta opt-in is Deprecated (spec §4.3, §15.3). Still accepted for backward compatibility.")]
   public const string LogLevel = "io.modelcontextprotocol/logLevel";
 
   /// <summary>Reserved key correlating a notification with its subscription stream (§10).</summary>

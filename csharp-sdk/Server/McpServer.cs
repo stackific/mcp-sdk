@@ -671,8 +671,7 @@ public sealed class McpServer : IMcpRequestHandler, IMcpSubscriptionHandler
 
   private JsonObject GetTask(JsonObject? prms, RequestMeta meta)
   {
-    RequireCapability(_capabilities.HasExtension(MetaKeys.TasksExtension), McpMethods.TasksGet);
-    RequireTasksCapability(meta);
+    RequireTasksActive(McpMethods.TasksGet, meta);
     var taskId = RequireStringParam(prms ?? throw McpError.InvalidParams("tasks/get requires params."), "taskId");
     // §25.7: the GetTaskResult IS the DetailedTask (with its inline outcome), flattened with
     // resultType:"complete" — NOT a nested { task }. Get throws -32602 for unknown/expired ids.
@@ -681,8 +680,7 @@ public sealed class McpServer : IMcpRequestHandler, IMcpSubscriptionHandler
 
   private JsonObject CancelTask(JsonObject? prms, RequestMeta meta)
   {
-    RequireCapability(_capabilities.HasExtension(MetaKeys.TasksExtension), McpMethods.TasksCancel);
-    RequireTasksCapability(meta);
+    RequireTasksActive(McpMethods.TasksCancel, meta);
     var taskId = RequireStringParam(prms ?? throw McpError.InvalidParams("tasks/cancel requires params."), "taskId");
     // §25.9: cooperative cancel. Unknown id → -32602 (Get re-checks below). Cancelling a non-terminal
     // task fires the store's update listener, which pushes notifications/tasks to subscribers; the
@@ -698,8 +696,7 @@ public sealed class McpServer : IMcpRequestHandler, IMcpSubscriptionHandler
 
   private JsonObject UpdateTask(JsonObject? prms, RequestMeta meta)
   {
-    RequireCapability(_capabilities.HasExtension(MetaKeys.TasksExtension), McpMethods.TasksUpdate);
-    RequireTasksCapability(meta);
+    RequireTasksActive(McpMethods.TasksUpdate, meta);
     var body = prms ?? throw McpError.InvalidParams("tasks/update requires params.");
     var taskId = RequireStringParam(body, "taskId");
 
@@ -758,6 +755,24 @@ public sealed class McpServer : IMcpRequestHandler, IMcpSubscriptionHandler
     if (!meta.ClientCapabilities.HasExtension(MetaKeys.TasksExtension))
     {
       throw Tasks.BuildTasksMissingCapabilityError(McpMethods.TasksGet);
+    }
+  }
+
+  /// <summary>
+  /// Gates a Tasks request method (<c>tasks/get</c>/<c>tasks/cancel</c>/<c>tasks/update</c>): when the
+  /// Tasks extension is not active — whether because the SERVER never advertised it or the CLIENT did
+  /// not declare it in the request <c>_meta</c> — the method is rejected with <c>-32003</c> (missing
+  /// required capability), <em>not</em> <c>-32601</c> (method not found). This mirrors the TypeScript
+  /// <c>taskOp</c> gate. (§25.2/§25.7-§25.9, R-25.2-f, R-25.7-d, R-25.8-d, R-25.9-d)
+  /// </summary>
+  /// <param name="method">The Tasks method being gated (named in the error).</param>
+  /// <param name="meta">The request envelope carrying the client's declared capabilities.</param>
+  private void RequireTasksActive(string method, RequestMeta meta)
+  {
+    if (!_capabilities.HasExtension(MetaKeys.TasksExtension) ||
+        !meta.ClientCapabilities.HasExtension(MetaKeys.TasksExtension))
+    {
+      throw Tasks.BuildTasksMissingCapabilityError(method);
     }
   }
 
