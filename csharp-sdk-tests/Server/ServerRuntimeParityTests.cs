@@ -86,30 +86,68 @@ public sealed class ServerRuntimeParityTests
     Assert.Equal("public", result["cacheScope"]!.GetValue<string>());
   }
 
-  // ───────────────────────── logging/setLevel gate (§15.3) ─────────────────────────
+  // ───────────────────────── per-request logLevel opt-in gate (§4.3, §15.3.3) ─────────────────────────
 
   [Fact]
-  public async Task Default_log_level_info_drops_debug_but_emits_error()
+  public async Task Without_a_logLevel_opt_in_no_message_notifications_are_emitted()
   {
+    // §15.3.3 first bullet (MUST NOT): a request whose _meta omits io.modelcontextprotocol/logLevel
+    // receives NO notifications/message at all — not even the high-severity error line.
     var server = ToolServer();
     var notifier = new CapturingNotifier();
     await DispatchSuccess(server, McpMethods.ToolsCall, Obj("""{"name":"noisy","arguments":{}}""").Also(p => p["_meta"] = GoodMeta()), notifier);
 
+    Assert.DoesNotContain(notifier.Notifications, n => n.Method == McpMethods.NotificationsMessage);
+  }
+
+  [Fact]
+  public async Task An_info_opt_in_drops_debug_but_emits_error()
+  {
+    // §15.3.3 second bullet: opting in at "info" emits info+ only — debug is dropped, error passes.
+    var server = ToolServer();
+    var notifier = new CapturingNotifier();
+    await DispatchSuccess(server, McpMethods.ToolsCall, Obj("""{"name":"noisy","arguments":{}}""").Also(p => p["_meta"] = GoodMeta("info")), notifier);
+
     var logs = notifier.Notifications.Where(n => n.Method == McpMethods.NotificationsMessage).ToList();
-    // Default min level is info: the debug log is filtered, the error log passes.
     Assert.Single(logs);
     Assert.Equal("error", logs[0].Params!["level"]!.GetValue<string>());
+  }
+
+  [Fact]
+  public async Task A_warning_opt_in_emits_only_at_or_above_warning()
+  {
+    // §15.3.3: opting in at "warning" drops debug (below) and emits error (>= warning).
+    var server = ToolServer();
+    var notifier = new CapturingNotifier();
+    await DispatchSuccess(server, McpMethods.ToolsCall, Obj("""{"name":"noisy","arguments":{}}""").Also(p => p["_meta"] = GoodMeta("warning")), notifier);
+
+    var logs = notifier.Notifications.Where(n => n.Method == McpMethods.NotificationsMessage).ToList();
+    Assert.Single(logs);
+    Assert.Equal("error", logs[0].Params!["level"]!.GetValue<string>());
+  }
+
+  [Fact]
+  public async Task An_invalid_logLevel_opt_in_is_rejected_with_invalid_params()
+  {
+    // §15.3.3 (R-15.3.3-g): a present-but-unrecognized opt-in value is rejected with -32602.
+    var server = ToolServer();
+    var response = await server.HandleRequestAsync(
+      new JsonRpcRequest(new RequestId(1L), McpMethods.ToolsCall, Obj("""{"name":"noisy","arguments":{}}""").Also(p => p["_meta"] = GoodMeta("verbose"))),
+      new CapturingNotifier(), null, CancellationToken.None);
+    var error = Assert.IsType<JsonRpcErrorResponse>(response);
+    Assert.Equal(ErrorCodes.InvalidParams, error.Error.Code);
   }
 
   [Fact]
   public async Task Setting_the_level_to_debug_lets_a_debug_message_through()
   {
     var server = ToolServer();
-    // logging/setLevel debug lowers the server's minimum so both messages now emit.
+    // logging/setLevel debug lowers the server-wide floor to debug...
     await DispatchSuccess(server, McpMethods.LoggingSetLevel, Obj("""{"level":"debug"}""").Also(p => p["_meta"] = GoodMeta()));
 
     var notifier = new CapturingNotifier();
-    await DispatchSuccess(server, McpMethods.ToolsCall, Obj("""{"name":"noisy","arguments":{}}""").Also(p => p["_meta"] = GoodMeta()), notifier);
+    // ...and the request opts in at debug, so both messages clear both floors and emit.
+    await DispatchSuccess(server, McpMethods.ToolsCall, Obj("""{"name":"noisy","arguments":{}}""").Also(p => p["_meta"] = GoodMeta("debug")), notifier);
 
     var logs = notifier.Notifications.Where(n => n.Method == McpMethods.NotificationsMessage).ToList();
     Assert.Equal(2, logs.Count);
@@ -122,10 +160,10 @@ public sealed class ServerRuntimeParityTests
     await DispatchSuccess(server, McpMethods.LoggingSetLevel, Obj("""{"level":"critical"}""").Also(p => p["_meta"] = GoodMeta()));
 
     var notifier = new CapturingNotifier();
-    await DispatchSuccess(server, McpMethods.ToolsCall, Obj("""{"name":"noisy","arguments":{}}""").Also(p => p["_meta"] = GoodMeta()), notifier);
+    // The request opts in at debug, but the server-wide critical floor still drops error (< critical).
+    await DispatchSuccess(server, McpMethods.ToolsCall, Obj("""{"name":"noisy","arguments":{}}""").Also(p => p["_meta"] = GoodMeta("debug")), notifier);
 
-    // error < critical, so neither the debug nor the error line is emitted.
-    Assert.Empty(notifier.Notifications.Where(n => n.Method == McpMethods.NotificationsMessage));
+    Assert.DoesNotContain(notifier.Notifications, n => n.Method == McpMethods.NotificationsMessage);
   }
 
   [Fact]

@@ -194,8 +194,6 @@ public sealed class JsonValuesTests
   [Theory]
   [InlineData(1e2, 100d)]
   [InlineData(1.0, 1d)]
-  [InlineData(100.0, 100d)]
-  [InlineData(1e0, 1d)]
   public void NumericEqual_is_textual_form_independent(double a, double b) =>
     Assert.True(JsonValues.NumericEqual(a, b));
 

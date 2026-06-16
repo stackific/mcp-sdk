@@ -23,17 +23,151 @@ public static class Features
   private const string TinyWavBase64 = "UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
 
   // A self-contained MCP App (text/html;profile=mcp-app), served as the ui://counter resource and
-  // rendered sandboxed by the host (§26).
+  // rendered sandboxed by the host (§26). Ported verbatim from the TypeScript reference server's
+  // counter-app.html so the C# and TS demos are identical: the same UI and the same postMessage
+  // bridge protocol (app ready/state/submit out; host set/note in).
   private const string CounterAppHtml = """
-    <!doctype html><html><head><meta charset="utf-8"><title>Counter</title>
-    <style>body{font-family:system-ui;margin:0;display:grid;place-items:center;height:100vh;background:#0f172a;color:#e2e8f0}
-    .card{text-align:center}button{font-size:1.5rem;padding:.4rem 1rem;margin:.25rem;border-radius:.5rem;border:1px solid #334155;background:#1e293b;color:#e2e8f0;cursor:pointer}
-    #n{font-size:3rem;font-variant-numeric:tabular-nums}</style></head>
-    <body><div class="card"><div id="n">0</div><div><button id="dec">−</button><button id="inc">+</button></div>
-    <p>MCP App (C#) — rendered sandboxed.</p></div>
-    <script>let n=0;const el=document.getElementById('n');
-    document.getElementById('inc').onclick=()=>el.textContent=++n;
-    document.getElementById('dec').onclick=()=>el.textContent=--n;</script></body></html>
+    <!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Counter App</title>
+        <style>
+          :root {
+            color-scheme: dark;
+          }
+          * {
+            box-sizing: border-box;
+          }
+          body {
+            margin: 0;
+            font-family:
+              ui-sans-serif,
+              system-ui,
+              -apple-system,
+              Segoe UI,
+              Roboto,
+              sans-serif;
+            background: #0b1120;
+            color: #e2e8f0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+          }
+          .card {
+            width: 100%;
+            max-width: 360px;
+            padding: 24px;
+            border: 1px solid #1e293b;
+            border-radius: 12px;
+            background: #0f172a;
+            text-align: center;
+          }
+          h1 {
+            font-size: 14px;
+            font-weight: 600;
+            color: #93c5fd;
+            margin: 0 0 4px;
+          }
+          p.sub {
+            font-size: 12px;
+            color: #64748b;
+            margin: 0 0 20px;
+          }
+          .count {
+            font-size: 48px;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            margin: 8px 0 20px;
+          }
+          .row {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+          }
+          button {
+            font: inherit;
+            font-size: 14px;
+            padding: 8px 16px;
+            border-radius: 8px;
+            border: 1px solid #334155;
+            background: #1e293b;
+            color: #e2e8f0;
+            cursor: pointer;
+          }
+          button:hover {
+            background: #334155;
+          }
+          button.primary {
+            background: #2563eb;
+            border-color: #2563eb;
+            color: #fff;
+          }
+          button.primary:hover {
+            background: #1d4ed8;
+          }
+          .from-host {
+            margin-top: 16px;
+            font-size: 12px;
+            color: #94a3b8;
+            min-height: 16px;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <h1>Counter — an MCP App</h1>
+          <p class="sub">Served as <code>ui://counter</code>, sandboxed, host-bridged.</p>
+          <div class="count" id="count" data-testid="app-count">0</div>
+          <div class="row">
+            <button id="dec" aria-label="decrement">−</button>
+            <button id="inc" aria-label="increment">+</button>
+            <button class="primary" id="send" data-testid="app-send">Send to host</button>
+          </div>
+          <div class="from-host" id="fromHost"></div>
+        </div>
+        <script>
+          let count = 0;
+          const el = document.getElementById('count');
+          const fromHost = document.getElementById('fromHost');
+          const render = () => {
+            el.textContent = String(count);
+          };
+    
+          // Announce readiness to the host (MCP Apps lifecycle).
+          const post = (type, payload) =>
+            parent.postMessage({ source: 'mcp-app', app: 'counter', type, payload }, '*');
+          post('ready', {});
+    
+          document.getElementById('inc').addEventListener('click', () => {
+            count++;
+            render();
+            post('state', { count });
+          });
+          document.getElementById('dec').addEventListener('click', () => {
+            count--;
+            render();
+            post('state', { count });
+          });
+          document.getElementById('send').addEventListener('click', () => post('submit', { count }));
+    
+          // Receive messages from the host.
+          window.addEventListener('message', (e) => {
+            const msg = e.data;
+            if (!msg || msg.target !== 'mcp-app') return;
+            if (msg.type === 'set') {
+              count = Number(msg.payload?.count) || 0;
+              render();
+            }
+            if (msg.type === 'note') {
+              fromHost.textContent = 'host: ' + String(msg.payload?.text ?? '');
+            }
+          });
+        </script>
+      </body>
+    </html>
     """;
 
   private static JsonObject Schema(string json) => JsonNode.Parse(json)!.AsObject();

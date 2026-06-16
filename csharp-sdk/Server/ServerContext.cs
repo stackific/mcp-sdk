@@ -8,6 +8,10 @@ using Stackific.Mcp.Transport;
 
 namespace Stackific.Mcp.Server;
 
+// The server runtime deliberately emits the Deprecated-but-supported logging notification (§15.3)
+// and roots result (§21.1) for backward compatibility, so it references those [Obsolete] types.
+#pragma warning disable CS0618
+
 /// <summary>Handles a <c>tools/call</c>: receives the call context and returns the tool result (spec §16.5).</summary>
 /// <param name="context">The invocation context (arguments, metadata, notification sinks, cancellation).</param>
 /// <returns>The tool result.</returns>
@@ -46,6 +50,7 @@ public sealed class ToolContext
   private readonly Func<JsonRpcNotification, Task> _notifySubscribers;
   private readonly IReadOnlyDictionary<string, JsonNode>? _inputResponses;
   private readonly LoggingLevel _minLogLevel;
+  private readonly int _requestLogLevelIndex;
   private readonly ProgressTracker _progressTracker = new();
   private int _inputCounter;
 
@@ -60,7 +65,8 @@ public sealed class ToolContext
     CancellationToken signal,
     InMemoryTaskStore? tasks = null,
     long? taskTtlMs = null,
-    LoggingLevel minLogLevel = LoggingLevel.Info)
+    LoggingLevel minLogLevel = LoggingLevel.Info,
+    int requestLogLevelIndex = -1)
   {
     Arguments = arguments;
     RequestMeta = requestMeta;
@@ -70,6 +76,7 @@ public sealed class ToolContext
     _notifySubscribers = notifySubscribers;
     _inputResponses = inputResponses;
     _minLogLevel = minLogLevel;
+    _requestLogLevelIndex = requestLogLevelIndex;
     Signal = signal;
     Tasks = tasks;
     TaskTtlMs = taskTtlMs;
@@ -108,11 +115,15 @@ public sealed class ToolContext
   public Task NotifyAsync(JsonRpcNotification notification) => _notifier.NotifyAsync(notification);
 
   /// <summary>
-  /// Emits a <c>notifications/message</c> log entry on this request's stream, GATED at or above the
-  /// server's minimum log level (spec §15.3). A message below the server's current level (set via
-  /// <c>logging/setLevel</c>; default <c>info</c>) is dropped without emitting, routed through
-  /// <see cref="LoggingFilter.IsAtOrAboveLogLevel"/> (R-15.3.3-c/d) — mirroring the TS server's
-  /// <c>ctx.log</c> gate. Deprecated mechanism (§15.3), retained for interoperability.
+  /// Emits a <c>notifications/message</c> log entry on this request's stream, gated by the PER-REQUEST
+  /// opt-in (spec §15.3.3). The originating request opts in by carrying the reserved
+  /// <c>io.modelcontextprotocol/logLevel</c> key in its <c>_meta</c> (§4.3): when that key is ABSENT the
+  /// server MUST NOT emit ANY log notification for the request (R-15.3.3 first bullet), and when present
+  /// the server MUST NOT emit messages below the opted-in severity (R-15.3.3 second bullet). The legacy
+  /// server-wide minimum (<c>logging/setLevel</c>; default <c>info</c>) is applied as an ADDITIONAL floor
+  /// — the server MAY emit only a subset of the opted-in levels — so a message must clear BOTH the
+  /// per-request level and the server-wide level to be sent. A dropped message is a silent no-op.
+  /// Deprecated mechanism (§15.3), retained for interoperability.
   /// </summary>
   /// <param name="level">The log severity.</param>
   /// <param name="message">The message text (sent as the <c>data</c> payload).</param>
@@ -120,7 +131,11 @@ public sealed class ToolContext
   /// <returns>A task that completes when the notification is emitted, or immediately when it is filtered out.</returns>
   public Task LogAsync(LoggingLevel level, string message, string? logger = null)
   {
-    // §15.3.3: gate emission at or above the server's current minimum severity.
+    // §15.3.3 first bullet (MUST NOT): no opt-in on the originating request ⇒ emit nothing at all.
+    if (_requestLogLevelIndex < 0) return Task.CompletedTask;
+    // §15.3.3 second bullet (MUST NOT below the requested level): drop a message below the opt-in floor.
+    if (level.Index() < _requestLogLevelIndex) return Task.CompletedTask;
+    // Legacy server-wide floor (logging/setLevel): the server MAY further restrict to a subset.
     if (!LoggingFilter.IsAtOrAboveLogLevel(level, _minLogLevel)) return Task.CompletedTask;
     var prms = JsonSerializer.SerializeToNode(
       new LoggingMessageNotificationParams { Level = level, Logger = logger, Data = JsonValue.Create(message) },
@@ -233,84 +248,6 @@ public sealed class ToolContext
       return Task.FromResult(result);
     }
     throw new InputRequiredSignal(key, new InputRequest { Method = method, Params = parameters });
-  }
-
-  /// <summary>
-  /// Solicits structured input via a LIVE server-to-client <c>elicitation/create</c> request (spec §20),
-  /// issued on this request's stream and awaited mid-handler (§9.6.2) — in contrast to
-  /// <see cref="ElicitInputAsync"/>, which uses the §11 <c>input_required</c> retry loop. Requires the
-  /// client to have declared the <c>elicitation</c> capability, else <c>-32003</c> (§11.5). Requires a
-  /// transport that supports live server-to-client requests (Streamable HTTP / stdio); over a buffering
-  /// or single-response transport this throws <see cref="NotSupportedException"/>.
-  /// </summary>
-  /// <param name="parameters">The elicitation request (form or URL mode).</param>
-  /// <returns>The user's elicitation result.</returns>
-  public Task<ElicitResult> ElicitInputLiveAsync(ElicitRequestParams parameters)
-  {
-    if (!RequestMeta.ClientCapabilities.SupportsElicitation)
-    {
-      throw McpError.MissingRequiredClientCapability(new JsonObject { ["elicitation"] = new JsonObject() });
-    }
-    if (parameters is ElicitRequestURLParams && !RequestMeta.ClientCapabilities.SupportsElicitationUrl)
-    {
-      throw McpError.MissingRequiredClientCapability(new JsonObject { ["elicitation"] = new JsonObject { ["url"] = new JsonObject() } });
-    }
-    return RequestLiveAsync<ElicitResult>(McpMethods.ElicitationCreate, Serialize(parameters));
-  }
-
-  /// <summary>
-  /// Borrows the client's model via a LIVE server-to-client <c>sampling/createMessage</c> request
-  /// (spec §21, Deprecated), issued mid-handler — the live counterpart of <see cref="CreateMessageAsync"/>.
-  /// Requires the client to have declared the <c>sampling</c> capability, else <c>-32003</c> (§11.5), and a
-  /// transport that supports live server-to-client requests.
-  /// </summary>
-  /// <param name="parameters">The sampling request.</param>
-  /// <returns>The produced message.</returns>
-  public Task<CreateMessageResult> CreateMessageLiveAsync(CreateMessageRequestParams parameters)
-  {
-    if (!RequestMeta.ClientCapabilities.SupportsSampling)
-    {
-      throw McpError.MissingRequiredClientCapability(new JsonObject { ["sampling"] = new JsonObject() });
-    }
-    return RequestLiveAsync<CreateMessageResult>(McpMethods.SamplingCreateMessage, Serialize(parameters));
-  }
-
-  /// <summary>
-  /// Requests the client's filesystem roots via a LIVE server-to-client <c>roots/list</c> request
-  /// (spec §21, Deprecated), issued mid-handler — the live counterpart of <see cref="ListRootsAsync"/>.
-  /// Requires the client to have declared the <c>roots</c> capability, else <c>-32003</c> (§11.5), and a
-  /// transport that supports live server-to-client requests.
-  /// </summary>
-  /// <returns>The client's roots.</returns>
-  public async Task<IReadOnlyList<Root>> ListRootsLiveAsync()
-  {
-    if (!RequestMeta.ClientCapabilities.SupportsRoots)
-    {
-      throw McpError.MissingRequiredClientCapability(new JsonObject { ["roots"] = new JsonObject() });
-    }
-    var result = await RequestLiveAsync<ListRootsResult>(McpMethods.RootsList, null).ConfigureAwait(false);
-    return result.Roots;
-  }
-
-  /// <summary>
-  /// Issues a live server-to-client request through the notifier's correlated request channel and decodes
-  /// the client's reply. An error reply is re-thrown as an <see cref="McpError"/> carrying the client's
-  /// code/message/data; a successful reply is deserialized to <typeparamref name="TResult"/>.
-  /// </summary>
-  /// <typeparam name="TResult">The expected result type.</typeparam>
-  /// <param name="method">The server-to-client request method name.</param>
-  /// <param name="parameters">The request params, or <c>null</c> for a params-less request.</param>
-  /// <returns>The decoded client result.</returns>
-  private async Task<TResult> RequestLiveAsync<TResult>(string method, JsonObject? parameters)
-  {
-    var reply = await _notifier.RequestAsync(method, parameters, Signal).ConfigureAwait(false);
-    return reply switch
-    {
-      JsonRpcSuccessResponse success => success.Result.Deserialize<TResult>(McpJson.Options)
-        ?? throw McpError.InternalError($"The client's {method} reply could not be read."),
-      JsonRpcErrorResponse error => throw new McpError(error.Error.Code, error.Error.Message, error.Error.Data?.DeepClone()),
-      _ => throw McpError.InternalError($"Unexpected reply to the server's {method} request."),
-    };
   }
 
   private static JsonObject Serialize<T>(T value) => JsonSerializer.SerializeToNode(value, McpJson.Options)!.AsObject();

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 
@@ -16,6 +17,7 @@ public sealed record ClientCapabilities
   public static ClientCapabilities None { get; } = new();
 
   /// <summary>Non-standard, experimental capabilities keyed by identifier (§6.2).</summary>
+  [JsonConverter(typeof(ExtensionsMapJsonConverter))]
   public IDictionary<string, JsonObject>? Experimental { get; init; }
 
   /// <summary>Present if the client supports server-initiated elicitation (§20).</summary>
@@ -28,6 +30,7 @@ public sealed record ClientCapabilities
   public SamplingCapability? Sampling { get; init; }
 
   /// <summary>The MCP extensions the client supports, keyed by extension identifier (§6.5).</summary>
+  [JsonConverter(typeof(ExtensionsMapJsonConverter))]
   public IDictionary<string, JsonObject>? Extensions { get; init; }
 
   /// <summary><c>true</c> if the client declared elicitation support (form mode is the implicit baseline, §6.2).</summary>
@@ -110,6 +113,7 @@ public sealed record SamplingCapability
 public sealed record ServerCapabilities
 {
   /// <summary>Non-standard, experimental capabilities keyed by identifier (§6.3).</summary>
+  [JsonConverter(typeof(ExtensionsMapJsonConverter))]
   public IDictionary<string, JsonObject>? Experimental { get; init; }
 
   /// <summary>Present if the server emits log messages. Status: <b>Deprecated</b> (§15.3).</summary>
@@ -128,6 +132,7 @@ public sealed record ServerCapabilities
   public ToolsCapability? Tools { get; init; }
 
   /// <summary>The MCP extensions the server supports, keyed by extension identifier (§6.5).</summary>
+  [JsonConverter(typeof(ExtensionsMapJsonConverter))]
   public IDictionary<string, JsonObject>? Extensions { get; init; }
 
   /// <summary><c>true</c> if the server declared a <c>prompts</c> capability (presence means supported, §6.3).</summary>
@@ -206,6 +211,58 @@ internal static class CapabilityExtensions
       raw[key] = value?.DeepClone();
     }
     return raw;
+  }
+}
+
+/// <summary>
+/// Binds a capability <c>extensions</c>/<c>experimental</c> map (§6.5) while honoring the
+/// forward-compatibility rule that a malformed entry MUST NOT cause the whole capability object — or
+/// the message carrying it — to be rejected (§6.6, R-6.6-b; §6.5, R-6.5-i/j). On receipt, an entry
+/// whose value is not a JSON object — the literal <c>null</c>, an array, or a scalar — is DROPPED
+/// (the extension is simply treated as not advertised by that peer), rather than throwing a
+/// <see cref="JsonException"/> that would surface to the caller as a <c>-32602</c> rejection of the
+/// entire request. This is the per-entry counterpart of <see cref="Extensions.NormalizeMap"/>, applied
+/// at the deserialization boundary so the typed <c>IDictionary&lt;string, JsonObject&gt;</c> never has
+/// to represent a malformed value. The map itself MUST still be a JSON object; a non-object map is a
+/// genuine structural error and is rejected.
+/// </summary>
+internal sealed class ExtensionsMapJsonConverter : JsonConverter<IDictionary<string, JsonObject>>
+{
+  /// <inheritdoc />
+  public override IDictionary<string, JsonObject>? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+  {
+    var node = JsonNode.Parse(ref reader);
+    if (node is null) return null;
+    if (node is not JsonObject map)
+    {
+      throw new JsonException("A capability extensions/experimental map MUST be a JSON object (§6.5).");
+    }
+
+    var result = new Dictionary<string, JsonObject>(StringComparer.Ordinal);
+    foreach (var (key, value) in map)
+    {
+      // R-6.5-i/j: only an object settings value is a valid advertisement. A null/array/scalar entry
+      // is malformed and dropped (treated as not advertised), never propagated and never thrown.
+      if (value is JsonObject settings)
+      {
+        result[key] = (JsonObject)settings.DeepClone();
+      }
+    }
+    return result;
+  }
+
+  /// <inheritdoc />
+  public override void Write(Utf8JsonWriter writer, IDictionary<string, JsonObject> value, JsonSerializerOptions options)
+  {
+    ArgumentNullException.ThrowIfNull(value);
+    writer.WriteStartObject();
+    foreach (var (key, settings) in value)
+    {
+      if (settings is null) continue; // never emit a null-valued entry (R-6.5-i)
+      writer.WritePropertyName(key);
+      settings.WriteTo(writer, options);
+    }
+    writer.WriteEndObject();
   }
 }
 

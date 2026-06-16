@@ -24,14 +24,16 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
-    <!-- Deprecated wire surfaces are marked with the native [Obsolete] mechanism (§27.4, R-27.4-a),
-         but the SDK still implements, accepts, and round-trips them for backward compatibility — so
-         the [Obsolete] USAGE diagnostics (CS0612/CS0618) are warnings, not build-breaking errors. -->
-    <WarningsNotAsErrors>$(WarningsNotAsErrors);CS0612;CS0618</WarningsNotAsErrors>
   </PropertyGroup>
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Grant the test project access to internal types (e.g. the client's CompletionThrottle) so they
+         can be unit-tested directly without widening the public API surface. -->
+    <InternalsVisibleTo Include="Stackific.Mcp.Tests" />
   </ItemGroup>
 
   <ItemGroup>

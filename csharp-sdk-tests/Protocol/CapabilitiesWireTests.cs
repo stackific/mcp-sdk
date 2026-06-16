@@ -214,6 +214,51 @@ public sealed class CapabilitiesWireTests
     Assert.Equal(1, back.Experimental!["customThing"]!["v"]!.GetValue<int>());
   }
 
+  [Theory]
+  [InlineData("""{"extensions":{"a/b":[]}}""")]   // array value
+  [InlineData("""{"extensions":{"a/b":42}}""")]   // scalar value
+  [InlineData("""{"extensions":{"a/b":"x"}}""")]  // string value
+  [InlineData("""{"extensions":{"a/b":null}}""")] // null value (R-6.5-i)
+  public void ClientCapabilities_extensions_drops_a_malformed_entry_without_rejecting_the_request(string json)
+  {
+    // §6.5 (R-6.5-i/j) + §6.6: a malformed extension settings value MUST be ignored (treated as not
+    // advertised), and its presence MUST NOT cause the capability object — or the message carrying it —
+    // to be rejected. Binding must succeed and simply drop the offending entry.
+    var caps = JsonSerializer.Deserialize<ClientCapabilities>(json, McpJson.Options)!;
+    Assert.False(caps.HasExtension("a/b"));
+    Assert.NotNull(caps.Extensions);
+    Assert.False(caps.Extensions!.ContainsKey("a/b"));
+  }
+
+  [Fact]
+  public void ClientCapabilities_extensions_keeps_valid_siblings_when_dropping_a_malformed_entry()
+  {
+    // The drop is per-ENTRY: a valid sibling alongside a malformed entry is retained.
+    var caps = JsonSerializer.Deserialize<ClientCapabilities>(
+      """{"extensions":{"a/b":[],"com.example/x":{"setting":1}}}""", McpJson.Options)!;
+    Assert.False(caps.HasExtension("a/b"));
+    Assert.True(caps.HasExtension("com.example/x"));
+  }
+
+  [Fact]
+  public void ClientCapabilities_experimental_drops_a_malformed_entry_without_rejecting_the_request()
+  {
+    var caps = JsonSerializer.Deserialize<ClientCapabilities>(
+      """{"experimental":{"weird":[1,2],"customThing":{"v":1}}}""", McpJson.Options)!;
+    Assert.NotNull(caps.Experimental);
+    Assert.False(caps.Experimental!.ContainsKey("weird"));
+    Assert.True(caps.Experimental!.ContainsKey("customThing"));
+  }
+
+  [Fact]
+  public void ClientCapabilities_extensions_map_that_is_not_an_object_is_a_structural_error()
+  {
+    // The forward-compat tolerance is per-entry; the MAP itself MUST be a JSON object. A non-object
+    // map (e.g. an array) is a genuine structural error, not a droppable entry.
+    Assert.ThrowsAny<JsonException>(() =>
+      JsonSerializer.Deserialize<ClientCapabilities>("""{"extensions":[]}""", McpJson.Options));
+  }
+
   // ----- ServerCapabilities: absent fields omitted (§6.1) -----
 
   [Theory]

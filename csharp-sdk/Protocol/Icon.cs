@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace Stackific.Mcp.Protocol;
 
@@ -22,7 +23,7 @@ namespace Stackific.Mcp.Protocol;
 ///   <item><description>A fetch is credential-free and refuses cross-origin / scheme-change redirects (R-14.2-p, R-14.2-q).</description></item>
 /// </list>
 /// </remarks>
-public static class IconSecurity
+public static partial class IconSecurity
 {
   /// <summary>
   /// The MIME types a consumer MUST support when rendering icons (R-14.2-l, AC-20.19). Includes
@@ -193,7 +194,106 @@ public static class IconSecurity
         $"MIME type mismatch: declared '{declaredMimeType}', detected '{detected}'");
     }
 
+    // §14.2 hardening: SVG is XML and MAY embed active content (a <script> element, an inline event
+    // handler, or a javascript: URI) that executes when rendered. An untrusted SVG carrying active
+    // content cannot be rendered safely, so it is REFUSED rather than sanitized (stripping is error-prone
+    // and a missed vector is a script-injection bug). Raster formats cannot carry script and pass through.
+    if (detected == "image/svg+xml" && SvgHasActiveContent(Encoding.UTF8.GetString(bytes)))
+    {
+      throw new IconValidationError(
+        "(bytes)", "SVG contains active content (a <script> element, an inline event handler, or a javascript: URI) and is refused");
+    }
+
     return detected;
+  }
+
+  /// <summary>
+  /// Returns <c>true</c> when an SVG document carries ACTIVE content that would execute on render — a
+  /// <c>&lt;script&gt;</c> element, an inline <c>on…=</c> event-handler attribute, or a
+  /// <c>javascript:</c> URI (§14.2 hardening). Such an SVG is refused by <see cref="ValidateIconBytes"/>.
+  /// </summary>
+  /// <param name="svg">The decoded SVG document text.</param>
+  /// <returns><c>true</c> when active content is present.</returns>
+  public static bool SvgHasActiveContent(string svg)
+  {
+    ArgumentNullException.ThrowIfNull(svg);
+    return SvgActiveContentRegex().IsMatch(svg);
+  }
+
+  // Matches a <script> element, an inline event-handler attribute (on…=, e.g. onload=), or a
+  // javascript: URI — case-insensitively. Deliberately conservative: any match refuses the SVG.
+  [GeneratedRegex(@"<\s*script\b|javascript:|\son[a-z]+\s*=", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+  private static partial Regex SvgActiveContentRegex();
+
+  /// <summary>
+  /// Selects the most suitable icon from <paramref name="icons"/> for a target render size and optional
+  /// theme (§14.2 icon selection). Icons whose <c>src</c> fails <see cref="IsValidIconSrc"/> are skipped.
+  /// Preference order: an exact theme match outranks a theme-agnostic icon, which outranks a theme
+  /// mismatch; then, among equal theme ranks, an icon declaring <c>any</c> (or no sizes — treated as
+  /// scalable) or whose nearest declared dimension is the smallest that still meets or exceeds
+  /// <paramref name="desiredSizePx"/> is preferred, falling back to the closest smaller size.
+  /// </summary>
+  /// <param name="icons">The advertised icons (for example <see cref="Implementation.Icons"/>).</param>
+  /// <param name="desiredSizePx">The desired rendered size in pixels (the larger of width/height).</param>
+  /// <param name="theme">The preferred background theme, or <c>null</c> when the caller has no preference.</param>
+  /// <returns>The best-matching icon, or <c>null</c> when none has a usable <c>src</c>.</returns>
+  public static Icon? SelectIcon(IReadOnlyList<Icon> icons, int desiredSizePx, IconTheme? theme = null)
+  {
+    ArgumentNullException.ThrowIfNull(icons);
+    ArgumentOutOfRangeException.ThrowIfNegativeOrZero(desiredSizePx);
+
+    Icon? best = null;
+    (int ThemeRank, int FitScore) bestKey = default;
+    foreach (var icon in icons)
+    {
+      if (!IsValidIconSrc(icon.Src)) continue;
+      var key = (ThemeRank: ThemeRank(icon.Theme, theme), FitScore: BestFitScore(icon.Sizes, desiredSizePx));
+      if (best is null || key.CompareTo(bestKey) > 0)
+      {
+        best = icon;
+        bestKey = key;
+      }
+    }
+    return best;
+  }
+
+  /// <summary>Ranks an icon's theme against the desired theme: exact match (2) &gt; theme-agnostic (1) &gt; mismatch (0).</summary>
+  private static int ThemeRank(IconTheme? iconTheme, IconTheme? desired)
+  {
+    if (desired is null || iconTheme is null) return 1; // no preference, or a theme-agnostic icon.
+    return iconTheme == desired ? 2 : 0;
+  }
+
+  /// <summary>
+  /// Scores how well an icon's declared <c>sizes</c> fit <paramref name="desired"/> (higher is better):
+  /// <c>any</c>/absent sizes are scalable (perfect fit, 0); a dimension at or above the desired size scores
+  /// by how little it overshoots; a too-small dimension is heavily penalized but still ordered by closeness.
+  /// </summary>
+  private static int BestFitScore(IReadOnlyList<string>? sizes, int desired)
+  {
+    if (sizes is null || sizes.Count == 0) return 0; // no declared sizes ⇒ treat as scalable.
+    var best = int.MinValue;
+    foreach (var size in sizes)
+    {
+      var dimension = ParseLargestDimension(size);
+      var score = dimension switch
+      {
+        null => 0,                                   // "any" ⇒ scalable, perfect fit.
+        >= 0 when dimension >= desired => -(dimension.Value - desired),
+        _ => -(desired - dimension.Value) - 1_000_000, // too small ⇒ heavy penalty, ordered by closeness.
+      };
+      if (score > best) best = score;
+    }
+    return best == int.MinValue ? 0 : best;
+  }
+
+  /// <summary>Parses an icon size specifier — <c>"WxH"</c> ⇒ <c>max(W, H)</c>, the literal <c>"any"</c> ⇒ <c>null</c> (scalable).</summary>
+  private static int? ParseLargestDimension(string size)
+  {
+    if (string.Equals(size, "any", StringComparison.OrdinalIgnoreCase)) return null;
+    var x = size.IndexOf('x', StringComparison.OrdinalIgnoreCase);
+    if (x <= 0 || x >= size.Length - 1) return 0; // malformed ⇒ treated as a 0-dimension (worst sized).
+    return int.TryParse(size[..x], out var w) && int.TryParse(size[(x + 1)..], out var h) ? Math.Max(w, h) : 0;
   }
 
   /// <summary>
@@ -235,6 +335,14 @@ public static class IconSecurity
     }
 
     var origin = new Uri(src, UriKind.Absolute);
+
+    // §14.2 hardening (opt-in): when a trusted-host allowlist is configured, the icon's host MUST be on it.
+    // This lets a consumer restrict icons to first-party / known-CDN hosts and reject arbitrary origins.
+    if (options.TrustedHosts is { } trusted && !trusted.Contains(origin.Host))
+    {
+      throw new IconValidationError(src, $"host '{origin.Host}' is not in the trusted-host allowlist");
+    }
+
     var current = origin;
     var maxRedirects = options.MaxRedirects ?? 5;
 
@@ -407,4 +515,12 @@ public sealed record FetchIconOptions
 
   /// <summary>The maximum number of same-origin redirects to follow before giving up; defaults to 5.</summary>
   public int? MaxRedirects { get; init; }
+
+  /// <summary>
+  /// An OPTIONAL allowlist of trusted hosts (§14.2 hardening). When set, an <c>https:</c> icon whose host
+  /// is not on the list is refused before any request is made; <c>null</c> (the default) permits any host
+  /// that passes the scheme and same-origin-redirect rules. Hosts are matched case-sensitively on
+  /// <see cref="Uri.Host"/>.
+  /// </summary>
+  public IReadOnlySet<string>? TrustedHosts { get; init; }
 }

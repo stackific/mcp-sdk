@@ -79,6 +79,17 @@ public sealed class HttpConformanceTests : IAsyncLifetime
         return CallToolResult.FromText("logged");
       });
 
+    // cancel_me: commits to a stream with one progress update, then blocks until cancelled — exercises the
+    // §15.2.2 notifications/cancelled path (the response MUST be suppressed once cancelled).
+    server.RegisterTool(
+      new Tool { Name = "cancel_me", InputSchema = Obj("""{"type":"object","properties":{}}""") },
+      async ctx =>
+      {
+        await ctx.ReportProgressAsync(1, 1, "started");
+        await Task.Delay(TimeSpan.FromSeconds(30), ctx.Signal);
+        return CallToolResult.FromText("should never be delivered");
+      });
+
     var builder = WebApplication.CreateSlimBuilder();
     builder.WebHost.UseUrls("http://127.0.0.1:0");
     builder.Logging.ClearProviders();
@@ -158,8 +169,14 @@ public sealed class HttpConformanceTests : IAsyncLifetime
   }
 
   /// <summary>Posts a fully-valid body with the canonical headers for <paramref name="method"/>/<paramref name="toolName"/>.</summary>
-  private Task<HttpResponseMessage> PostValidAsync(string method, string? toolName = null) =>
-    PostAsync(Body(method, toolName).ToJsonString(), Version, method, toolName);
+  private Task<HttpResponseMessage> PostValidAsync(string method, string? toolName = null, JsonObject? extraMeta = null) =>
+    PostAsync(Body(method, toolName, extraMeta).ToJsonString(), Version, method, toolName);
+
+  /// <summary>
+  /// The per-request <c>_meta</c> opt-in (§4.3, §15.3.3) a request must carry to receive any
+  /// <c>notifications/message</c> log entries; without it the server emits no logs for the request.
+  /// </summary>
+  private static JsonObject LogOptIn() => new() { ["io.modelcontextprotocol/logLevel"] = "debug" };
 
   private static async Task<JsonObject> ReadJsonAsync(HttpResponseMessage response) =>
     JsonNode.Parse(await response.Content.ReadAsStringAsync())!.AsObject();
@@ -452,7 +469,8 @@ public sealed class HttpConformanceTests : IAsyncLifetime
   [Fact]
   public async Task Logging_tool_without_token_buffers_into_an_event_stream()
   {
-    using var response = await PostValidAsync(McpMethods.ToolsCall, "logger");
+    // §15.3.3: the request opts in to logs via _meta (it carries no PROGRESS token, hence the name).
+    using var response = await PostValidAsync(McpMethods.ToolsCall, "logger", LogOptIn());
     Assert.Equal("text/event-stream", response.Content.Headers.ContentType?.MediaType);
 
     var events = await ReadSseEventsAsync(response);
@@ -464,7 +482,7 @@ public sealed class HttpConformanceTests : IAsyncLifetime
   [Fact]
   public async Task Buffered_log_stream_orders_notification_before_response()
   {
-    using var response = await PostValidAsync(McpMethods.ToolsCall, "logger");
+    using var response = await PostValidAsync(McpMethods.ToolsCall, "logger", LogOptIn());
     var events = await ReadSseEventsAsync(response);
 
     Assert.Equal(McpMethods.NotificationsMessage, events[0]["method"]!.GetValue<string>());
@@ -480,6 +498,99 @@ public sealed class HttpConformanceTests : IAsyncLifetime
 
     Assert.Single(events);
     Assert.True(events[0].ContainsKey("result"));
+  }
+
+  // ═════════════════════════ §7.6 — strict UTF-8 on the POST body ═════════════════════════
+
+  /// <summary>§7.6: a body that is not well-formed UTF-8 MUST be rejected (never silently substituted) — 400 / -32700.</summary>
+  [Fact]
+  public async Task An_ill_formed_utf8_body_is_rejected_with_parse_error()
+  {
+    // A structurally valid JSON envelope whose string value carries a lone 0xFF byte — never valid UTF-8.
+    // Corrupt the single uppercase 'A' (the only one in the body) so the JSON shape stays intact.
+    var bytes = Encoding.UTF8.GetBytes("""{"jsonrpc":"2.0","id":1,"method":"ping","params":{"x":"A"}}""");
+    bytes[Array.IndexOf(bytes, (byte)'A')] = 0xFF;
+
+    using var request = new HttpRequestMessage(HttpMethod.Post, _endpoint) { Content = new ByteArrayContent(bytes) };
+    request.Content.Headers.TryAddWithoutValidation("Content-Type", "application/json");
+    request.Headers.TryAddWithoutValidation("Accept", "application/json, text/event-stream");
+    request.Headers.TryAddWithoutValidation("MCP-Protocol-Version", Version);
+    request.Headers.TryAddWithoutValidation("Mcp-Method", "ping");
+
+    using var response = await _raw.SendAsync(request);
+    Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    Assert.Equal(ErrorCodes.ParseError, await ErrorCodeAsync(response));
+  }
+
+  // ═════════════════════════ §15.2.2 — notifications/cancelled suppresses the response ═════════════════════════
+
+  /// <summary>§15.2.2 (MUST NOT): after a notifications/cancelled the cancelled request emits no terminal response.</summary>
+  [Fact]
+  public async Task A_cancelled_streaming_request_emits_no_terminal_response()
+  {
+    var body = Body(McpMethods.ToolsCall, "cancel_me", extraMeta: new JsonObject { ["progressToken"] = "c-1" });
+    using var post = new HttpRequestMessage(HttpMethod.Post, _endpoint)
+    {
+      Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json"),
+    };
+    post.Headers.TryAddWithoutValidation("Accept", "application/json, text/event-stream");
+    post.Headers.TryAddWithoutValidation("MCP-Protocol-Version", Version);
+    post.Headers.TryAddWithoutValidation("Mcp-Method", McpMethods.ToolsCall);
+    post.Headers.TryAddWithoutValidation("Mcp-Name", "cancel_me");
+
+    using var response = await _raw.SendAsync(post, HttpCompletionOption.ResponseHeadersRead);
+    Assert.Equal("text/event-stream", response.Content.Headers.ContentType?.MediaType);
+
+    await using var stream = await response.Content.ReadAsStreamAsync();
+    using var reader = new StreamReader(stream, Encoding.UTF8);
+
+    // The handler commits with a progress frame — proving it is in-flight (its CTS is registered).
+    var progress = await ReadSseFrameAsync(reader, f => f["method"]?.GetValue<string>() == McpMethods.NotificationsProgress, TimeSpan.FromSeconds(10));
+    Assert.NotNull(progress);
+
+    // POST notifications/cancelled for the same request id (the body's id is 1) on a separate request.
+    var cancel = new JsonObject
+    {
+      ["jsonrpc"] = "2.0",
+      ["method"] = McpMethods.NotificationsCancelled,
+      ["params"] = new JsonObject { ["requestId"] = 1 },
+    };
+    using var cancelPost = new HttpRequestMessage(HttpMethod.Post, _endpoint)
+    {
+      Content = new StringContent(cancel.ToJsonString(), Encoding.UTF8, "application/json"),
+    };
+    cancelPost.Headers.TryAddWithoutValidation("Accept", "application/json, text/event-stream");
+    cancelPost.Headers.TryAddWithoutValidation("MCP-Protocol-Version", Version);
+    cancelPost.Headers.TryAddWithoutValidation("Mcp-Method", McpMethods.NotificationsCancelled);
+    using var cancelResponse = await _raw.SendAsync(cancelPost);
+    Assert.Equal(HttpStatusCode.Accepted, cancelResponse.StatusCode);
+
+    // The stream ends WITHOUT any terminal response (a frame carrying result/error) for the cancelled id.
+    var terminal = await ReadSseFrameAsync(reader, f => f.ContainsKey("result") || f.ContainsKey("error"), TimeSpan.FromSeconds(10));
+    Assert.Null(terminal);
+  }
+
+  /// <summary>Reads SSE <c>data:</c> frames until one matches <paramref name="predicate"/>; returns <c>null</c> when the stream ends first.</summary>
+  private static async Task<JsonObject?> ReadSseFrameAsync(StreamReader reader, Func<JsonObject, bool> predicate, TimeSpan timeout)
+  {
+    using var cts = new CancellationTokenSource(timeout);
+    try
+    {
+      while (true)
+      {
+        var line = await reader.ReadLineAsync(cts.Token);
+        if (line is null) return null; // stream closed
+        if (!line.StartsWith("data:", StringComparison.Ordinal)) continue;
+        var payload = line.Length > 5 && line[5] == ' ' ? line[6..] : line[5..];
+        if (payload.Length == 0) continue;
+        var frame = JsonNode.Parse(payload)!.AsObject();
+        if (predicate(frame)) return frame;
+      }
+    }
+    catch (OperationCanceledException)
+    {
+      return null; // no matching frame within the timeout (the stream stayed open but silent)
+    }
   }
 
   // ═════════════════════════ §9.7 — HTTP status mapping for protocol errors ═════════════════════════
@@ -870,7 +981,7 @@ public sealed class HttpConformanceTests : IAsyncLifetime
 
     var tools = await client.ListToolsAsync();
     var names = tools.Tools.Select(t => t.Name).ToHashSet();
-    Assert.Equal(new HashSet<string> { "echo", "add", "slow", "logger" }, names);
+    Assert.Equal(new HashSet<string> { "echo", "add", "slow", "logger", "cancel_me" }, names);
   }
 
   /// <summary>A client round-trips the <c>echo</c> tool over the single-JSON shape (§9.6.1).</summary>
@@ -944,7 +1055,8 @@ public sealed class HttpConformanceTests : IAsyncLifetime
     await client.DiscoverAsync();
 
     var seen = new List<JsonRpcNotification>();
-    await client.CallToolAsync("logger", null, new RequestOptions { OnNotification = n => seen.Add(n) });
+    // §15.3.3: opt in to logs for this request via _meta, else the server emits no notifications/message.
+    await client.CallToolAsync("logger", null, new RequestOptions { OnNotification = n => seen.Add(n), Meta = LogOptIn() });
 
     Assert.Contains(seen, n => n.Method == McpMethods.NotificationsMessage);
   }

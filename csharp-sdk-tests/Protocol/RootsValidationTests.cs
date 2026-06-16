@@ -1,3 +1,4 @@
+using Stackific.Mcp;
 using Stackific.Mcp.Protocol;
 
 namespace Stackific.Mcp.Tests.Protocol;
@@ -195,5 +196,35 @@ public sealed class RootsValidationTests
     Assert.False(RootsValidation.IsPathWithinReportedRoots("http://x", roots));
     Assert.False(RootsValidation.IsPathWithinReportedRoots(
       "file:///home/user/project", [new Root { Uri = "http://bad" }]));
+  }
+
+  // ── §21.1 deprecation marking (RC-1/RC-2) + forward compatibility (RQ-11) ──
+
+  [Fact]
+  public void Root_is_marked_obsolete_and_names_the_preferred_mechanisms()
+  {
+    var obsolete = (ObsoleteAttribute?)Attribute.GetCustomAttribute(typeof(Root), typeof(ObsoleteAttribute));
+    Assert.NotNull(obsolete);
+    // The message steers developers to the modern alternatives (R-21.1.1-a/b).
+    Assert.Contains("tool input parameters", obsolete!.Message);
+    Assert.Contains("resource URIs", obsolete.Message);
+    Assert.Contains("server configuration", obsolete.Message);
+  }
+
+  [Fact]
+  public void List_roots_result_is_marked_obsolete()
+  {
+    var obsolete = (ObsoleteAttribute?)Attribute.GetCustomAttribute(typeof(ListRootsResult), typeof(ObsoleteAttribute));
+    Assert.NotNull(obsolete);
+    Assert.Contains("Deprecated", obsolete!.Message);
+  }
+
+  [Fact]
+  public void A_root_tolerates_an_unknown_meta_member()
+  {
+    // §21.1.5-f / TV-32.13: an unrecognized _meta key is preserved, not rejected (forward compatibility).
+    var back = McpJson.Deserialize<Root>("""{"uri":"file:///x","_meta":{"example.com/unknown":"value"}}""")!;
+    Assert.True(RootsValidation.IsValidRoot(back));
+    Assert.Equal("value", back.Meta!["example.com/unknown"]!.GetValue<string>());
   }
 }

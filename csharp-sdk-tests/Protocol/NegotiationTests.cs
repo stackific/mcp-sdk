@@ -1,7 +1,11 @@
 using System.Text.Json.Nodes;
 
+using Stackific.Mcp;
+using Stackific.Mcp.Client;
 using Stackific.Mcp.JsonRpc;
 using Stackific.Mcp.Protocol;
+using Stackific.Mcp.Server;
+using Stackific.Mcp.Transport;
 
 namespace Stackific.Mcp.Tests.Protocol;
 
@@ -519,5 +523,54 @@ public sealed class NegotiationTests
     var caps = Caps("""{"tools":{}}""");
     Assert.True(CapabilityNegotiation.ServerDeclares(caps, "tools"));
     Assert.False(CapabilityNegotiation.ServerDeclares(caps, "tools.listChanged"));
+  }
+
+  // ───────────────────────── S45-RC-1: client -32004 reselect-and-retry (R-29.3-c) ─────────────────────────
+
+  /// <summary>
+  /// A handler that answers the FIRST request with <c>-32004</c> (UnsupportedProtocolVersion) carrying the
+  /// supplied <c>data.supported</c>, then succeeds on every subsequent request — to exercise the client's
+  /// reselect-and-retry path end to end.
+  /// </summary>
+  private sealed class UnsupportedThenOkHandler(IReadOnlyList<string> supported) : IMcpRequestHandler
+  {
+    public int Calls { get; private set; }
+
+    public Task<JsonRpcMessage> HandleRequestAsync(JsonRpcRequest request, IServerNotifier notifier, AuthInfo? authInfo, CancellationToken cancellationToken)
+    {
+      Calls++;
+      if (Calls == 1)
+      {
+        var error = McpError.UnsupportedProtocolVersion(supported, "rejected-version").ToJsonRpcError();
+        return Task.FromResult<JsonRpcMessage>(new JsonRpcErrorResponse(request.Id, error));
+      }
+      return Task.FromResult<JsonRpcMessage>(new JsonRpcSuccessResponse(request.Id, new JsonObject { ["resultType"] = "complete", ["ok"] = true }));
+    }
+
+    public Task HandleNotificationAsync(JsonRpcNotification notification, CancellationToken cancellationToken) => Task.CompletedTask;
+  }
+
+  [Fact]
+  public async Task Client_retries_once_after_minus_32004_when_data_supported_overlaps()
+  {
+    // §5.5 / R-29.3-c: -32004 with an overlapping data.supported → reselect and retry exactly once; succeed.
+    var handler = new UnsupportedThenOkHandler(ProtocolRevision.Supported);
+    await using var client = new McpClient(new InMemoryClientTransport(handler), new Implementation { Name = "c", Version = "1" });
+
+    var result = await client.RequestAsync(McpMethods.Ping);
+
+    Assert.True(result["ok"]!.GetValue<bool>());
+    Assert.Equal(2, handler.Calls); // first rejected, retried once, succeeded.
+  }
+
+  [Fact]
+  public async Task Client_throws_incompatible_protocol_when_minus_32004_has_no_overlap()
+  {
+    // No mutual revision in data.supported → terminal: surface IncompatibleProtocolError, do NOT loop.
+    var handler = new UnsupportedThenOkHandler(["1999-01-01"]);
+    await using var client = new McpClient(new InMemoryClientTransport(handler), new Implementation { Name = "c", Version = "1" });
+
+    await Assert.ThrowsAsync<IncompatibleProtocolError>(() => client.RequestAsync(McpMethods.Ping));
+    Assert.Equal(1, handler.Calls); // rejected once, never retried.
   }
 }

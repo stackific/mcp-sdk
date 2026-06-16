@@ -275,6 +275,14 @@ public sealed class McpServer : IMcpRequestHandler, IMcpSubscriptionHandler
         throw McpError.UnsupportedProtocolVersion(ProtocolRevision.Supported, meta.ProtocolVersion);
       }
 
+      // §15.3.3 (R-15.3.3-g): a PRESENT-but-unrecognized io.modelcontextprotocol/logLevel opt-in is
+      // rejected with -32602. An ABSENT key is valid (it simply means the request opted out of logs).
+      if (meta.LogLevel is not null)
+      {
+        var optIn = LoggingFilter.ValidateLogLevelOptIn(meta.LogLevel);
+        if (!optIn.Ok) throw optIn.Error!;
+      }
+
       var result = await DispatchAsync(request, meta, notifier, authInfo, cancellationToken).ConfigureAwait(false);
       return new JsonRpcSuccessResponse(request.Id, result);
     }
@@ -398,7 +406,7 @@ public sealed class McpServer : IMcpRequestHandler, IMcpSubscriptionHandler
   {
     RequireCapability(_capabilities.Resources is not null, McpMethods.ResourcesList);
     var (page, nextCursor) = Paginate(_resourceList, prms);
-    var result = Serialize(new ListResourcesResult { Resources = page, NextCursor = nextCursor, TtlMs = CacheTtlMs, CacheScope = DefaultCacheScope });
+    var result = Serialize(new ListResourcesResult { Resources = page, NextCursor = nextCursor, TtlMs = CacheTtlMs, CacheScope = DefaultCacheScope }.Validated());
     return Complete(result);
   }
 
@@ -407,7 +415,7 @@ public sealed class McpServer : IMcpRequestHandler, IMcpSubscriptionHandler
     RequireCapability(_capabilities.Resources is not null, McpMethods.ResourceTemplatesList);
     var all = _templates.Select(t => t.Template).ToList();
     var (page, nextCursor) = Paginate(all, prms);
-    var result = Serialize(new ListResourceTemplatesResult { ResourceTemplates = page, NextCursor = nextCursor, TtlMs = CacheTtlMs, CacheScope = DefaultCacheScope });
+    var result = Serialize(new ListResourceTemplatesResult { ResourceTemplates = page, NextCursor = nextCursor, TtlMs = CacheTtlMs, CacheScope = DefaultCacheScope }.Validated());
     return Complete(result);
   }
 
@@ -444,7 +452,7 @@ public sealed class McpServer : IMcpRequestHandler, IMcpSubscriptionHandler
       // §25.4: honor the caller's requested lifetime (params.task.ttl, the TS shape) when present;
       // otherwise apply the 5-minute default. A null ttl means an unbounded lifetime.
       var taskTtlMs = ReadRequestedTaskTtlMs(prms);
-      var taskContext = new ToolContext(arguments, meta, authInfo, progressToken, notifier, _subscriberSink, inputResponses, cancellationToken, _taskStore, taskTtlMs, _minLogLevel);
+      var taskContext = new ToolContext(arguments, meta, authInfo, progressToken, notifier, _subscriberSink, inputResponses, cancellationToken, _taskStore, taskTtlMs, _minLogLevel, LoggingFilter.ResolvedMinLogLevelIndex(meta.LogLevel));
       var task = await taskHandler(taskContext).ConfigureAwait(false);
       var createResult = Serialize(new CreateTaskResult
       {
@@ -461,7 +469,7 @@ public sealed class McpServer : IMcpRequestHandler, IMcpSubscriptionHandler
     }
 
     var handler = _toolHandlers[name];
-    var context = new ToolContext(arguments, meta, authInfo, progressToken, notifier, _subscriberSink, inputResponses, cancellationToken, minLogLevel: _minLogLevel);
+    var context = new ToolContext(arguments, meta, authInfo, progressToken, notifier, _subscriberSink, inputResponses, cancellationToken, minLogLevel: _minLogLevel, requestLogLevelIndex: LoggingFilter.ResolvedMinLogLevelIndex(meta.LogLevel));
 
     try
     {
@@ -543,7 +551,7 @@ public sealed class McpServer : IMcpRequestHandler, IMcpSubscriptionHandler
       // §17.5 (R-17.5-z): a read MUST NOT signal non-existence with empty contents — that case is
       // the -32602 not-found error. Empty contents from a handler that claims this URI is a fault.
       Resources.GuardNonEmptyContents(result, uri);
-      return Complete(WithReadCacheHints(Serialize(result)));
+      return Complete(Serialize(WithReadDefaults(result).Validated()));
     }
 
     foreach (var template in _templates)
@@ -551,7 +559,7 @@ public sealed class McpServer : IMcpRequestHandler, IMcpSubscriptionHandler
       if (!template.Matcher.TryMatch(uri, out var variables)) continue;
       var result = await template.Reader(uri, variables).ConfigureAwait(false);
       Resources.GuardNonEmptyContents(result, uri);
-      return Complete(WithReadCacheHints(Serialize(result)));
+      return Complete(Serialize(WithReadDefaults(result).Validated()));
     }
 
     // §17.6 (R-17.6-a/b): a non-existent URI is -32602 (Invalid params) carrying data.uri.
@@ -682,16 +690,17 @@ public sealed class McpServer : IMcpRequestHandler, IMcpSubscriptionHandler
   {
     RequireTasksActive(McpMethods.TasksCancel, meta);
     var taskId = RequireStringParam(prms ?? throw McpError.InvalidParams("tasks/cancel requires params."), "taskId");
-    // §25.9: cooperative cancel. Unknown id → -32602 (Get re-checks below). Cancelling a non-terminal
-    // task fires the store's update listener, which pushes notifications/tasks to subscribers; the
-    // result is the resulting DetailedTask (§25.9, like the TS server).
+    // §25.9: cooperative cancel. Unknown id → -32602 (Get throws). Cancelling a non-terminal task fires
+    // the store's update listener, which pushes notifications/tasks to subscribers. The result is an EMPTY
+    // acknowledgement whose resultType MUST be "complete" (R-25.9): the server MUST acknowledge with this
+    // empty result, and the client observes the new state via tasks/get or notifications/tasks — never
+    // from this ack.
     var detailed = _taskStore.Get(taskId); // -32602 for unknown/expired
     if (!Tasks.IsTerminalTaskStatus(detailed.Status))
     {
       _taskStore.Cancel(taskId);
-      detailed = _taskStore.Get(taskId);
     }
-    return Complete(Serialize(detailed));
+    return Complete(new JsonObject());
   }
 
   private JsonObject UpdateTask(JsonObject? prms, RequestMeta meta)
@@ -725,8 +734,10 @@ public sealed class McpServer : IMcpRequestHandler, IMcpSubscriptionHandler
     // update listener, which pushes notifications/tasks to subscribers.
     _taskStore.ApplyInput(taskId, inputResponses);
 
-    // §25.8: the acknowledgement is the task's resulting DetailedTask (matching the TS server).
-    return Complete(Serialize(_taskStore.Get(taskId)));
+    // §25.8: the acknowledgement is an EMPTY result whose resultType MUST be "complete" (R-25.8). The
+    // server MUST acknowledge with this empty result; the binding is eventually consistent, so the client
+    // observes the task's new state via tasks/get or notifications/tasks — never from this ack.
+    return Complete(new JsonObject());
   }
 
   /// <summary>
@@ -795,19 +806,15 @@ public sealed class McpServer : IMcpRequestHandler, IMcpSubscriptionHandler
   }
 
   /// <summary>
-  /// Stamps the REQUIRED top-level caching hints on a <c>resources/read</c> result (§13.4): the
-  /// configured default <c>ttlMs</c> and the privacy-default <c>cacheScope</c>, without overriding a
-  /// hint the reader already set. The scope is routed through <see cref="Caching.ResolveCacheScope(string)"/>
-  /// so the privacy default (<c>private</c>) — not <c>public</c> — applies when unset. (R-13.4-b, R-13.1-e)
+  /// Fills the REQUIRED §13.4 caching hints a <c>resources/read</c> result MUST carry, defaulting any
+  /// hint the reader left unset: the configured <c>ttlMs</c> and the privacy-default <c>cacheScope</c>
+  /// (<c>private</c>, never <c>public</c>, when unset — R-13.1-e). A hint the reader already supplied is
+  /// preserved. Returns a defaulted copy ready for <see cref="ReadResourceResult.Validated"/>. (R-13.4-b)
   /// </summary>
-  /// <param name="result">The serialized read result.</param>
-  /// <returns>The same result with both hint fields populated.</returns>
-  private JsonObject WithReadCacheHints(JsonObject result)
-  {
-    result["ttlMs"] ??= CacheTtlMs;
-    result["cacheScope"] ??= WireScope(DefaultCacheScope);
-    return result;
-  }
+  /// <param name="result">The reader's read result.</param>
+  /// <returns>A copy with both caching hints populated.</returns>
+  private ReadResourceResult WithReadDefaults(ReadResourceResult result) =>
+    result with { TtlMs = result.TtlMs ?? CacheTtlMs, CacheScope = result.CacheScope ?? DefaultCacheScope };
 
   private static JsonObject Serialize<T>(T value) => JsonSerializer.SerializeToNode(value, McpJson.Options)!.AsObject();
 

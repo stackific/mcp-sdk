@@ -153,4 +153,77 @@ public sealed class MrtrMalformedTests
     var decision = MultiRoundTrip.DiscriminateResultType(Obj("""{"resultType":"complete","content":[]}"""));
     Assert.Equal(ResultDiscriminationAction.Complete, decision.Action);
   }
+
+  // ── S17-RC-2: deprecated input-request kinds (R-11.2-i) ──
+
+  [Fact]
+  public void Deprecated_input_request_kinds_are_exactly_roots_and_sampling()
+  {
+    Assert.True(MultiRoundTrip.IsDeprecatedInputRequestKind(McpMethods.RootsList));
+    Assert.True(MultiRoundTrip.IsDeprecatedInputRequestKind(McpMethods.SamplingCreateMessage));
+    Assert.False(MultiRoundTrip.IsDeprecatedInputRequestKind(McpMethods.ElicitationCreate));
+    Assert.Equal(
+      new HashSet<string>(StringComparer.Ordinal) { McpMethods.RootsList, McpMethods.SamplingCreateMessage },
+      MultiRoundTrip.DeprecatedInputRequestMethods);
+  }
+
+  // ── S17-RC-5: exponential backoff growth + cap (R-11.5-n) ──
+
+  [Theory]
+  [InlineData(-1, 0)]
+  [InlineData(0, 0)]
+  [InlineData(1, 250)]
+  [InlineData(2, 500)]
+  [InlineData(3, 1000)]
+  [InlineData(100, 30_000)] // capped
+  public void Retry_backoff_grows_exponentially_and_caps(int attempt, long expected)
+  {
+    Assert.Equal(expected, MultiRoundTrip.ComputeRetryBackoffMs(attempt));
+  }
+
+  [Fact]
+  public void Retry_backoff_is_monotonic_up_to_the_cap()
+  {
+    long previous = -1;
+    for (var attempt = 0; attempt <= 20; attempt++)
+    {
+      var delay = MultiRoundTrip.ComputeRetryBackoffMs(attempt);
+      Assert.True(delay >= previous, $"backoff must not decrease at attempt {attempt}");
+      Assert.True(delay <= 30_000, "backoff must never exceed the cap");
+      previous = delay;
+    }
+  }
+
+  // ── S17-RC-6: re-request only the still-missing input keys (R-11.5-q) ──
+
+  [Fact]
+  public void Re_request_input_required_re_requests_only_the_missing_keys()
+  {
+    var inputRequests = new Dictionary<string, InputRequest>(StringComparer.Ordinal)
+    {
+      ["a"] = new InputRequest { Method = McpMethods.ElicitationCreate, Params = new JsonObject() },
+      ["b"] = new InputRequest { Method = McpMethods.ElicitationCreate, Params = new JsonObject() },
+    };
+    var inputResponses = new Dictionary<string, JsonNode>(StringComparer.Ordinal) { ["a"] = new JsonObject() };
+
+    Assert.Equal(["b"], MultiRoundTrip.ComputeMissingInputResponseKeys(inputRequests, inputResponses));
+
+    var reRequest = MultiRoundTrip.BuildReRequestInputRequiredResult(inputRequests, inputResponses, "state-token");
+    Assert.NotNull(reRequest);
+    Assert.Equal(["b"], reRequest!.InputRequests!.Keys);
+    Assert.Equal("state-token", reRequest.RequestState);
+  }
+
+  [Fact]
+  public void Re_request_input_required_returns_null_when_everything_is_answered()
+  {
+    var inputRequests = new Dictionary<string, InputRequest>(StringComparer.Ordinal)
+    {
+      ["a"] = new InputRequest { Method = McpMethods.ElicitationCreate, Params = new JsonObject() },
+    };
+    var inputResponses = new Dictionary<string, JsonNode>(StringComparer.Ordinal) { ["a"] = new JsonObject() };
+
+    Assert.Empty(MultiRoundTrip.ComputeMissingInputResponseKeys(inputRequests, inputResponses));
+    Assert.Null(MultiRoundTrip.BuildReRequestInputRequiredResult(inputRequests, inputResponses));
+  }
 }

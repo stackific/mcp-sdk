@@ -189,7 +189,9 @@ public sealed class TasksUpdatePushTests
 
     // The task awaits input; supply it via tasks/update.
     var ack = await client.UpdateTaskAsync(taskId, Obj("""{"name":{"action":"accept","content":{"name":"Trinity"}}}"""));
+    // §25.8: the ack is an EMPTY result — the resultType discriminator only, never the task payload.
     Assert.Equal(ResultTypes.Complete, ack["resultType"]!.GetValue<string>());
+    Assert.False(ack.ContainsKey("status"));
 
     var task = await PollToTerminal(client, taskId);
     Assert.Equal("completed", task["status"]!.GetValue<string>());
@@ -379,7 +381,7 @@ public sealed class TasksUpdatePushTests
   }
 
   [Fact]
-  public async Task Cancel_task_returns_the_cancelled_detailed_task()
+  public async Task Cancel_task_acknowledges_with_an_empty_result()
   {
     await using var client = InMemory.Connect(BuildInteractiveServer(), capabilities: WithTasks());
     await client.DiscoverAsync();
@@ -387,9 +389,15 @@ public sealed class TasksUpdatePushTests
     var taskId = created["taskId"]!.GetValue<string>();
 
     var ack = await client.CancelTaskAsync(taskId);
+    // §25.9: the server MUST acknowledge with an EMPTY result — the resultType discriminator ("complete")
+    // only, NEVER the task payload.
     Assert.Equal(ResultTypes.Complete, ack["resultType"]!.GetValue<string>());
-    Assert.Equal("cancelled", ack["status"]!.GetValue<string>());
-    Assert.Equal(taskId, ack["taskId"]!.GetValue<string>());
+    Assert.False(ack.ContainsKey("status"));
+    Assert.False(ack.ContainsKey("taskId"));
+
+    // The cancellation is observed via tasks/get, not from the ack.
+    var task = await client.GetTaskAsync(taskId);
+    Assert.Equal("cancelled", task["status"]!.GetValue<string>());
   }
 
   /// <summary>Polls <c>tasks/get</c> until the task leaves the non-terminal states or the budget elapses.</summary>

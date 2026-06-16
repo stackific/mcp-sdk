@@ -67,6 +67,21 @@ public sealed class SubscriptionsBehaviorTests
   }
 
   [Fact]
+  public async Task Declined_filter_kinds_are_surfaced_on_the_handle()
+  {
+    // §10.3: the server supports tools/list_changed but NOT prompts/list_changed; a client requesting both
+    // gets tools honored and prompts surfaced as a declined kind.
+    await using var client = InMemory.Connect(BuildServer(toolsListChanged: true, promptsListChanged: false));
+    await client.DiscoverAsync();
+    var handle = await client.SubscribeAsync(new SubscriptionFilter { ToolsListChanged = true, PromptsListChanged = true });
+
+    Assert.True(handle.HonoredFilter.ToolsListChanged);
+    Assert.Contains(nameof(SubscriptionFilter.PromptsListChanged), handle.DeclinedFields);
+    Assert.DoesNotContain(nameof(SubscriptionFilter.ToolsListChanged), handle.DeclinedFields);
+    await handle.Unsubscribe();
+  }
+
+  [Fact]
   public async Task Tools_list_changed_not_honored_when_server_lacks_capability()
   {
     await using var client = InMemory.Connect(BuildServer(toolsListChanged: false));

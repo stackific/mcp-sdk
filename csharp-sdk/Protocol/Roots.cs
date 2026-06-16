@@ -3,6 +3,10 @@ using System.Text.Json.Serialization;
 
 namespace Stackific.Mcp.Protocol;
 
+// This file IS the Deprecated-but-supported Roots feature (§21.1); referencing the [Obsolete]
+// Root / ListRootsResult types throughout is deliberate backward-compatibility implementation.
+#pragma warning disable CS0618
+
 /// <summary>
 /// A filesystem "root" — a directory or file the client considers relevant — exposed to a server
 /// as informational guidance (spec §21.1.5).

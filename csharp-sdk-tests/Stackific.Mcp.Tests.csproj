@@ -9,6 +9,10 @@
   <PropertyGroup>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <!-- The suite deliberately constructs and round-trips the SDK's Deprecated-but-supported wire
+         surfaces (Roots, Sampling, Logging, includeContext, logLevel, DCR), so the [Obsolete] usage
+         diagnostics are silenced for the test project. -->
+    <NoWarn>$(NoWarn);CS0612;CS0618</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

@@ -1,3 +1,7 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
+
+using Stackific.Mcp.Json;
 using Stackific.Mcp.JsonRpc;
 
 namespace Stackific.Mcp.Protocol;
@@ -31,6 +35,27 @@ public static class Cancellation
   /// <param name="method">The method name.</param>
   /// <returns><c>true</c> when it is the discover method.</returns>
   public static bool IsDiscoverMethod(string method) => string.Equals(method, ServerDiscoverMethod, StringComparison.Ordinal);
+
+  /// <summary>
+  /// Reads the <c>requestId</c> a <c>notifications/cancelled</c> targets from its raw <c>params</c>
+  /// (§15.2.2), returning <c>null</c> when the params are absent, malformed, or omit the id — a
+  /// cancellation that omits the target is simply ignored (R-15.2.2-f), never an error. This is the
+  /// parse a server transport uses to find the in-flight request to abort.
+  /// </summary>
+  /// <param name="parameters">The notification's <c>params</c> object, or <c>null</c>.</param>
+  /// <returns>The targeted request id, or <c>null</c> when absent/malformed.</returns>
+  public static RequestId? ReadCancelledRequestId(JsonObject? parameters)
+  {
+    if (parameters is null) return null;
+    try
+    {
+      return parameters.Deserialize<CancelledNotificationParams>(McpJson.Options)?.RequestId;
+    }
+    catch (JsonException)
+    {
+      return null;
+    }
+  }
 
   /// <summary>
   /// Validates that a cancellation target (the <c>requestId</c> from a <c>notifications/cancelled</c>)

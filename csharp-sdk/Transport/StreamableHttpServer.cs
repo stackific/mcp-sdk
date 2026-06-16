@@ -120,10 +120,10 @@ public static class StreamableHttpServer
     IMcpAuthGate? authGate = null,
     StreamableHttpServerOptions? options = null)
   {
-    // One correlator per mapped endpoint, captured in the closure: server→client requests issued by any
-    // request's handler are matched to the client's later reply POST purely by JSON-RPC id, with no
-    // session (§9.9). Mirrors the TS handler's module-scoped RequestCorrelator.
-    var liveRequests = new LiveServerRequestRouter();
+    // One in-flight registry per mapped endpoint, captured in the closure: each request's cancellation
+    // source is tracked by JSON-RPC id so an inbound notifications/cancelled (delivered as a separate POST,
+    // §15.2.2) can abort the matching handler and suppress its response, with no session (§9.9).
+    var inflight = new InflightRequests();
 
     // §9.5.4: auto-wire the Mcp-Param-* receiver. When the caller did not supply a tool-schema resolver
     // and the handler is an McpServer, default it to the server's own registry so a tools/call's
@@ -135,7 +135,7 @@ public static class StreamableHttpServer
 
     // Accept every method so the adapter itself can answer GET/DELETE with 405 (§9.9).
     return endpoints.MapMethods(pattern, ["GET", "POST", "DELETE", "PUT", "PATCH"],
-      (HttpContext context) => HandleAsync(context, handler, authGate, options, liveRequests));
+      (HttpContext context) => HandleAsync(context, handler, authGate, options, inflight));
   }
 
   /// <summary>Handles a single HTTP request against <paramref name="handler"/> (spec §9).</summary>
@@ -149,26 +149,26 @@ public static class StreamableHttpServer
     IMcpRequestHandler handler,
     IMcpAuthGate? authGate = null,
     StreamableHttpServerOptions? options = null) =>
-    HandleAsync(context, handler, authGate, options, new LiveServerRequestRouter());
+    HandleAsync(context, handler, authGate, options, new InflightRequests());
 
   /// <summary>
-  /// Handles a single HTTP request against <paramref name="handler"/>, routing live server-to-client
-  /// request replies through the supplied <paramref name="liveRequests"/> router (spec §9). The router
-  /// is shared across all requests to one mapped endpoint so a client's reply POST correlates to the
-  /// awaiting server-to-client request by id (§9.9).
+  /// Handles a single HTTP request against <paramref name="handler"/>, tracking the request's cancellation
+  /// source in the supplied per-endpoint <paramref name="inflight"/> registry so an inbound
+  /// <c>notifications/cancelled</c> can abort it (spec §9, §15.2.2). The registry is shared across all
+  /// requests to one mapped endpoint, with no session (§9.9).
   /// </summary>
   /// <param name="context">The HTTP context.</param>
   /// <param name="handler">The request handler.</param>
   /// <param name="authGate">An optional authorization gate.</param>
   /// <param name="options">Optional transport-hardening configuration.</param>
-  /// <param name="liveRequests">The per-endpoint live-request correlation router.</param>
+  /// <param name="inflight">The per-endpoint in-flight cancellation registry.</param>
   /// <returns>A task that completes when the response has been written.</returns>
   private static async Task HandleAsync(
     HttpContext context,
     IMcpRequestHandler handler,
     IMcpAuthGate? authGate,
     StreamableHttpServerOptions? options,
-    LiveServerRequestRouter liveRequests)
+    InflightRequests inflight)
   {
     options ??= new StreamableHttpServerOptions();
     var request = context.Request;
@@ -188,10 +188,25 @@ public static class StreamableHttpServer
       return;
     }
 
-    string body;
-    using (var reader = new StreamReader(request.Body, Encoding.UTF8))
+    // §7.6 (R-7.6, MUST): the body MUST be well-formed UTF-8. Read the raw bytes and decode strictly —
+    // an ill-formed sequence is rejected as a parse error, NEVER silently substituted with U+FFFD (which a
+    // lenient StreamReader would do). On a decode failure return -32700 (which maps to HTTP 400).
+    byte[] bodyBytes;
+    using (var buffer = new MemoryStream())
     {
-      body = await reader.ReadToEndAsync(context.RequestAborted).ConfigureAwait(false);
+      await request.Body.CopyToAsync(buffer, context.RequestAborted).ConfigureAwait(false);
+      bodyBytes = buffer.ToArray();
+    }
+
+    string body;
+    try
+    {
+      body = StrictUtf8.GetString(bodyBytes);
+    }
+    catch (DecoderFallbackException)
+    {
+      await WriteSingleErrorAsync(context, null, McpError.ParseError("Request body is not well-formed UTF-8 (§7.6).")).ConfigureAwait(false);
+      return;
     }
 
     JsonRpcMessage message;
@@ -208,30 +223,35 @@ public static class StreamableHttpServer
     switch (message)
     {
       case JsonRpcNotification notification:
+        // §15.2.2: a notifications/cancelled aborts the matching in-flight request (its handler observes
+        // the token and its response is suppressed — see HandleRequestAsync). Absent/unknown target → no-op.
+        if (notification.Method == McpMethods.NotificationsCancelled
+          && Cancellation.ReadCancelledRequestId(notification.Params) is { } cancelId)
+        {
+          inflight.Cancel(cancelId);
+        }
         await handler.HandleNotificationAsync(notification, context.RequestAborted).ConfigureAwait(false);
         context.Response.StatusCode = StatusCodes.Status202Accepted;
         return;
 
       case JsonRpcRequest jsonRpcRequest:
-        await HandleRequestAsync(context, handler, authGate, jsonRpcRequest, options, liveRequests).ConfigureAwait(false);
+        await HandleRequestAsync(context, handler, authGate, jsonRpcRequest, options, inflight).ConfigureAwait(false);
         return;
 
-      // §9.9: a client reply (result/error) to a LIVE server→client request — deliver it to the awaiting
-      // correlator and acknowledge with 202. Only when there is an outstanding request with that id; an
-      // uncorrelated response is the forbidden case (a client MUST NOT send unsolicited responses).
-      case JsonRpcSuccessResponse or JsonRpcErrorResponse when liveRequests.Deliver(message):
-        context.Response.StatusCode = StatusCodes.Status202Accepted;
-        return;
-
+      // §9.6.2 (R-9.6.2-d): the server never issues server→client requests, so a client MUST NOT send a
+      // JSON-RPC response. Any inbound result/error is unsolicited and rejected (§7.2).
       default:
         await WriteSingleErrorAsync(context, null, McpError.InvalidRequest("A client MUST NOT send a JSON-RPC response to the server.")).ConfigureAwait(false);
         return;
     }
   }
 
+  /// <summary>A strict UTF-8 codec that THROWS on ill-formed input rather than substituting U+FFFD (§7.6).</summary>
+  private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+
   private static async Task HandleRequestAsync(
     HttpContext context, IMcpRequestHandler handler, IMcpAuthGate? authGate, JsonRpcRequest request,
-    StreamableHttpServerOptions options, LiveServerRequestRouter liveRequests)
+    StreamableHttpServerOptions options, InflightRequests inflight)
   {
     if (ValidateHeaders(context, request, options) is { } headerError)
     {
@@ -252,67 +272,79 @@ public static class StreamableHttpServer
       authInfo = gate.Identity;
     }
 
-    // §10: a subscriptions/listen request opens a long-lived stream rather than producing one response.
-    if (request.Method == McpMethods.SubscriptionsListen
-      && handler is IMcpSubscriptionHandler subscriptionHandler
-      && subscriptionHandler.SupportsSubscriptions)
+    // §15.2.2: register a per-request cancellation source (linked to the connection so a client stream
+    // close still cancels) keyed by the request id, so an inbound notifications/cancelled can abort it. The
+    // token threads to the handler; the response is suppressed if the request was cancelled (see below).
+    var cts = inflight.Register(request.Id, context.RequestAborted);
+    try
     {
-      await HandleSubscriptionAsync(context, subscriptionHandler, request).ConfigureAwait(false);
-      return;
-    }
+      // §10: a subscriptions/listen request opens a long-lived stream rather than producing one response.
+      // Cancelling its id tears the stream down (§10.7).
+      if (request.Method == McpMethods.SubscriptionsListen
+        && handler is IMcpSubscriptionHandler subscriptionHandler
+        && subscriptionHandler.SupportsSubscriptions)
+      {
+        await HandleSubscriptionAsync(context, subscriptionHandler, request, cts.Token).ConfigureAwait(false);
+        return;
+      }
 
-    // §9.2: initialize is special-cased — the handshake NEVER streams and carries no session. It is
-    // answered as a single application/json response (a server→client request or notification mid-
-    // initialize is not available, mirroring the TS bareContext path).
-    if (request.Method == McpMethods.Initialize)
+      // §9.2: initialize is special-cased — the handshake NEVER streams and carries no session. It is
+      // answered as a single application/json response (no server→client interaction mid-initialize).
+      if (request.Method == McpMethods.Initialize)
+      {
+        var initResponse = await handler
+          .HandleRequestAsync(request, NonStreamingNotifier.Instance, authInfo, cts.Token)
+          .ConfigureAwait(false);
+        // §15.2.2 (MUST NOT): a cancelled request emits no response.
+        if (!cts.IsCancellationRequested)
+        {
+          await WriteSingleResponseAsync(context, initResponse).ConfigureAwait(false);
+        }
+        return;
+      }
+
+      // §9.6: a caller-supplied progress token commits to an event stream up front, so progress is
+      // delivered live even when the handler emits nothing else (the C# wire contract, slightly stricter
+      // than the TS race; documented on WriteEventStreamAsync).
+      if (request.Params?["_meta"]?[MetaKeys.ProgressToken] is not null)
+      {
+        await WriteEventStreamAsync(context, handler, request, authInfo, cts.Token).ConfigureAwait(false);
+        return;
+      }
+
+      // §9.6/§9.7 lazy-commit RACE (the TS Promise.race over a commit channel): run the handler with a
+      // notifier that funnels every emitted notification into a Channel. Race the FIRST emit against
+      // handler completion — whoever wins decides the shape:
+      //   • handler finishes with NO emit   → a single JSON response with the §9.7-mapped status.
+      //   • a notification arrives first     → commit to SSE (status fixed at 200), flush the queued frame(s),
+      //                                        then drain the channel until the handler's final response.
+      await RunLazyCommitAsync(context, handler, request, authInfo, cts.Token).ConfigureAwait(false);
+    }
+    finally
     {
-      var initResponse = await handler
-        .HandleRequestAsync(request, NonStreamingNotifier.Instance, authInfo, context.RequestAborted)
-        .ConfigureAwait(false);
-      await WriteSingleResponseAsync(context, initResponse).ConfigureAwait(false);
-      return;
+      inflight.Remove(request.Id);
     }
-
-    // §9.6: a caller-supplied progress token commits to an event stream up front, so progress is
-    // delivered live even when the handler emits nothing else (the C# wire contract, slightly stricter
-    // than the TS race; documented on WriteEventStreamAsync). The token also enables live server→client
-    // requests on that pre-committed stream.
-    if (request.Params?["_meta"]?[MetaKeys.ProgressToken] is not null)
-    {
-      await WriteEventStreamAsync(context, handler, request, authInfo, liveRequests).ConfigureAwait(false);
-      return;
-    }
-
-    // §9.6/§9.7 lazy-commit RACE (the TS Promise.race over a commit channel): run the handler with a
-    // notifier that funnels every emit (notification OR live server→client request) into a Channel. Race
-    // the FIRST emit against handler completion — whoever wins decides the shape:
-    //   • handler finishes with NO emit   → a single JSON response with the §9.7-mapped status.
-    //   • an emit arrives first           → commit to SSE (status fixed at 200), flush the queued frame(s),
-    //                                        then drain the channel until the handler's final response.
-    await RunLazyCommitAsync(context, handler, request, authInfo, liveRequests).ConfigureAwait(false);
   }
 
   /// <summary>
   /// Runs the handler under the §9.6/§9.7 lazy-commit race: the response shape (single JSON vs SSE) is
-  /// decided by whether the handler emits anything (a notification or a live server→client request)
-  /// before it completes, NOT by pre-inspecting the request. Mirrors the TS <c>Promise.race</c> over a
-  /// commit channel. A live server→client request blocks the handler until the client's reply POST is
-  /// correlated through <paramref name="liveRequests"/>, so the SSE stream stays open across the round trip.
+  /// decided by whether the handler emits a notification before it completes, NOT by pre-inspecting the
+  /// request. Mirrors the TS <c>Promise.race</c> over a commit channel.
   /// </summary>
   /// <param name="context">The HTTP context.</param>
   /// <param name="handler">The request handler.</param>
   /// <param name="request">The client request.</param>
   /// <param name="authInfo">The validated identity, if any.</param>
-  /// <param name="liveRequests">The per-endpoint live-request correlation router.</param>
+  /// <param name="cancellationToken">The request's cancellation token (cancelled by notifications/cancelled or a client stream close).</param>
   /// <returns>A task that completes when the response (single or streamed) has been written.</returns>
   private static async Task RunLazyCommitAsync(
-    HttpContext context, IMcpRequestHandler handler, JsonRpcRequest request, AuthInfo? authInfo, LiveServerRequestRouter liveRequests)
+    HttpContext context, IMcpRequestHandler handler, JsonRpcRequest request, AuthInfo? authInfo, CancellationToken cancellationToken)
   {
     var emits = Channel.CreateUnbounded<JsonRpcMessage>(new UnboundedChannelOptions { SingleReader = true });
     var firstEmit = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-    var notifier = new LazyCommitNotifier(emits.Writer, firstEmit, liveRequests, request.Id);
+    var notifier = new LazyCommitNotifier(emits.Writer, firstEmit);
 
-    var dispatch = handler.HandleRequestAsync(request, notifier, authInfo, context.RequestAborted);
+    var dispatch = handler.HandleRequestAsync(request, notifier, authInfo, cancellationToken);
 
     // Whoever signals first wins the race: the first emitted frame, or handler completion.
     var committedFirst = await Task.WhenAny(firstEmit.Task, dispatch).ConfigureAwait(false) == firstEmit.Task;
@@ -345,8 +377,8 @@ public static class StreamableHttpServer
     try
     {
       // Keep flushing emits the handler produces while it runs, until it completes. WaitToReadAsync is
-      // NOT bound to RequestAborted: the loop is bounded by dispatch completion (and Seal(), which
-      // completes the channel) so it cannot wait forever, and an unbound wait never faults — leaving no
+      // NOT bound to the token: the loop is bounded by dispatch completion (and Seal(), which completes
+      // the channel) so it cannot wait forever, and an unbound wait never faults — leaving no
       // dangling/unobserved cancellation task when dispatch wins the race. Client-abort is surfaced
       // instead by the awaited dispatch / WriteEventAsync throwing OperationCanceledException below.
       while (!dispatch.IsCompleted)
@@ -367,15 +399,18 @@ public static class StreamableHttpServer
     }
     catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
     {
-      // The client closed the stream — cancel any awaiting live request and stop (§9.6.2). Nothing more
-      // may be written to the aborted response.
+      // The client closed the stream — stop (§9.6.2). Nothing more may be written to the aborted response.
       notifier.Seal();
-      liveRequests.FailInflightFor(request.Id);
       return;
     }
 
     notifier.Seal();
-    await WriteEventAsync(context, finalResponse).ConfigureAwait(false);
+    // §15.2.2 (MUST NOT): if the request was cancelled (by notifications/cancelled, while the stream stays
+    // open), the terminal response is suppressed — the stream ends carrying only the pre-cancel frames.
+    if (!cancellationToken.IsCancellationRequested)
+    {
+      await WriteEventAsync(context, finalResponse).ConfigureAwait(false);
+    }
   }
 
   private static McpError? ValidateHeaders(HttpContext context, JsonRpcRequest request, StreamableHttpServerOptions options)
@@ -497,34 +532,36 @@ public static class StreamableHttpServer
   /// <summary>
   /// Serves a request on a PRE-COMMITTED event stream (the progress-token path, §9.6.2). Unlike the
   /// lazy-commit race, the stream is opened before the handler runs, so progress is delivered live even
-  /// when the handler emits nothing else. The notifier funnels notifications AND live server→client
-  /// requests onto the stream; a live request blocks the handler on the client's correlated reply.
+  /// when the handler emits nothing else. The notifier funnels request-scoped notifications onto the
+  /// stream (server→client requests are never emitted — §9.6.2 R-9.6.2-d).
   /// </summary>
   private static async Task WriteEventStreamAsync(
-    HttpContext context, IMcpRequestHandler handler, JsonRpcRequest request, AuthInfo? authInfo, LiveServerRequestRouter liveRequests)
+    HttpContext context, IMcpRequestHandler handler, JsonRpcRequest request, AuthInfo? authInfo, CancellationToken cancellationToken)
   {
     PrepareEventStream(context);
-    var notifier = new StreamingNotifier(context, liveRequests, request.Id);
-    notifier.MarkCommitted();
+    var notifier = new StreamingNotifier(context);
     try
     {
-      var response = await handler.HandleRequestAsync(request, notifier, authInfo, context.RequestAborted).ConfigureAwait(false);
-      // §9.6.2 (R-9.6.2-e/f): the final response terminates the stream; once written, the notifier is
-      // sealed so a handler that retained it cannot push anything after the final response.
-      await WriteEventAsync(context, response).ConfigureAwait(false);
+      var response = await handler.HandleRequestAsync(request, notifier, authInfo, cancellationToken).ConfigureAwait(false);
       notifier.Seal();
+      // §9.6.2 (R-9.6.2-e/f): the final response terminates the stream; once written, the notifier is
+      // sealed so a handler that retained it cannot push anything after the final response. §15.2.2: a
+      // cancelled request (notifications/cancelled, stream still open) suppresses the terminal response.
+      if (!cancellationToken.IsCancellationRequested)
+      {
+        await WriteEventAsync(context, response).ConfigureAwait(false);
+      }
     }
     catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
     {
       // §9.6.2 (R-9.6.2-i/k): the client closed the stream — treat as cancellation. The notifier is
-      // sealed so no further request-scoped notification is emitted for the cancelled request, and any
-      // awaiting live server→client request is failed so the handler does not hang.
+      // sealed so no further request-scoped notification is emitted for the cancelled request.
       notifier.Seal();
-      liveRequests.FailInflightFor(request.Id);
     }
   }
 
-  private static async Task HandleSubscriptionAsync(HttpContext context, IMcpSubscriptionHandler handler, JsonRpcRequest request)
+  private static async Task HandleSubscriptionAsync(
+    HttpContext context, IMcpSubscriptionHandler handler, JsonRpcRequest request, CancellationToken cancellationToken)
   {
     var requested = request.Params?["notifications"]?.Deserialize<SubscriptionFilter>(McpJson.Options) ?? new SubscriptionFilter();
     var subscriptionId = request.Id.ToString();
@@ -549,14 +586,16 @@ public static class StreamableHttpServer
 
     try
     {
-      await foreach (var notification in channel.Reader.ReadAllAsync(context.RequestAborted).ConfigureAwait(false))
+      // §10.7: the listen stream runs until the client closes it OR a notifications/cancelled for this
+      // listen request id arrives (which cancels the linked token) — either tears the subscription down.
+      await foreach (var notification in channel.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
       {
         await WriteEventAsync(context, notification).ConfigureAwait(false);
       }
     }
     catch (OperationCanceledException)
     {
-      // The client closed the stream (§10.7); fall through to teardown.
+      // The client closed the stream or cancelled the listen request (§10.7); fall through to teardown.
     }
     finally
     {
@@ -594,20 +633,16 @@ public static class StreamableHttpServer
   };
 
   /// <summary>
-  /// A notifier that funnels every emit (a request-scoped notification OR a live server→client request)
-  /// into the lazy-commit <see cref="Channel{T}"/> and signals the first emit so the race in
-  /// <see cref="RunLazyCommitAsync"/> can commit to SSE. A live server→client request is issued through
-  /// the per-endpoint <see cref="LiveServerRequestRouter"/>: the request frame is enqueued for the stream
-  /// and the handler blocks on the correlated client reply (delivered by a separate POST, §9.9).
+  /// A notifier that funnels every request-scoped notification into the lazy-commit <see cref="Channel{T}"/>
+  /// and signals the first emit so the race in <see cref="RunLazyCommitAsync"/> can commit to SSE.
   /// </summary>
   /// <remarks>
-  /// Until the race commits, emits sit in the channel buffer; once committed the reader drains them.
-  /// After <see cref="Seal"/> — the final response has been written or the client closed the stream — a
-  /// further notification is silently dropped and a further live request fails fast, so the server never
-  /// writes after the terminator (R-9.6.2-e/f/i/k).
+  /// Until the race commits, notifications sit in the channel buffer; once committed the reader drains
+  /// them. After <see cref="Seal"/> — the final response has been written or the client closed the stream
+  /// — a further notification is silently dropped, so the server never writes after the terminator
+  /// (R-9.6.2-e/f/i/k).
   /// </remarks>
-  private sealed class LazyCommitNotifier(
-    ChannelWriter<JsonRpcMessage> writer, TaskCompletionSource firstEmit, LiveServerRequestRouter liveRequests, RequestId originatingId)
+  private sealed class LazyCommitNotifier(ChannelWriter<JsonRpcMessage> writer, TaskCompletionSource firstEmit)
     : IServerNotifier
   {
     private volatile bool _sealed;
@@ -620,21 +655,6 @@ public static class StreamableHttpServer
       return Task.CompletedTask;
     }
 
-    public Task<JsonRpcMessage> RequestAsync(string method, JsonObject? parameters, CancellationToken cancellationToken)
-    {
-      if (_sealed)
-      {
-        throw new NotSupportedException("The response stream is closed; a live server→client request can no longer be issued.");
-      }
-      // Issue an id, enqueue the request frame, signal commit, and return the awaiting reply task. The
-      // reply arrives on a separate POST and is delivered to the router by id (§9.9).
-      var (id, reply) = liveRequests.Issue(originatingId);
-      var frame = new JsonRpcRequest(id, method, parameters);
-      writer.TryWrite(frame);
-      firstEmit.TrySetResult();
-      return reply.WaitAsync(cancellationToken);
-    }
-
     /// <summary>Seals the notifier after the final response / client close (R-9.6.2-e/f/i/k).</summary>
     public void Seal()
     {
@@ -644,12 +664,11 @@ public static class StreamableHttpServer
   }
 
   /// <summary>
-  /// Writes each emit straight to a PRE-COMMITTED live event stream (the progress-token path). Like
-  /// <see cref="LazyCommitNotifier"/> it supports both notifications and live server→client requests, but
-  /// without the commit race — frames go directly to the response. After <see cref="Seal"/> a further
-  /// emit is dropped / fails so the server never writes past the terminator (R-9.6.2-e/f/i/k).
+  /// Writes each request-scoped notification straight to a PRE-COMMITTED event stream (the progress-token
+  /// path), without the commit race. After <see cref="Seal"/> a further notification is dropped so the
+  /// server never writes past the terminator (R-9.6.2-e/f/i/k).
   /// </summary>
-  private sealed class StreamingNotifier(HttpContext context, LiveServerRequestRouter liveRequests, RequestId originatingId) : IServerNotifier
+  private sealed class StreamingNotifier(HttpContext context) : IServerNotifier
   {
     private volatile bool _sealed;
 
@@ -659,28 +678,13 @@ public static class StreamableHttpServer
       return WriteEventAsync(context, notification);
     }
 
-    public async Task<JsonRpcMessage> RequestAsync(string method, JsonObject? parameters, CancellationToken cancellationToken)
-    {
-      if (_sealed)
-      {
-        throw new NotSupportedException("The response stream is closed; a live server→client request can no longer be issued.");
-      }
-      var (id, reply) = liveRequests.Issue(originatingId);
-      await WriteEventAsync(context, new JsonRpcRequest(id, method, parameters)).ConfigureAwait(false);
-      return await reply.WaitAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>No-op: this stream is committed from the start. Present for symmetry with the lazy notifier.</summary>
-    public void MarkCommitted() { }
-
     /// <summary>Seals the stream after the final response / client close (R-9.6.2-e/f/i/k).</summary>
     public void Seal() => _sealed = true;
   }
 
   /// <summary>
-  /// The notifier used on the §9.2 single-response <c>initialize</c> path: neither a notification nor a
-  /// live server→client request is available, because the handshake never streams. Both throw an internal
-  /// error, mirroring the TS <c>bareContext</c> behaviour.
+  /// The notifier used on the §9.2 single-response <c>initialize</c> path: a notification is not available
+  /// because the handshake never streams, so it throws an internal error.
   /// </summary>
   private sealed class NonStreamingNotifier : IServerNotifier
   {
@@ -688,83 +692,50 @@ public static class StreamableHttpServer
 
     public Task NotifyAsync(JsonRpcNotification notification) =>
       throw McpError.InternalError("Notifications are not available on the single-response initialize path.");
-
-    public Task<JsonRpcMessage> RequestAsync(string method, JsonObject? parameters, CancellationToken cancellationToken) =>
-      throw McpError.InternalError("Server→client requests are not available on the single-response initialize path.");
   }
 
   /// <summary>
-  /// Per-endpoint router that correlates a LIVE server→client request to the client's later reply POST by
-  /// JSON-RPC id, with NO session (spec §9.9, §7.2). It mints unique server-request ids (the TS
-  /// <c>srv-N</c> scheme), tracks which originating request each belongs to (so a client close can fail
-  /// the right awaiting requests), and wraps the SDK's <see cref="RequestCorrelator"/>. Safe for
-  /// concurrent use across simultaneous requests to the same endpoint.
+  /// Per-endpoint registry of in-flight requests' cancellation sources, keyed by JSON-RPC id, with NO
+  /// session (spec §9.9, §15.2.2). An inbound <c>notifications/cancelled</c> (a separate POST) cancels the
+  /// matching source, which aborts the running handler and suppresses its response. Each source is linked
+  /// to the connection's <c>RequestAborted</c> so a client stream close cancels too. Safe for concurrent
+  /// use across simultaneous requests to the same endpoint.
   /// </summary>
-  private sealed class LiveServerRequestRouter
+  private sealed class InflightRequests
   {
-    private readonly RequestCorrelator _correlator = new();
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<RequestId, RequestId> _origin = new();
-    private long _seq;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<RequestId, CancellationTokenSource> _sources = new();
 
     /// <summary>
-    /// Issues a fresh server→client request id bound to <paramref name="originatingId"/> and returns the
-    /// task that resolves with the client's correlated reply.
+    /// Registers a cancellation source for <paramref name="id"/>, linked to <paramref name="connectionAborted"/>,
+    /// and returns it. The caller passes its token to the handler and calls <see cref="Remove"/> when done.
     /// </summary>
-    /// <param name="originatingId">The client→server request whose handler is issuing this live request.</param>
-    /// <returns>The minted request id and the awaiting reply task.</returns>
-    public (RequestId Id, Task<JsonRpcMessage> Reply) Issue(RequestId originatingId)
+    /// <param name="id">The request id.</param>
+    /// <param name="connectionAborted">The connection's abort token (a client stream close).</param>
+    /// <returns>The registered cancellation source.</returns>
+    public CancellationTokenSource Register(RequestId id, CancellationToken connectionAborted)
     {
-      var id = new RequestId($"srv-{Interlocked.Increment(ref _seq)}");
-      var reply = _correlator.Issue(id);
-      _origin[id] = originatingId;
-      return (id, reply);
+      var cts = CancellationTokenSource.CreateLinkedTokenSource(connectionAborted);
+      _sources[id] = cts;
+      return cts;
     }
 
-    /// <summary>
-    /// Delivers a client reply (result/error) to its awaiting server→client request, returning <c>true</c>
-    /// when it correlated to an outstanding id (so the transport answers 202) and <c>false</c> for an
-    /// uncorrelated response (the forbidden unsolicited-response case).
-    /// </summary>
-    /// <param name="message">The client's reply message.</param>
-    /// <returns><c>true</c> when delivered to an awaiting request.</returns>
-    public bool Deliver(JsonRpcMessage message)
+    /// <summary>Cancels the in-flight request with <paramref name="id"/>, if any. A no-op for an unknown id (R-15.2.2-f).</summary>
+    /// <param name="id">The request id targeted by a <c>notifications/cancelled</c>.</param>
+    public void Cancel(RequestId id)
     {
-      var delivered = _correlator.Deliver(message);
-      if (delivered && TryReplyId(message, out var id)) _origin.TryRemove(id, out _);
-      return delivered;
-    }
-
-    /// <summary>
-    /// Fails every outstanding server→client request that belongs to <paramref name="originatingId"/> —
-    /// invoked when that request's stream is closed by the client so the handler's await does not hang
-    /// forever (§7.5).
-    /// </summary>
-    /// <param name="originatingId">The originating client→server request id.</param>
-    public void FailInflightFor(RequestId originatingId)
-    {
-      foreach (var (srvId, origin) in _origin)
+      if (_sources.TryGetValue(id, out var cts))
       {
-        if (origin.Equals(originatingId) && _origin.TryRemove(srvId, out _))
-        {
-          _correlator.Fail(srvId, new TransportError("The client closed the response stream before replying to a live server→client request."));
-        }
+        // The handler may complete and dispose its source concurrently on another thread; tolerate it.
+        try { cts.Cancel(); }
+        catch (ObjectDisposedException) { }
       }
     }
 
-    private static bool TryReplyId(JsonRpcMessage message, out RequestId id)
+    /// <summary>Removes and disposes the cancellation source for <paramref name="id"/> on completion.</summary>
+    /// <param name="id">The request id.</param>
+    public void Remove(RequestId id)
     {
-      switch (message)
-      {
-        case JsonRpcSuccessResponse success:
-          id = success.Id;
-          return true;
-        case JsonRpcErrorResponse { Id: { } errorId }:
-          id = errorId;
-          return true;
-        default:
-          id = default;
-          return false;
-      }
+      if (_sources.TryRemove(id, out var cts)) cts.Dispose();
     }
   }
 

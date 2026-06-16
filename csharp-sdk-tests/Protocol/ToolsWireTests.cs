@@ -580,4 +580,19 @@ public sealed class ToolsWireTests
   {
     Assert.True(ToolSchemas.ValidateToolStructuredContent(null, Obj("""{"anything":true}""")).Valid);
   }
+
+  [Fact]
+  public void FromStructured_serializes_structured_content_into_a_text_fallback_block()
+  {
+    // §16.5 (R-16.5-p): a tool with an outputSchema sets structuredContent AND a serialized text fallback.
+    var structured = Obj("""{"temp":21,"unit":"C"}""");
+    var result = CallToolResult.FromStructured(structured);
+    var back = JsonNode.Parse(McpJson.Serialize(result))!.AsObject();
+
+    // structuredContent round-trips equal to the input.
+    Assert.Equal(structured.ToJsonString(McpJson.Options), back["structuredContent"]!.ToJsonString(McpJson.Options));
+    // Content[0] is a text block whose text parses back to the same JSON object.
+    var text = back["content"]![0]!["text"]!.GetValue<string>();
+    Assert.Equal(structured.ToJsonString(McpJson.Options), JsonNode.Parse(text)!.ToJsonString(McpJson.Options));
+  }
 }

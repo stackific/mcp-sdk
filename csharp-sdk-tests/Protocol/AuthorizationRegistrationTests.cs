@@ -216,12 +216,17 @@ public sealed class AuthorizationRegistrationTests
 
   // ───────────────────────── Credential binding (§23.16) ─────────────────────────
 
-  [Fact]
-  public void Issuers_match_exactly_is_byte_for_byte()
+  [Theory]
+  // Byte-identical issuers match.
+  [InlineData("https://as", "https://as", true)]
+  // §23.16 (R-23.16-f): the comparison is byte-for-byte — no URL normalization is applied.
+  [InlineData("https://as/", "https://as", false)]               // trailing-slash difference
+  [InlineData("https://AS", "https://as", false)]                // case difference
+  [InlineData("https://auth.example.com:443", "https://auth.example.com", false)] // explicit default port (TV-37.9)
+  [InlineData("https://auth.example.com/%2F", "https://auth.example.com/", false)] // percent-encoding (TV-37.9)
+  public void Issuers_match_is_byte_for_byte_with_no_normalization(string a, string b, bool expected)
   {
-    Assert.True(CredentialBinding.IssuersMatchExactly("https://as", "https://as"));
-    Assert.False(CredentialBinding.IssuersMatchExactly("https://as/", "https://as"));
-    Assert.False(CredentialBinding.IssuersMatchExactly("https://AS", "https://as"));
+    Assert.Equal(expected, CredentialBinding.IssuersMatchExactly(a, b));
   }
 
   [Fact]

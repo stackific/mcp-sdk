@@ -8,6 +8,10 @@ using Stackific.Mcp.Protocol;
 
 namespace Stackific.Mcp.Client;
 
+// Deliberately supports Deprecated Dynamic Client Registration (§23.11) for backward compatibility,
+// so it references the [Obsolete] DynamicClientRegistrationRequest type.
+#pragma warning disable CS0618
+
 /// <summary>
 /// An OAuth 2.1 client flow (spec §23) for an MCP <see cref="Transport.StreamableHttpClientTransport"/>:
 /// PKCE (<c>S256</c>) generation and the §28.5 support gate, two-stage protected-resource →

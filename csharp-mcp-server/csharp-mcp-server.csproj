@@ -7,6 +7,9 @@
 
   <PropertyGroup>
     <RootNamespace>CSharpMcpServer</RootNamespace>
+    <!-- Reference host: deliberately demos the SDK's Deprecated-but-supported capabilities
+         (roots/sampling/logging), so the [Obsolete] usage diagnostics are silenced. -->
+    <NoWarn>$(NoWarn);CS0612;CS0618</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

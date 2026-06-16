@@ -127,6 +127,46 @@ public static class Caching
   }
 
   /// <summary>
+  /// Asserts the <em>emit-side</em> invariant for a cacheable result that is being sent with a
+  /// completed (<c>"complete"</c>) discriminator (§3.6, §13.1, §13.4): the <paramref name="resultType"/>
+  /// MUST be exactly <c>"complete"</c>, and BOTH caching hints MUST be present — <paramref name="ttlMs"/>
+  /// a non-negative integer and <paramref name="cacheScope"/> a resolved scope. A sender MUST NOT emit
+  /// one hint without the other (§13.1), MUST NOT emit a negative <c>ttlMs</c> (§13.2), and MUST carry
+  /// the discriminator (§3.6). This is the construction-time guard a server applies before a result
+  /// reaches the wire; it is the counterpart of the lenient <em>receive-side</em> degradation in
+  /// <see cref="IsCacheHintValid"/>/<see cref="ResolveCacheScope(JsonNode)"/>, which never throws.
+  /// </summary>
+  /// <param name="resultType">The result's discriminator (§3.6).</param>
+  /// <param name="ttlMs">The freshness hint in milliseconds, or <c>null</c> when absent.</param>
+  /// <param name="cacheScope">The sharing scope, or <c>null</c> when absent.</param>
+  /// <param name="resultName">The result type name, used in the exception message.</param>
+  /// <exception cref="ArgumentException">When the discriminator is not <c>"complete"</c>, a hint is absent, or <c>ttlMs</c> is negative.</exception>
+  public static void ValidateCacheableComplete(string resultType, long? ttlMs, CacheScope? cacheScope, string resultName)
+  {
+    if (resultType != ResultTypes.Complete)
+    {
+      throw new ArgumentException(
+        $"{resultName}.resultType MUST be \"{ResultTypes.Complete}\" on a completed cacheable result (§3.6); got \"{resultType}\".",
+        nameof(resultType));
+    }
+    if (ttlMs is not { } ttl)
+    {
+      throw new ArgumentException(
+        $"{resultName} MUST carry a ttlMs caching hint (§13.1, §13.4).", nameof(ttlMs));
+    }
+    if (ttl < 0)
+    {
+      throw new ArgumentException(
+        $"{resultName}.ttlMs MUST be a non-negative integer (§13.2); got {ttl}.", nameof(ttlMs));
+    }
+    if (cacheScope is null)
+    {
+      throw new ArgumentException(
+        $"{resultName} MUST carry a cacheScope caching hint (§13.1, §13.4).", nameof(cacheScope));
+    }
+  }
+
+  /// <summary>
   /// Returns <c>true</c> when a result object carries BOTH caching-hint fields, or NEITHER. A server
   /// MUST NOT emit exactly one without the other. Mirrors TS <c>hasBothOrNeitherCacheHints</c>. (R-13.1-g)
   /// </summary>

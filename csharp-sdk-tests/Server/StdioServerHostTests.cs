@@ -35,7 +35,8 @@ public sealed class StdioServerHostTests
       new Tool { Name = "ask_name", InputSchema = Obj("""{"type":"object"}""") },
       async ctx =>
       {
-        var elicited = await ctx.ElicitInputLiveAsync(new ElicitRequestFormParams
+        // §11: solicit elicitation via the input_required retry loop (no server→client request frame).
+        var elicited = await ctx.ElicitInputAsync(new ElicitRequestFormParams
         {
           Message = "name?",
           RequestedSchema = Obj("""{"type":"object","properties":{"name":{"type":"string"}}}"""),
@@ -114,33 +115,42 @@ public sealed class StdioServerHostTests
   }
 
   [Fact]
-  public async Task Live_server_request_round_trips_over_the_byte_channel()
+  public void Input_required_round_trips_over_the_byte_channel()
   {
     var (serverChannel, clientChannel) = InMemoryByteChannelTransport.CreatePair();
     var client = new ClientSide(clientChannel);
     using var host = StdioServerHost.Serve(MakeServer(), serverChannel);
 
-    // Drive the call on a background thread so the test thread can play the client and answer the live
-    // server→client request that the handler blocks on.
+    // §9.6.2 (R-9.6.2-d) / §11: ask_name returns an input_required result — the server NEVER writes a
+    // server→client request frame to its output stream.
     client.Send(ToolCall(1, "ask_name", Meta(elicitation: true)));
+    var first = Assert.IsType<JsonRpcSuccessResponse>(client.Next(TimeSpan.FromSeconds(5)));
+    Assert.Equal(ResultTypes.InputRequired, first.Result["resultType"]!.GetValue<string>());
+    var inputRequests = first.Result["inputRequests"]!.AsObject();
+    var key = inputRequests.First().Key;
+    Assert.Equal(McpMethods.ElicitationCreate, inputRequests[key]!["method"]!.GetValue<string>());
+    var requestState = first.Result["requestState"]!.GetValue<string>();
 
-    // The host issues a live elicitation/create REQUEST to the client (carrying a srv-N id).
-    var serverRequest = Assert.IsType<JsonRpcRequest>(client.Next(TimeSpan.FromSeconds(5)));
-    Assert.Equal(McpMethods.ElicitationCreate, serverRequest.Method);
-    Assert.StartsWith("srv-", serverRequest.Id.ToString());
-
-    // The client replies with a result keyed by the same id; the host correlates it and resumes.
+    // The client RETRIES the original request with the collected response and the opaque requestState; the
+    // call then completes.
     client.Send(new JsonObject
     {
       ["jsonrpc"] = "2.0",
-      ["id"] = serverRequest.Id.ToString(),
-      ["result"] = new JsonObject { ["action"] = "accept", ["content"] = new JsonObject { ["name"] = "Grace" } },
+      ["id"] = 2,
+      ["method"] = McpMethods.ToolsCall,
+      ["params"] = new JsonObject
+      {
+        ["name"] = "ask_name",
+        ["arguments"] = new JsonObject(),
+        ["_meta"] = Meta(elicitation: true),
+        ["inputResponses"] = new JsonObject { [key] = new JsonObject { ["action"] = "accept", ["content"] = new JsonObject { ["name"] = "Grace" } } },
+        ["requestState"] = requestState,
+      },
     });
 
     var final = Assert.IsType<JsonRpcSuccessResponse>(client.Next(TimeSpan.FromSeconds(5)));
-    Assert.Equal(new RequestId(1L), final.Id);
+    Assert.Equal(new RequestId(2L), final.Id);
     Assert.Equal("hi Grace", final.Result["content"]![0]!["text"]!.GetValue<string>());
-    await Task.CompletedTask;
   }
 
   [Fact]
@@ -155,6 +165,66 @@ public sealed class StdioServerHostTests
 
     // No response is produced after disposal (the inbound subscription was torn down).
     Assert.Throws<TimeoutException>(() => client.Next(TimeSpan.FromMilliseconds(300)));
+  }
+
+  [Fact]
+  public async Task A_cancelled_request_produces_no_further_frame_for_its_id()
+  {
+    // §8.3 (R-8.3-g, MUST NOT): after notifications/cancelled the server emits nothing more for that id.
+    var started = new TaskCompletionSource();
+    var observedCancel = new TaskCompletionSource();
+    var server = new McpServer(
+      new Implementation { Name = "stdio-server", Version = "1.0.0" },
+      new ServerCapabilities { Tools = new ToolsCapability() });
+    server.RegisterTool(
+      new Tool { Name = "slow", InputSchema = Obj("""{"type":"object"}""") },
+      async ctx =>
+      {
+        started.TrySetResult();
+        try { await Task.Delay(TimeSpan.FromSeconds(30), ctx.Signal); }
+        catch (OperationCanceledException) { observedCancel.TrySetResult(); throw; }
+        return CallToolResult.FromText("done");
+      });
+
+    var (serverChannel, clientChannel) = InMemoryByteChannelTransport.CreatePair();
+    var client = new ClientSide(clientChannel);
+    using var host = StdioServerHost.Serve(server, serverChannel);
+
+    client.Send(ToolCall(1, "slow", Meta()));
+    await started.Task.WaitAsync(TimeSpan.FromSeconds(5)); // the handler is in-flight and its CTS registered.
+
+    client.Send(new JsonObject
+    {
+      ["jsonrpc"] = "2.0",
+      ["method"] = McpMethods.NotificationsCancelled,
+      ["params"] = new JsonObject { ["requestId"] = 1 },
+    });
+
+    await observedCancel.Task.WaitAsync(TimeSpan.FromSeconds(5)); // the handler observed cancellation.
+    // No response (neither result nor error) is written for the cancelled id.
+    Assert.Throws<TimeoutException>(() => client.Next(TimeSpan.FromMilliseconds(400)));
+  }
+
+  [Fact]
+  public void A_cancel_for_an_unknown_id_is_ignored_and_a_normal_request_still_responds()
+  {
+    var (serverChannel, clientChannel) = InMemoryByteChannelTransport.CreatePair();
+    var client = new ClientSide(clientChannel);
+    using var host = StdioServerHost.Serve(MakeServer(), serverChannel);
+
+    // A cancel that targets no in-flight request is a harmless no-op (R-15.2.2-f)...
+    client.Send(new JsonObject
+    {
+      ["jsonrpc"] = "2.0",
+      ["method"] = McpMethods.NotificationsCancelled,
+      ["params"] = new JsonObject { ["requestId"] = 99 },
+    });
+    // ...and an ordinary request that follows still receives its response.
+    client.Send(ToolCall(1, "echo", Meta()));
+
+    var response = Assert.IsType<JsonRpcSuccessResponse>(client.Next(TimeSpan.FromSeconds(5)));
+    Assert.Equal(new RequestId(1L), response.Id);
+    Assert.Equal("ping", response.Result["content"]![0]!["text"]!.GetValue<string>());
   }
 
   [Fact]

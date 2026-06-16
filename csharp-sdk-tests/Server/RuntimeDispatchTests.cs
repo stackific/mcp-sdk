@@ -543,8 +543,10 @@ public sealed class RuntimeDispatchTests
     // validator: null is not a string → invalid. (The previous expectation of `true` encoded the
     // old 3-rule hand-roll, which silently skipped null; the spec's Ajv-backed TS path rejects it.)
     { """{"type":"object","properties":{"x":{"type":"string"}}}""", """{"x":null}""", false },
-    // an ABSENT optional property is fine (nothing to validate).
-    { """{"type":"object","properties":{"x":{"type":"string"}}}""", """{}""", true },
+    // an ABSENT optional property is fine even alongside a PRESENT, valid sibling — a distinct case from
+    // the bare absent-optional row above (line ~517), so this is its own test rather than a duplicate that
+    // xUnit would silently drop.
+    { """{"type":"object","properties":{"x":{"type":"string"},"y":{"type":"number"}}}""", """{"y":3}""", true },
     // a null value IS accepted when the property explicitly allows the null type.
     { """{"type":"object","properties":{"x":{"type":["string","null"]}}}""", """{"x":null}""", true },
   };
@@ -571,6 +573,69 @@ public sealed class RuntimeDispatchTests
       var error = await Assert.ThrowsAsync<McpError>(() => client.CallToolAsync("t", Obj(argsJson)));
       Assert.Equal(ErrorCodes.InvalidParams, error.Code);
     }
+  }
+
+  // ════════════════════════ completion/complete -32602 (end-to-end dispatch, §19) ════════════════════════
+
+  [Fact]
+  public async Task Completion_with_an_unknown_ref_discriminator_dispatches_invalid_params()
+  {
+    // §19.2 (R-19.2-e): the ref is a CLOSED union over `type`; an unknown discriminator binds-fails and the
+    // dispatch handler maps it to -32602 (Invalid params), NOT -32603 (Internal error).
+    var prms = Obj("""{"ref":{"type":"ref/bogus","name":"greeting"},"argument":{"name":"language","value":"e"}}""");
+    prms["_meta"] = GoodMeta();
+    var error = ExpectError(await Dispatch(FullServer(), McpMethods.CompletionComplete, prms));
+    Assert.Equal(ErrorCodes.InvalidParams, error.Code);
+  }
+
+  [Fact]
+  public async Task Completion_for_an_unknown_prompt_ref_dispatches_invalid_params()
+  {
+    // §19.5 (R-19.5-r): an unknown ref is -32602 — not an empty result.
+    var prms = Obj("""{"ref":{"type":"ref/prompt","name":"does-not-exist"},"argument":{"name":"x","value":"v"}}""");
+    prms["_meta"] = GoodMeta();
+    var error = ExpectError(await Dispatch(FullServer(), McpMethods.CompletionComplete, prms));
+    Assert.Equal(ErrorCodes.InvalidParams, error.Code);
+  }
+
+  [Fact]
+  public async Task Completion_for_an_undeclared_argument_dispatches_invalid_params()
+  {
+    // §19.5 (R-19.5-r): completing an argument the referenced prompt does not declare is -32602.
+    var prms = Obj("""{"ref":{"type":"ref/prompt","name":"greeting"},"argument":{"name":"not-an-arg","value":"v"}}""");
+    prms["_meta"] = GoodMeta();
+    var error = ExpectError(await Dispatch(FullServer(), McpMethods.CompletionComplete, prms));
+    Assert.Equal(ErrorCodes.InvalidParams, error.Code);
+  }
+
+  [Fact]
+  public async Task Completion_with_context_naming_the_completed_argument_dispatches_invalid_params()
+  {
+    // §19.2 (R-19.2-k): context.arguments MUST NOT name the argument being completed → -32602.
+    var prms = Obj("""{"ref":{"type":"ref/prompt","name":"greeting"},"argument":{"name":"language","value":"e"},"context":{"arguments":{"language":"english"}}}""");
+    prms["_meta"] = GoodMeta();
+    var error = ExpectError(await Dispatch(FullServer(), McpMethods.CompletionComplete, prms));
+    Assert.Equal(ErrorCodes.InvalidParams, error.Code);
+  }
+
+  [Fact]
+  public async Task Completion_completer_that_throws_an_unexpected_exception_is_minus_32603()
+  {
+    // §19.5 (R-19.5-t): a non-McpError thrown by an argument completer is an INTERNAL failure → -32603,
+    // NOT -32602 (which is reserved for invalid params / unknown ref / undeclared argument).
+    var server = new McpServer(
+      new Implementation { Name = "v", Version = "1.0.0" },
+      new ServerCapabilities { Prompts = new PromptsCapability(), Completions = new JsonObject() });
+    server.RegisterPrompt(
+      new Prompt { Name = "p", Arguments = [new PromptArgument { Name = "a" }] },
+      _ => Task.FromResult(new GetPromptResult { Messages = [] }),
+      new Dictionary<string, ArgumentCompleter> { ["a"] = _ => throw new InvalidOperationException("boom") });
+
+    var prms = Obj("""{"ref":{"type":"ref/prompt","name":"p"},"argument":{"name":"a","value":"x"}}""");
+    prms["_meta"] = GoodMeta();
+    var error = ExpectError(await Dispatch(server, McpMethods.CompletionComplete, prms));
+    Assert.Equal(ErrorCodes.InternalError, error.Code);
+    Assert.NotEqual(ErrorCodes.InvalidParams, error.Code);
   }
 
   // ════════════════════════ Pagination (§12) ════════════════════════
@@ -700,6 +765,18 @@ public sealed class RuntimeDispatchTests
     var error = await Assert.ThrowsAsync<McpError>(() => client.ReadResourceAsync("docs://missing"));
     Assert.Equal(ErrorCodes.InvalidParams, error.Code);
     Assert.Equal("docs://missing", error.ErrorData!["uri"]!.GetValue<string>());
+  }
+
+  [Fact]
+  public async Task Unknown_resource_template_uri_is_minus_32602_with_uri_in_data()
+  {
+    // R-22.4-e: a URI that matches NO registered resource AND NO registered template (here a scheme the
+    // weather:// template does not cover) is -32602 (Invalid params) carrying the offending uri in data.
+    await using var client = InMemory.Connect(FullServer());
+    await client.DiscoverAsync();
+    var error = await Assert.ThrowsAsync<McpError>(() => client.ReadResourceAsync("weather2://oslo/current"));
+    Assert.Equal(ErrorCodes.InvalidParams, error.Code);
+    Assert.Equal("weather2://oslo/current", error.ErrorData!["uri"]!.GetValue<string>());
   }
 
   [Fact]

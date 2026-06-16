@@ -111,6 +111,18 @@ public sealed class InMemoryClientTransport : ClientTransport
 /// peer recovers it with the same framing plus <see cref="MessageUnit.TryDecode"/> (UTF-8 +
 /// single-JSON-value validation). Delivery is synchronous for test determinism.
 /// </para>
+/// <para>
+/// <b>Cancellation (§7.3).</b> A custom byte-channel transport carries NO per-request cancellation token
+/// at the channel layer — the channel frames opaque messages and is unaware of request/response
+/// correlation. Cancellation is therefore <em>connection-scoped</em>: closing the channel
+/// (<see cref="Disconnect"/>) aborts all outstanding work in one shot, and each side observes the
+/// teardown through its <see cref="OnClose"/> subscription (after which <see cref="Send"/> throws a
+/// <see cref="TransportError"/>). Per-request cancellation of a single in-flight request — without
+/// tearing down the connection — is expressed at the protocol layer instead, via a
+/// <c>notifications/cancelled</c> message referencing the request id (§15.2), which a server host
+/// (for example <see cref="Stackific.Mcp.Server.StdioServerHost"/>) honors by aborting that request and
+/// suppressing its response (§8.3 R-8.3-g).
+/// </para>
 /// </remarks>
 public sealed class InMemoryByteChannelTransport : IByteChannelTransport
 {

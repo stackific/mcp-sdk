@@ -274,12 +274,64 @@ public sealed class ResourcesWireTests
   }
 
   [Fact]
-  public void Read_resource_result_omits_cache_fields_when_null()
+  public void Read_resource_result_validated_rejects_missing_cache_fields()
   {
+    // §13.1/§13.4: a server MUST carry BOTH caching hints on a resources/read result. The emit-side
+    // guard rejects a result that omits them. (This guard is NOT applied on receipt — see the
+    // tolerance test below; a receiver degrades per §3.6/§13.1 rather than throwing.)
     var result = new ReadResourceResult { Contents = [ResourceContents.OfText("u", "t")] };
-    var json = McpJson.Serialize(result);
-    Assert.DoesNotContain("\"ttlMs\"", json);
-    Assert.DoesNotContain("\"cacheScope\"", json);
+    Assert.Throws<ArgumentException>(() => result.Validated());
+  }
+
+  [Fact]
+  public void Read_resource_result_validated_rejects_negative_ttl()
+  {
+    // §13.2: ttlMs MUST be a non-negative integer.
+    var result = new ReadResourceResult
+    {
+      Contents = [ResourceContents.OfText("u", "t")],
+      TtlMs = -1,
+      CacheScope = CacheScope.Private,
+    };
+    Assert.Throws<ArgumentException>(() => result.Validated());
+  }
+
+  [Fact]
+  public void Read_resource_result_validated_rejects_non_complete_result_type()
+  {
+    // §3.6: a completed read result's discriminator MUST be "complete" on emit.
+    var result = new ReadResourceResult
+    {
+      Contents = [ResourceContents.OfText("u", "t")],
+      ResultType = ResultTypes.InputRequired,
+      TtlMs = 0,
+      CacheScope = CacheScope.Private,
+    };
+    Assert.Throws<ArgumentException>(() => result.Validated());
+  }
+
+  [Fact]
+  public void Read_resource_result_receive_tolerates_missing_fields_and_defaults_result_type()
+  {
+    // §3.6 / §13.1 receiver degradation: an inbound result that omits resultType and both caching hints
+    // deserializes successfully — resultType defaults to "complete" (the §3.6 absent-⇒-complete rule),
+    // and the hints stay absent so the receiver treats the result as immediately stale, NOT as an error.
+    var back = McpJson.Deserialize<ReadResourceResult>("""{"contents":[{"uri":"u","text":"t"}]}""")!;
+    Assert.Equal(ResultTypes.Complete, back.ResultType);
+    Assert.Null(back.TtlMs);
+    Assert.Null(back.CacheScope);
+  }
+
+  [Fact]
+  public void Read_resource_result_serializes_result_type_complete()
+  {
+    var json = McpJson.Serialize(new ReadResourceResult
+    {
+      Contents = [ResourceContents.OfText("u", "t")],
+      TtlMs = 0,
+      CacheScope = CacheScope.Private,
+    });
+    Assert.Contains("\"resultType\":\"complete\"", json);
   }
 
   [Theory]
@@ -361,6 +413,24 @@ public sealed class ResourcesWireTests
     Assert.Contains("\"ttlMs\":1", json);
   }
 
+  [Fact]
+  public void List_resources_result_validated_rejects_missing_cache_fields()
+  {
+    // §17.2/§13: a resources/list result MUST carry both caching hints on emit.
+    Assert.Throws<ArgumentException>(() => new ListResourcesResult { Resources = [] }.Validated());
+  }
+
+  [Fact]
+  public void List_resources_result_receive_tolerates_missing_fields()
+  {
+    // §3.6/§13.1: an inbound list result that omits resultType and the caching hints deserializes,
+    // with resultType degrading to "complete".
+    var back = McpJson.Deserialize<ListResourcesResult>("""{"resources":[]}""")!;
+    Assert.Equal(ResultTypes.Complete, back.ResultType);
+    Assert.Null(back.TtlMs);
+    Assert.Null(back.CacheScope);
+  }
+
   // ---- ListResourceTemplatesResult ----------------------------------------------------------
 
   [Fact]
@@ -398,6 +468,13 @@ public sealed class ResourcesWireTests
     Assert.Equal("c", back.NextCursor);
     Assert.Equal(60000, back.TtlMs);
     Assert.Equal(CacheScope.Private, back.CacheScope);
+  }
+
+  [Fact]
+  public void List_resource_templates_result_validated_rejects_missing_cache_fields()
+  {
+    // §17.3/§13: a resources/templates/list result MUST carry both caching hints on emit.
+    Assert.Throws<ArgumentException>(() => new ListResourceTemplatesResult { ResourceTemplates = [] }.Validated());
   }
 
   // ---- ResourceUpdatedNotificationParams ----------------------------------------------------

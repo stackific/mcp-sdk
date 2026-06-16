@@ -165,6 +165,21 @@ public sealed class ToolSchemaHardeningTests
     Assert.Contains(ToolSchemas.DefaultSchemaDialect, ToolSchemas.SupportedSchemaDialects);
   }
 
+  [Fact]
+  public void Only_2020_12_dialect_is_supported_and_documented()
+  {
+    // §16.4(9) / R-16.4-u: the supported set is EXACTLY the two 2020-12 spellings — nothing beyond it.
+    Assert.Equal(
+      new HashSet<string>(StringComparer.Ordinal)
+      {
+        "https://json-schema.org/draft/2020-12/schema",
+        "https://json-schema.org/draft/2020-12/schema#",
+      },
+      ToolSchemas.SupportedSchemaDialects);
+    Assert.False(ToolSchemas.IsSupportedSchemaDialect("http://json-schema.org/draft-07/schema#"));
+    Assert.False(ToolSchemas.IsSupportedSchemaDialect("https://json-schema.org/draft/2019-09/schema"));
+  }
+
   // ─── Value validation against inputSchema (R-16.4-o) ─────────────────────────────────────────
 
   private static readonly JsonObject StringLocationSchema = JsonNode.Parse(

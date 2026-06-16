@@ -5,6 +5,10 @@ using Stackific.Mcp.JsonRpc;
 
 namespace Stackific.Mcp.Protocol;
 
+// This file IS the Deprecated-but-supported Sampling feature (§21.2); referencing the [Obsolete]
+// CreateMessageRequestParams / IncludeContext types throughout is deliberate.
+#pragma warning disable CS0618
+
 /// <summary>
 /// The discriminated union of content blocks carried by a <see cref="SamplingMessage"/>
 /// (spec §21.2.6). The wire discriminator is the <c>type</c> field.
@@ -385,9 +389,40 @@ public sealed record CreateMessageResult
   /// </summary>
   public string? StopReason { get; init; }
 
+  /// <summary>
+  /// REQUIRED on emit (spec §21.2.8, R-21.2.8-e; §3.6): the base result-type discriminator. A sampling
+  /// completion is always <c>"complete"</c>. Defaults to <c>"complete"</c> so a constructed result is
+  /// well-formed, and so an inbound result that OMITS <c>resultType</c> degrades to <c>complete</c> per
+  /// the §3.6 receiver rule rather than failing to bind.
+  /// </summary>
+  public string ResultType { get; init; } = ResultTypes.Complete;
+
   /// <summary>OPTIONAL. Reserved metadata (spec §21.2.8/§4).</summary>
   [JsonPropertyName("_meta")]
   public JsonObject? Meta { get; init; }
+
+  /// <summary>
+  /// Asserts the §21.2.8 emit invariant before this result is sent back to the server: the required
+  /// <see cref="Model"/> is non-empty (R-21.2.8-c) and <see cref="ResultType"/> is the completion
+  /// discriminator <c>"complete"</c> (R-21.2.8-e). <see cref="Role"/> and <see cref="Content"/> are
+  /// <c>required</c> members, so their presence is already enforced when binding from the wire. Returns
+  /// this same instance for fluent use; never apply on receipt (a receiver degrades per §3.6).
+  /// </summary>
+  /// <returns>This instance.</returns>
+  /// <exception cref="ArgumentException">When <see cref="Model"/> is empty or <see cref="ResultType"/> is not <c>"complete"</c>.</exception>
+  public CreateMessageResult Validated()
+  {
+    if (string.IsNullOrEmpty(Model))
+    {
+      throw new ArgumentException("CreateMessageResult.model is REQUIRED and MUST be non-empty (§21.2.8, R-21.2.8-c).", nameof(Model));
+    }
+    if (ResultType != ResultTypes.Complete)
+    {
+      throw new ArgumentException(
+        $"CreateMessageResult.resultType MUST be \"{ResultTypes.Complete}\" (§21.2.8, R-21.2.8-e); got \"{ResultType}\".", nameof(ResultType));
+    }
+    return this;
+  }
 }
 
 /// <summary>

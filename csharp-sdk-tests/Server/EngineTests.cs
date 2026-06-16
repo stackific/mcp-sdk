@@ -169,6 +169,8 @@ public sealed class EngineTests
     {
       ProgressToken = "p-1",
       OnNotification = notifications.Add,
+      // §15.3.3: opt in to logs for this request, else the server emits no notifications/message.
+      Meta = new JsonObject { ["io.modelcontextprotocol/logLevel"] = "info" },
     });
 
     Assert.Equal("complete", result["resultType"]!.GetValue<string>());

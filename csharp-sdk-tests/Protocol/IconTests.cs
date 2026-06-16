@@ -335,4 +335,67 @@ public sealed class IconTests
       CancellationToken cancellationToken) =>
       Task.FromResult(respond(request));
   }
+
+  // ----- §14.2 hardening: active-SVG refusal -----
+
+  [Theory]
+  [InlineData("<svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert(1)</script></svg>")]
+  [InlineData("<svg onload=\"steal()\"></svg>")]
+  [InlineData("<svg><a href=\"javascript:evil()\">x</a></svg>")]
+  public void Validate_icon_bytes_refuses_an_svg_with_active_content(string svg)
+  {
+    var bytes = System.Text.Encoding.UTF8.GetBytes(svg);
+    Assert.Throws<IconValidationError>(() => IconSecurity.ValidateIconBytes(bytes));
+  }
+
+  [Fact]
+  public void Validate_icon_bytes_accepts_a_benign_svg()
+  {
+    var bytes = System.Text.Encoding.UTF8.GetBytes("<svg xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"4\" height=\"4\"/></svg>");
+    Assert.Equal("image/svg+xml", IconSecurity.ValidateIconBytes(bytes));
+  }
+
+  // ----- §14.2 hardening: trusted-host allowlist -----
+
+  [Fact]
+  public async Task Fetch_icon_refuses_a_host_outside_the_trusted_allowlist()
+  {
+    // The trusted-host gate runs before any request, so this never touches the network.
+    var options = new FetchIconOptions { TrustedHosts = new HashSet<string>(StringComparer.Ordinal) { "cdn.good.example" } };
+    await Assert.ThrowsAsync<IconValidationError>(() => IconSecurity.FetchIconAsync("https://evil.example/icon.png", options));
+  }
+
+  // ----- §14.2: icon selection by size + theme -----
+
+  [Fact]
+  public void Select_icon_prefers_the_smallest_size_at_or_above_the_target()
+  {
+    var icons = new[]
+    {
+      new Icon { Src = "https://e/16.png", Sizes = ["16x16"] },
+      new Icon { Src = "https://e/48.png", Sizes = ["48x48"] },
+      new Icon { Src = "https://e/256.png", Sizes = ["256x256"] },
+    };
+    var chosen = IconSecurity.SelectIcon(icons, desiredSizePx: 32);
+    Assert.Equal("https://e/48.png", chosen!.Src); // 48 is the smallest that meets/exceeds 32.
+  }
+
+  [Fact]
+  public void Select_icon_prefers_an_exact_theme_match()
+  {
+    var icons = new[]
+    {
+      new Icon { Src = "https://e/light.png", Sizes = ["48x48"], Theme = IconTheme.Light },
+      new Icon { Src = "https://e/dark.png", Sizes = ["48x48"], Theme = IconTheme.Dark },
+    };
+    var chosen = IconSecurity.SelectIcon(icons, desiredSizePx: 48, theme: IconTheme.Dark);
+    Assert.Equal("https://e/dark.png", chosen!.Src);
+  }
+
+  [Fact]
+  public void Select_icon_skips_unsafe_sources_and_returns_null_when_none_usable()
+  {
+    var icons = new[] { new Icon { Src = "javascript:alert(1)", Sizes = ["48x48"] } };
+    Assert.Null(IconSecurity.SelectIcon(icons, desiredSizePx: 48));
+  }
 }

@@ -38,6 +38,19 @@ public sealed class SubscriptionHandle
   /// <summary>The subset of the requested filter the server agreed to honor (§10.3).</summary>
   public required SubscriptionFilter HonoredFilter { get; init; }
 
+  /// <summary>
+  /// The boolean filter kinds the client requested but the server did NOT honor — the declined
+  /// <c>*ListChanged</c> field names (§10.3). Empty when every requested kind was honored. A caller can
+  /// inspect this to learn it will not receive a kind it asked for.
+  /// </summary>
+  public IReadOnlyList<string> DeclinedFields { get; init; } = [];
+
+  /// <summary>
+  /// The resource-subscription URIs the client requested but the server did NOT honor (§10.3). Empty
+  /// when every requested URI was honored.
+  /// </summary>
+  public IReadOnlyList<string> DeclinedUris { get; init; } = [];
+
   /// <summary>Closes the subscription stream and stops further delivery.</summary>
   public required Func<ValueTask> Unsubscribe { get; init; }
 }

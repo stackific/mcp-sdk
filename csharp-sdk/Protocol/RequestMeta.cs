@@ -7,6 +7,10 @@ using Stackific.Mcp.JsonRpc;
 
 namespace Stackific.Mcp.Protocol;
 
+// Deliberately reads the Deprecated io.modelcontextprotocol/logLevel _meta opt-in (§4.3, §15.3)
+// for backward compatibility, so it references the [Obsolete] MetaKeys.LogLevel constant.
+#pragma warning disable CS0618
+
 /// <summary>
 /// The protocol-defined per-request <c>_meta</c> envelope (spec §4.3) that makes every client
 /// request self-describing: the protocol revision, the client identity, and the client's

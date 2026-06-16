@@ -82,11 +82,33 @@ public sealed record ListResourcesResult
   /// <summary>OPTIONAL. Opaque cursor for the next page; absent on the last page (§12).</summary>
   public string? NextCursor { get; init; }
 
-  /// <summary>The cache time-to-live hint in milliseconds (§13).</summary>
+  /// <summary>
+  /// REQUIRED on emit (§3.6, §17.2): the base result-type discriminator, <c>"complete"</c> for a
+  /// list page. Defaults to <c>"complete"</c> so a constructed result is well-formed, and — because
+  /// it is plain <c>init</c>-settable — an inbound result that OMITS <c>resultType</c> deserializes to
+  /// this default, which is exactly the §3.6 receiver rule ("treat an absent <c>resultType</c> as if
+  /// it were <c>complete</c>").
+  /// </summary>
+  public string ResultType { get; init; } = ResultTypes.Complete;
+
+  /// <summary>The cache time-to-live hint in milliseconds (§13); REQUIRED on emit, tolerated absent on receipt.</summary>
   public long? TtlMs { get; init; }
 
-  /// <summary>The cache sharing scope (§13).</summary>
+  /// <summary>The cache sharing scope (§13); REQUIRED on emit, tolerated absent on receipt.</summary>
   public CacheScope? CacheScope { get; init; }
+
+  /// <summary>
+  /// Asserts the §17.2/§13 emit invariant — <see cref="ResultType"/> is <c>"complete"</c> and both
+  /// caching hints are present and well-formed — returning this same instance for fluent use. Apply
+  /// before sending; never on receipt (a receiver degrades per §3.6/§13.1 instead of throwing).
+  /// </summary>
+  /// <returns>This instance.</returns>
+  /// <exception cref="ArgumentException">When the discriminator or a caching hint is malformed.</exception>
+  public ListResourcesResult Validated()
+  {
+    Caching.ValidateCacheableComplete(ResultType, TtlMs, CacheScope, nameof(ListResourcesResult));
+    return this;
+  }
 }
 
 /// <summary>The paginated, cacheable result of <c>resources/templates/list</c> (spec §17.3).</summary>
@@ -98,11 +120,30 @@ public sealed record ListResourceTemplatesResult
   /// <summary>OPTIONAL. Opaque cursor for the next page; absent on the last page (§12).</summary>
   public string? NextCursor { get; init; }
 
-  /// <summary>The cache time-to-live hint in milliseconds (§13).</summary>
+  /// <summary>
+  /// REQUIRED on emit (§3.6, §17.3): the base result-type discriminator, <c>"complete"</c> for a
+  /// list page. Defaults to <c>"complete"</c>, which also makes an inbound result that omits
+  /// <c>resultType</c> degrade to <c>complete</c> per the §3.6 receiver rule.
+  /// </summary>
+  public string ResultType { get; init; } = ResultTypes.Complete;
+
+  /// <summary>The cache time-to-live hint in milliseconds (§13); REQUIRED on emit, tolerated absent on receipt.</summary>
   public long? TtlMs { get; init; }
 
-  /// <summary>The cache sharing scope (§13).</summary>
+  /// <summary>The cache sharing scope (§13); REQUIRED on emit, tolerated absent on receipt.</summary>
   public CacheScope? CacheScope { get; init; }
+
+  /// <summary>
+  /// Asserts the §17.3/§13 emit invariant — <see cref="ResultType"/> is <c>"complete"</c> and both
+  /// caching hints are present and well-formed — returning this same instance. Apply before sending.
+  /// </summary>
+  /// <returns>This instance.</returns>
+  /// <exception cref="ArgumentException">When the discriminator or a caching hint is malformed.</exception>
+  public ListResourceTemplatesResult Validated()
+  {
+    Caching.ValidateCacheableComplete(ResultType, TtlMs, CacheScope, nameof(ListResourceTemplatesResult));
+    return this;
+  }
 }
 
 /// <summary>The cacheable result of <c>resources/read</c> (spec §17.5).</summary>
@@ -111,11 +152,32 @@ public sealed record ReadResourceResult
   /// <summary>REQUIRED. One or more content entries (text or blob variant); never empty for an existing resource.</summary>
   public required IReadOnlyList<ResourceContents> Contents { get; init; }
 
-  /// <summary>The cache time-to-live hint in milliseconds (§13).</summary>
+  /// <summary>
+  /// REQUIRED on emit (§3.6, §17.5): the base result-type discriminator, <c>"complete"</c> for a
+  /// completed read. Defaults to <c>"complete"</c>, which also makes an inbound result that omits
+  /// <c>resultType</c> degrade to <c>complete</c> per the §3.6 receiver rule (R-17.5-q). A read reply
+  /// MAY instead carry <c>"input_required"</c> (§11); discriminate with
+  /// <see cref="Resources.DiscriminateReadResourceResponse"/> before binding to this record.
+  /// </summary>
+  public string ResultType { get; init; } = ResultTypes.Complete;
+
+  /// <summary>The cache time-to-live hint in milliseconds (§13); REQUIRED on emit, tolerated absent on receipt.</summary>
   public long? TtlMs { get; init; }
 
-  /// <summary>The cache sharing scope (§13).</summary>
+  /// <summary>The cache sharing scope (§13); REQUIRED on emit, tolerated absent on receipt.</summary>
   public CacheScope? CacheScope { get; init; }
+
+  /// <summary>
+  /// Asserts the §17.5/§13 emit invariant — <see cref="ResultType"/> is <c>"complete"</c> and both
+  /// caching hints are present and well-formed — returning this same instance. Apply before sending.
+  /// </summary>
+  /// <returns>This instance.</returns>
+  /// <exception cref="ArgumentException">When the discriminator or a caching hint is malformed.</exception>
+  public ReadResourceResult Validated()
+  {
+    Caching.ValidateCacheableComplete(ResultType, TtlMs, CacheScope, nameof(ReadResourceResult));
+    return this;
+  }
 }
 
 /// <summary>Parameters of the <c>notifications/resources/updated</c> notification (spec §17.7).</summary>

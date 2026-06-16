@@ -22,6 +22,25 @@ public sealed class McpClient : IAsyncDisposable
 
   private readonly Dictionary<string, Func<JsonObject?, Task<JsonNode>>> _inputHandlers = new(StringComparer.Ordinal);
 
+  // §16.6: each tool's declared outputSchema (or null when it declares none), captured from the most
+  // recent ListToolsAsync so a later tools/call result can be validated against it client-side
+  // (see CallToolValidatedAsync). Empty until the client lists tools.
+  private readonly Dictionary<string, JsonObject?> _knownToolOutputSchemas = new(StringComparer.Ordinal);
+
+  // §13: an OPT-IN client response cache for the five cacheable methods. Null unless the caller enabled
+  // caching; freshness uses a client-LOCAL monotonic clock (never the server's). Not thread-safe — like
+  // the rest of this client, calls are expected to be serialized per instance.
+  private readonly ResponseCache<JsonObject>? _responseCache;
+  private readonly Func<long> _clock;
+
+  // §19 (R-19-…): an OPTIONAL client-side rate limiter for completion/complete. Null unless configured.
+  private readonly CompletionThrottle? _completionThrottle;
+
+  // §10.5 (R-10.5-c/e/g): when true (and caching is on), a */list_changed notification on a subscription
+  // stream auto-re-fetches the affected list to refresh the cache. Independent of the invalidation that
+  // always happens when caching is on, so the two behaviors can be enabled separately.
+  private readonly bool _refetchOnListChange;
+
   private long _nextId;
   private string _protocolVersion = ProtocolRevision.Current;
   private DiscoverResult? _discovered;
@@ -30,11 +49,42 @@ public sealed class McpClient : IAsyncDisposable
   /// <param name="transport">The transport carrying messages to the server.</param>
   /// <param name="clientInfo">The client identity advertised on every request (§4.3).</param>
   /// <param name="capabilities">The capabilities advertised on every request (§6.2); defaults to none.</param>
-  public McpClient(ClientTransport transport, Implementation clientInfo, ClientCapabilities? capabilities = null)
+  /// <param name="cacheResults">
+  /// When <c>true</c>, the five cacheable methods (§13.4 — tools/resources/templates/prompts list and
+  /// resources/read) serve a fresh cached result within its <c>ttlMs</c> instead of re-requesting, and the
+  /// cache is invalidated by the matching <c>*/list_changed</c> / <c>resources/updated</c> notification on
+  /// a subscription stream. Off by default (every call hits the wire).
+  /// </param>
+  /// <param name="completionThrottle">
+  /// When set, successive <c>completion/complete</c> requests are spaced by at least this interval (§19
+  /// rate-limiting). Off by default.
+  /// </param>
+  /// <param name="clock">
+  /// A client-LOCAL monotonic time source in milliseconds, used for cache freshness and completion
+  /// throttling (§13.2 forbids assuming client/server clock agreement). Defaults to
+  /// <see cref="Environment.TickCount64"/>; injectable for tests.
+  /// </param>
+  /// <param name="refetchOnListChange">
+  /// When <c>true</c> (and <paramref name="cacheResults"/> is on), a <c>*/list_changed</c> notification on a
+  /// subscription stream auto-re-fetches the affected list to refresh the cache (§10.5). Off by default;
+  /// independent of the cache invalidation that always occurs when caching is on.
+  /// </param>
+  public McpClient(
+    ClientTransport transport,
+    Implementation clientInfo,
+    ClientCapabilities? capabilities = null,
+    bool cacheResults = false,
+    TimeSpan? completionThrottle = null,
+    Func<long>? clock = null,
+    bool refetchOnListChange = false)
   {
     _transport = transport;
     _clientInfo = clientInfo;
     _capabilities = capabilities ?? ClientCapabilities.None;
+    _clock = clock ?? (static () => Environment.TickCount64);
+    _responseCache = cacheResults ? new ResponseCache<JsonObject>() : null;
+    _completionThrottle = completionThrottle is { } interval ? new CompletionThrottle(interval, _clock) : null;
+    _refetchOnListChange = refetchOnListChange;
   }
 
   /// <summary>The underlying transport (exposed so a host can tap the wire).</summary>
@@ -93,8 +143,14 @@ public sealed class McpClient : IAsyncDisposable
   /// <summary>Lists the server's tools (spec §16.2).</summary>
   /// <param name="cursor">An optional pagination cursor.</param>
   /// <returns>The tools page.</returns>
-  public async Task<ListToolsResult> ListToolsAsync(string? cursor = null) =>
-    Deserialize<ListToolsResult>(await RequestAsync(McpMethods.ToolsList, Cursor(cursor)).ConfigureAwait(false));
+  public async Task<ListToolsResult> ListToolsAsync(string? cursor = null)
+  {
+    var key = PaginationUtilities.PaginationCacheKey(McpMethods.ToolsList, cursor);
+    var result = Deserialize<ListToolsResult>(await CachedRequestAsync(key, McpMethods.ToolsList, Cursor(cursor)).ConfigureAwait(false));
+    // §16.6: remember each tool's declared output contract so CallToolValidatedAsync can enforce it.
+    foreach (var tool in result.Tools) _knownToolOutputSchemas[tool.Name] = tool.OutputSchema;
+    return result;
+  }
 
   /// <summary>Invokes a tool and returns the raw result object (which may be a <c>CallToolResult</c> or an input-required result, §11/§16.5).</summary>
   /// <param name="name">The tool name.</param>
@@ -104,29 +160,88 @@ public sealed class McpClient : IAsyncDisposable
   public Task<JsonObject> CallToolAsync(string name, JsonObject? arguments = null, RequestOptions? options = null) =>
     RequestAsync(McpMethods.ToolsCall, new JsonObject { ["name"] = name, ["arguments"] = arguments?.DeepClone() ?? new JsonObject() }, options);
 
+  /// <summary>
+  /// Invokes a tool and validates the returned result on receipt (spec §3.6, §16.6): a result whose
+  /// <c>resultType</c> the client does not recognize is rejected (§3.6, the unrecognized-discriminator
+  /// MUST), and — when the tool's <c>outputSchema</c> is known to this client from a prior
+  /// <see cref="ListToolsAsync"/> — a completed result's <c>structuredContent</c> is validated against
+  /// that schema, rejecting a non-conforming server result. When no schema is known the result is
+  /// returned unvalidated. Prefer this over <see cref="CallToolAsync"/> to defensively enforce the
+  /// server's declared output contract.
+  /// </summary>
+  /// <param name="name">The tool name.</param>
+  /// <param name="arguments">The arguments object.</param>
+  /// <param name="options">Per-request options.</param>
+  /// <returns>The validated result object.</returns>
+  /// <exception cref="McpError">When the result carries an unrecognized <c>resultType</c> or <c>structuredContent</c> that violates the tool's declared <c>outputSchema</c>.</exception>
+  public async Task<JsonObject> CallToolValidatedAsync(string name, JsonObject? arguments = null, RequestOptions? options = null)
+  {
+    var result = await CallToolAsync(name, arguments, options).ConfigureAwait(false);
+    ValidateReceivedToolResult(name, result);
+    return result;
+  }
+
+  /// <summary>
+  /// Enforces the client-side receipt checks for a <c>tools/call</c> result (spec §3.6, §16.6): rejects
+  /// an unrecognized <c>resultType</c>, and validates a completed result's <c>structuredContent</c>
+  /// against the tool's known <c>outputSchema</c>. An absent <c>resultType</c> degrades to
+  /// <c>"complete"</c> (§3.6).
+  /// </summary>
+  /// <param name="name">The tool name (used to look up the known output schema).</param>
+  /// <param name="result">The raw <c>tools/call</c> result object.</param>
+  private void ValidateReceivedToolResult(string name, JsonObject result)
+  {
+    var resultType = result["resultType"] is JsonValue rt && rt.GetValueKind() == JsonValueKind.String
+      ? rt.GetValue<string>()
+      : ResultTypes.Complete; // §3.6: absent ⇒ complete.
+
+    // §3.6: "complete"/"input_required" are core; "task" is the recognized tools/call task handle. Any
+    // other value is unrecognized and the receiver MUST treat the response as an error.
+    if (resultType is not (ResultTypes.Complete or ResultTypes.InputRequired or ResultTypes.Task))
+    {
+      throw McpError.InternalError($"tools/call for \"{name}\" returned an unrecognized resultType \"{resultType}\" (§3.6).");
+    }
+
+    // Only a completed result carries structuredContent; validate it against the declared schema (§16.6).
+    if (resultType != ResultTypes.Complete) return;
+    if (!_knownToolOutputSchemas.TryGetValue(name, out var outputSchema) || outputSchema is null) return;
+    if (!result.ContainsKey("structuredContent")) return;
+
+    var validation = ToolSchemas.ValidateToolStructuredContent(outputSchema, result["structuredContent"]);
+    if (!validation.Valid)
+    {
+      throw McpError.InternalError(
+        $"tools/call result for \"{name}\" has structuredContent that violates the tool's declared outputSchema (§16.6): {string.Join("; ", validation.Errors)}");
+    }
+  }
+
   /// <summary>Lists the server's resources (spec §17.2).</summary>
   /// <param name="cursor">An optional pagination cursor.</param>
   /// <returns>The resources page.</returns>
   public async Task<ListResourcesResult> ListResourcesAsync(string? cursor = null) =>
-    Deserialize<ListResourcesResult>(await RequestAsync(McpMethods.ResourcesList, Cursor(cursor)).ConfigureAwait(false));
+    Deserialize<ListResourcesResult>(await CachedRequestAsync(
+      PaginationUtilities.PaginationCacheKey(McpMethods.ResourcesList, cursor), McpMethods.ResourcesList, Cursor(cursor)).ConfigureAwait(false));
 
   /// <summary>Lists the server's resource templates (spec §17.3).</summary>
   /// <param name="cursor">An optional pagination cursor.</param>
   /// <returns>The templates page.</returns>
   public async Task<ListResourceTemplatesResult> ListResourceTemplatesAsync(string? cursor = null) =>
-    Deserialize<ListResourceTemplatesResult>(await RequestAsync(McpMethods.ResourceTemplatesList, Cursor(cursor)).ConfigureAwait(false));
+    Deserialize<ListResourceTemplatesResult>(await CachedRequestAsync(
+      PaginationUtilities.PaginationCacheKey(McpMethods.ResourceTemplatesList, cursor), McpMethods.ResourceTemplatesList, Cursor(cursor)).ConfigureAwait(false));
 
   /// <summary>Reads a resource by URI (spec §17.5).</summary>
   /// <param name="uri">The resource URI.</param>
   /// <returns>The read result.</returns>
   public async Task<ReadResourceResult> ReadResourceAsync(string uri) =>
-    Deserialize<ReadResourceResult>(await RequestAsync(McpMethods.ResourcesRead, new JsonObject { ["uri"] = uri }).ConfigureAwait(false));
+    Deserialize<ReadResourceResult>(await CachedRequestAsync(
+      $"{McpMethods.ResourcesRead}::{uri}", McpMethods.ResourcesRead, new JsonObject { ["uri"] = uri }).ConfigureAwait(false));
 
   /// <summary>Lists the server's prompts (spec §18.2).</summary>
   /// <param name="cursor">An optional pagination cursor.</param>
   /// <returns>The prompts page.</returns>
   public async Task<ListPromptsResult> ListPromptsAsync(string? cursor = null) =>
-    Deserialize<ListPromptsResult>(await RequestAsync(McpMethods.PromptsList, Cursor(cursor)).ConfigureAwait(false));
+    Deserialize<ListPromptsResult>(await CachedRequestAsync(
+      PaginationUtilities.PaginationCacheKey(McpMethods.PromptsList, cursor), McpMethods.PromptsList, Cursor(cursor)).ConfigureAwait(false));
 
   /// <summary>Resolves a prompt with arguments (spec §18.4).</summary>
   /// <param name="name">The prompt name.</param>
@@ -150,6 +265,12 @@ public sealed class McpClient : IAsyncDisposable
   /// <returns>The completion result.</returns>
   public async Task<CompleteResult> CompleteAsync(CompletionReference reference, CompletionArgument argument, CompletionContext? context = null)
   {
+    // §19 rate-limiting (opt-in): space successive completion requests by the configured minimum interval.
+    if (_completionThrottle is { } throttle)
+    {
+      var wait = throttle.Reserve();
+      if (wait > TimeSpan.Zero) await Task.Delay(wait).ConfigureAwait(false);
+    }
     var prms = Serialize(new CompleteRequestParams { Ref = reference, Argument = argument, Context = context });
     return Deserialize<CompleteResult>(await RequestAsync(McpMethods.CompletionComplete, prms).ConfigureAwait(false));
   }
@@ -200,7 +321,7 @@ public sealed class McpClient : IAsyncDisposable
   /// </summary>
   /// <param name="taskId">The task id.</param>
   /// <param name="inputResponses">The responses keyed by outstanding input-request key.</param>
-  /// <returns>The acknowledgement result object (the task's resulting <c>DetailedTask</c>).</returns>
+  /// <returns>The empty acknowledgement (<c>resultType: "complete"</c>); observe the new state via <see cref="GetTaskAsync"/> (§25.8).</returns>
   public Task<JsonObject> UpdateTaskAsync(string taskId, JsonObject inputResponses)
   {
     ArgumentNullException.ThrowIfNull(inputResponses);
@@ -213,7 +334,7 @@ public sealed class McpClient : IAsyncDisposable
 
   /// <summary>Requests cancellation of a task (spec §25.9).</summary>
   /// <param name="taskId">The task id.</param>
-  /// <returns>The acknowledgement result object (the task's resulting <c>DetailedTask</c>).</returns>
+  /// <returns>The empty acknowledgement (<c>resultType: "complete"</c>); observe the new state via <see cref="GetTaskAsync"/> (§25.9).</returns>
   public Task<JsonObject> CancelTaskAsync(string taskId) =>
     RequestAsync(McpMethods.TasksCancel, new JsonObject { ["taskId"] = taskId });
 
@@ -335,13 +456,30 @@ public sealed class McpClient : IAsyncDisposable
         if (subscription.IsClosed) return;
         var routedId = SubscriptionRegistry.ReadSubscriptionId(notification.Params);
         if (routedId is not null && !string.Equals(routedId, subscriptionId, StringComparison.Ordinal)) return;
+        // §10.6: a request-scoped notification (notifications/progress, notifications/message) MUST NOT
+        // ride a subscription stream. If a server misroutes one here, drop it rather than surfacing it as
+        // a change notification to the caller.
+        if (Subscriptions.IsViolationOnSubscriptionStream(notification.Method)) return;
+        // §13.5 (R-13.5-j): a change notification invalidates the cached list/read results it affects, so a
+        // subsequent read re-fetches the fresh state rather than serving stale cache.
+        _responseCache?.InvalidateByNotification(notification.Method);
+        // §10.5 (R-10.5-c/e/g): when auto-refetch is enabled, a list-changed notification re-fetches the
+        // affected list to refresh the cache. Fire-and-forget so a failed refresh can never throw into the
+        // transport's notification pump.
+        if (_responseCache is not null && _refetchOnListChange) TriggerListRefetch(notification.Method);
         onNotification?.Invoke(notification);
       },
       cancellationToken).ConfigureAwait(false);
 
+    // §10.3: surface the kinds the server declined (requested but not honored) so the caller knows which
+    // change notifications it will not receive.
+    var declined = Subscriptions.DeclinedFilterKinds(filter, handle.HonoredFilter);
+
     return new SubscriptionHandle
     {
       HonoredFilter = handle.HonoredFilter,
+      DeclinedFields = declined.Fields,
+      DeclinedUris = declined.Uris,
       Unsubscribe = async () =>
       {
         // §10.7: closing the subscription is a client cancel; remove it (no retained state) and tear down
@@ -475,16 +613,38 @@ public sealed class McpClient : IAsyncDisposable
       additional ??= new JsonObject();
       additional[MetaKeys.ProgressToken] = token.ToJsonNode();
     }
-    prms["_meta"] = new RequestMeta
-    {
-      ProtocolVersion = _protocolVersion,
-      ClientInfo = _clientInfo,
-      ClientCapabilities = _capabilities,
-      Additional = additional,
-    }.ToJsonObject();
 
-    var request = new JsonRpcRequest(new RequestId(Interlocked.Increment(ref _nextId)), method, prms);
-    var response = await _transport.SendRequestAsync(request, options).ConfigureAwait(false);
+    // One attempt at the CURRENT negotiated revision. Factored so a -32004 rejection can retry once at a
+    // reselected revision (below) without rebuilding the caller's parameters.
+    async Task<JsonRpcMessage> SendOnceAsync()
+    {
+      var attemptParams = (JsonObject)prms.DeepClone();
+      attemptParams["_meta"] = new RequestMeta
+      {
+        ProtocolVersion = _protocolVersion,
+        ClientInfo = _clientInfo,
+        ClientCapabilities = _capabilities,
+        Additional = additional,
+      }.ToJsonObject();
+      var request = new JsonRpcRequest(new RequestId(Interlocked.Increment(ref _nextId)), method, attemptParams);
+      return await _transport.SendRequestAsync(request, options).ConfigureAwait(false);
+    }
+
+    var response = await SendOnceAsync().ConfigureAwait(false);
+
+    // §5.5 / R-29.3-c: on UnsupportedProtocolVersion (-32004), reselect a revision from the error's
+    // authoritative data.supported set and retry exactly ONCE at the reselected revision. An empty
+    // overlap is terminal — surface IncompatibleProtocolError rather than looping (R-5.5-i/j).
+    if (response is JsonRpcErrorResponse { Error.Code: ErrorCodes.UnsupportedProtocolVersion } unsupported)
+    {
+      var reselected = RevisionNegotiation.ReselectAfterUnsupportedVersion(unsupported.Error, ProtocolRevision.Supported);
+      if (!reselected.Ok)
+      {
+        throw new IncompatibleProtocolError(ProtocolRevision.Supported, reselected.ServerSupported);
+      }
+      _protocolVersion = reselected.SelectedRevision!;
+      response = await SendOnceAsync().ConfigureAwait(false);
+    }
 
     return response switch
     {
@@ -492,6 +652,62 @@ public sealed class McpClient : IAsyncDisposable
       JsonRpcErrorResponse failure => throw new McpError(failure.Error.Code, failure.Error.Message, failure.Error.Data),
       _ => throw McpError.InternalError("Transport returned a non-response message."),
     };
+  }
+
+  /// <summary>
+  /// Issues a cacheable request through the §13 response cache when caching is enabled: serves a fresh
+  /// cached result within its <c>ttlMs</c> (no wire request), otherwise fetches and stores it with the
+  /// result's own caching hints. When caching is disabled this is a plain <see cref="RequestAsync"/>.
+  /// </summary>
+  /// <param name="cacheKey">The per-result cache key (method + cursor, or method + uri for a read).</param>
+  /// <param name="method">The JSON-RPC method.</param>
+  /// <param name="paramsBody">The method parameters, or <c>null</c>.</param>
+  /// <returns>The fresh-cached or freshly-fetched result object.</returns>
+  private async Task<JsonObject> CachedRequestAsync(string cacheKey, string method, JsonObject? paramsBody)
+  {
+    if (_responseCache is { } cache)
+    {
+      var hit = cache.Get(cacheKey, _clock());
+      if (hit.Hit) return (JsonObject)hit.Value!.DeepClone();
+    }
+    var result = await RequestAsync(method, paramsBody).ConfigureAwait(false);
+    // ResponseCache skips entries whose ttlMs/cacheScope hints are missing or invalid, and never serves a
+    // ttlMs:0 entry as fresh (§13.2) — so a non-caching server's results pass straight through.
+    _responseCache?.Set(cacheKey, (JsonObject)result.DeepClone(), result["ttlMs"], result["cacheScope"], _clock());
+    return result;
+  }
+
+  /// <summary>
+  /// Fire-and-forget re-fetch of the list a <c>*/list_changed</c> notification affects, so the cache (and
+  /// the client's view) refreshes (§10.5). A non-list-changed method is ignored. The re-fetch runs detached
+  /// and never propagates a failure into the caller's notification pump (R-10.5-g).
+  /// </summary>
+  /// <param name="changeMethod">The notification method that arrived on the subscription stream.</param>
+  private void TriggerListRefetch(string changeMethod)
+  {
+    Func<Task>? refetch = changeMethod switch
+    {
+      McpMethods.NotificationsToolsListChanged => () => ListToolsAsync(),
+      McpMethods.NotificationsPromptsListChanged => () => ListPromptsAsync(),
+      McpMethods.NotificationsResourcesListChanged => () => ListResourcesAsync(),
+      _ => null,
+    };
+    if (refetch is not null) _ = SafeRefetchAsync(refetch);
+  }
+
+  /// <summary>Runs a best-effort list re-fetch, swallowing any failure so it cannot escape into the notification pump.</summary>
+  /// <param name="refetch">The re-fetch to attempt.</param>
+  private static async Task SafeRefetchAsync(Func<Task> refetch)
+  {
+    try
+    {
+      await refetch().ConfigureAwait(false);
+    }
+    catch (Exception)
+    {
+      // A list refresh is advisory (§10.5): a transient failure must not disturb the subscription stream.
+      // The next explicit list call (cache invalidated) will fetch fresh.
+    }
   }
 
   /// <inheritdoc/>
@@ -504,4 +720,32 @@ public sealed class McpClient : IAsyncDisposable
 
   private static T Deserialize<T>(JsonObject result) =>
     result.Deserialize<T>(McpJson.Options) ?? throw McpError.InternalError($"Could not read a {typeof(T).Name} result.");
+}
+
+/// <summary>
+/// A minimal client-side rate limiter that spaces successive requests (for example
+/// <c>completion/complete</c>, §19) by at least a fixed minimum interval. It computes the wait purely
+/// from a client-local clock so it is deterministic and unit-testable; the caller awaits the returned
+/// delay before issuing its request.
+/// </summary>
+/// <param name="minInterval">The minimum spacing between consecutive turns.</param>
+/// <param name="clock">A client-local millisecond clock.</param>
+internal sealed class CompletionThrottle(TimeSpan minInterval, Func<long> clock)
+{
+  private readonly long _minIntervalMs = (long)minInterval.TotalMilliseconds;
+  private long _nextAllowedMs;
+
+  /// <summary>
+  /// Reserves the next turn and returns how long the caller must wait before issuing its request: zero
+  /// when the interval has already elapsed, otherwise the remaining time. Reserving advances the gate by
+  /// the minimum interval so a burst of calls is paced rather than coalesced.
+  /// </summary>
+  /// <returns>The delay to honor before issuing the request.</returns>
+  public TimeSpan Reserve()
+  {
+    var now = clock();
+    var waitMs = Math.Max(0, _nextAllowedMs - now);
+    _nextAllowedMs = Math.Max(now, _nextAllowedMs) + _minIntervalMs;
+    return TimeSpan.FromMilliseconds(waitMs);
+  }
 }

@@ -496,6 +496,66 @@ public sealed class TasksLifecycleTests
     Assert.Equal("Completed 2 steps.", task["result"]!["content"]![0]!["text"]!.GetValue<string>());
   }
 
+  // ───────────────────────── S39: client poll driver + cross-connection resume ─────────────────────────
+
+  [Fact]
+  public async Task Poll_task_until_terminal_drives_a_task_to_completed()
+  {
+    // §25.5/§25.7: the SDK's PollTaskUntilTerminalAsync polls tasks/get until a terminal status, honoring
+    // the advertised pollIntervalMs, and returns only the terminal task.
+    await using var client = InMemory.Connect(BuildServer(), capabilities: WithTasks());
+    await client.DiscoverAsync();
+    var created = await client.CreateTaskAsync("long_job", Obj("""{"steps":3}"""));
+    var taskId = created["taskId"]!.GetValue<string>();
+
+    var terminal = await client.PollTaskUntilTerminalAsync(taskId, timeout: TimeSpan.FromSeconds(10));
+
+    Assert.Equal("completed", terminal["status"]!.GetValue<string>());
+    Assert.Equal("Completed 3 steps.", terminal["result"]!["content"]![0]!["text"]!.GetValue<string>());
+  }
+
+  [Fact]
+  public void May_poll_now_honors_the_advertised_poll_interval()
+  {
+    // §25.7 (R-25.7-o): a first poll is always allowed; a later poll only after the interval has elapsed.
+    Assert.True(Tasks.MayPollNow(lastPolledAtMs: null, nowMs: 1_000, pollIntervalMs: 500));  // first poll
+    Assert.False(Tasks.MayPollNow(lastPolledAtMs: 1_000, nowMs: 1_200, pollIntervalMs: 500)); // too soon
+    Assert.True(Tasks.MayPollNow(lastPolledAtMs: 1_000, nowMs: 1_500, pollIntervalMs: 500));  // interval elapsed
+  }
+
+  [Fact]
+  public void Should_continue_polling_stops_on_terminal_or_cancel()
+  {
+    // §25.7 (R-25.7-p): keep polling while non-terminal and not cancelled; stop otherwise (R-25.9-k).
+    Assert.True(Tasks.ShouldContinuePolling(McpTaskStatus.Working));
+    Assert.True(Tasks.ShouldContinuePolling(McpTaskStatus.InputRequired));
+    Assert.False(Tasks.ShouldContinuePolling(McpTaskStatus.Completed));
+    Assert.False(Tasks.ShouldContinuePolling(McpTaskStatus.Failed));
+    Assert.False(Tasks.ShouldContinuePolling(McpTaskStatus.Cancelled));
+    Assert.False(Tasks.ShouldContinuePolling(McpTaskStatus.Working, cancelRequested: true));
+  }
+
+  [Fact]
+  public async Task A_task_resolves_and_completes_over_a_fresh_connection_to_the_same_server()
+  {
+    // §25.6 (R-25.6-h): a task id is opaque and connection-agnostic. A task created over one connection
+    // resolves — and polls to completion — over a SEPARATE connection to the same server (no affinity).
+    var server = BuildServer();
+    string taskId;
+    await using (var a = InMemory.Connect(server, capabilities: WithTasks()))
+    {
+      await a.DiscoverAsync();
+      var created = await a.CreateTaskAsync("long_job", Obj("""{"steps":2}"""));
+      taskId = created["taskId"]!.GetValue<string>();
+    }
+
+    await using var b = InMemory.Connect(server, capabilities: WithTasks());
+    await b.DiscoverAsync();
+    var terminal = await b.PollTaskUntilTerminalAsync(taskId, timeout: TimeSpan.FromSeconds(10));
+
+    Assert.Equal("completed", terminal["status"]!.GetValue<string>());
+  }
+
   [Fact]
   public async Task Get_task_result_object_is_tagged_complete()
   {

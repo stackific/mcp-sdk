@@ -1033,6 +1033,86 @@ public sealed class ClientBehaviorTests
     Assert.Contains(notes, n => n.Method == McpMethods.NotificationsProgress);
   }
 
+  // ───────────────────────── §16.6 client-side output validation (CallToolValidatedAsync) ─────────────────────────
+
+  /// <summary>
+  /// A minimal request handler that returns canned <c>tools/list</c> and <c>tools/call</c> results,
+  /// bypassing the real server's own output validation so a test can inject a non-conforming result and
+  /// assert that the CLIENT rejects it on receipt (§3.6, §16.6).
+  /// </summary>
+  private sealed class CannedToolHandler : IMcpRequestHandler
+  {
+    private readonly JsonObject _listResult;
+    private readonly JsonObject _callResult;
+
+    public CannedToolHandler(JsonObject listResult, JsonObject callResult)
+    {
+      _listResult = listResult;
+      _callResult = callResult;
+    }
+
+    public Task<JsonRpcMessage> HandleRequestAsync(JsonRpcRequest request, IServerNotifier notifier, AuthInfo? authInfo, CancellationToken cancellationToken)
+    {
+      JsonObject result = request.Method switch
+      {
+        McpMethods.ToolsList => _listResult,
+        McpMethods.ToolsCall => _callResult,
+        _ => new JsonObject { ["resultType"] = "complete" },
+      };
+      return Task.FromResult<JsonRpcMessage>(new JsonRpcSuccessResponse(request.Id, (JsonObject)result.DeepClone()));
+    }
+
+    public Task HandleNotificationAsync(JsonRpcNotification notification, CancellationToken cancellationToken) => Task.CompletedTask;
+  }
+
+  private static McpClient ConnectCanned(JsonObject listResult, JsonObject callResult) =>
+    new(new CapturingTransport(new CannedToolHandler(listResult, callResult)),
+        new Implementation { Name = "behaviour-client", Version = "3.2.1" });
+
+  private static JsonObject ToolListWithNumberSchema() => Obj(
+    """{"tools":[{"name":"calc","inputSchema":{"type":"object"},"outputSchema":{"type":"object","properties":{"n":{"type":"number"}},"required":["n"]}}],"resultType":"complete","ttlMs":0,"cacheScope":"private"}""");
+
+  [Fact]
+  public async Task CallToolValidatedAsync_accepts_structured_content_that_conforms_to_the_output_schema()
+  {
+    var call = Obj("""{"resultType":"complete","content":[],"structuredContent":{"n":5}}""");
+    await using var client = ConnectCanned(ToolListWithNumberSchema(), call);
+    await client.ListToolsAsync();
+    var result = await client.CallToolValidatedAsync("calc");
+    Assert.Equal(5, result["structuredContent"]!["n"]!.GetValue<int>());
+  }
+
+  [Fact]
+  public async Task CallToolValidatedAsync_rejects_structured_content_that_violates_the_output_schema()
+  {
+    // §16.6: a completed result whose structuredContent breaks the tool's declared outputSchema is rejected.
+    var call = Obj("""{"resultType":"complete","content":[],"structuredContent":{"n":"not-a-number"}}""");
+    await using var client = ConnectCanned(ToolListWithNumberSchema(), call);
+    await client.ListToolsAsync();
+    await Assert.ThrowsAsync<McpError>(() => client.CallToolValidatedAsync("calc"));
+  }
+
+  [Fact]
+  public async Task CallToolValidatedAsync_rejects_an_unrecognized_result_type()
+  {
+    // §3.6: a result whose resultType the receiver does not recognize MUST be treated as an error.
+    var call = Obj("""{"resultType":"bogus","content":[]}""");
+    await using var client = ConnectCanned(ToolListWithNumberSchema(), call);
+    await client.ListToolsAsync();
+    await Assert.ThrowsAsync<McpError>(() => client.CallToolValidatedAsync("calc"));
+  }
+
+  [Fact]
+  public async Task CallToolValidatedAsync_skips_validation_when_the_output_schema_is_unknown()
+  {
+    // Without a prior ListToolsAsync the client has no schema for the tool, so it cannot (and does not)
+    // validate — the raw result is returned even though it would violate the schema.
+    var call = Obj("""{"resultType":"complete","content":[],"structuredContent":{"n":"not-a-number"}}""");
+    await using var client = ConnectCanned(ToolListWithNumberSchema(), call);
+    var result = await client.CallToolValidatedAsync("calc"); // never listed → no schema known
+    Assert.Equal("not-a-number", result["structuredContent"]!["n"]!.GetValue<string>());
+  }
+
   // ───────────────────────── shared assertions ─────────────────────────
 
   /// <summary>Asserts the three REQUIRED per-request <c>_meta</c> keys are present and well-formed (§4.3).</summary>

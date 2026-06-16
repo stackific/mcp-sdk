@@ -105,6 +105,21 @@ public sealed record CallToolResult
   /// <returns>The result.</returns>
   public static CallToolResult FromError(string text) =>
     new() { Content = [ContentBlocks.Text(text)], IsError = true };
+
+  /// <summary>
+  /// Builds a result for a tool that declares an <c>outputSchema</c> (spec §16.5, R-16.5-p): it sets the
+  /// REQUIRED <see cref="StructuredContent"/> and ALSO provides the SHOULD-level unstructured text
+  /// fallback — a single text block holding the structured value's JSON serialization — so a client that
+  /// does not consume <c>structuredContent</c> still has a renderable representation.
+  /// </summary>
+  /// <param name="structuredContent">The structured result value (any JSON type, including <c>null</c>).</param>
+  /// <returns>The result carrying both the structured value and its serialized text fallback.</returns>
+  public static CallToolResult FromStructured(JsonNode? structuredContent) =>
+    new()
+    {
+      Content = [ContentBlocks.Text(structuredContent?.ToJsonString(McpJson.Options) ?? "null")],
+      StructuredContent = structuredContent?.DeepClone(),
+    };
 }
 
 /// <summary>The schema slot being validated: governs the root-<c>type</c> rule (spec §16.4).</summary>
@@ -200,7 +215,14 @@ public static class ToolSchemas
   /// <summary>The default JSON Schema dialect assumed when no explicit <c>$schema</c> is present (§16.4(1), R-16.4-a).</summary>
   public const string DefaultSchemaDialect = "https://json-schema.org/draft/2020-12/schema";
 
-  /// <summary>The dialects this implementation can validate against — the required 2020-12 dialect and its <c>#</c> form (R-16.4-s, R-16.4-u).</summary>
+  /// <summary>
+  /// The complete set of JSON Schema dialects this implementation can validate against (§16.4(9),
+  /// R-16.4-s, R-16.4-u): ONLY JSON Schema 2020-12 — both the canonical
+  /// <c>https://json-schema.org/draft/2020-12/schema</c> and its <c>#</c>-suffixed spelling. No dialect
+  /// beyond 2020-12 is supported; a tool schema declaring any other <c>$schema</c> (for example
+  /// Draft-07) is rejected by <see cref="IsSupportedSchemaDialect"/> / <see cref="ValidateToolSchema"/>
+  /// rather than silently treated as permissive (R-16.4-t).
+  /// </summary>
   public static IReadOnlySet<string> SupportedSchemaDialects { get; } =
     new HashSet<string>(StringComparer.Ordinal)
     {

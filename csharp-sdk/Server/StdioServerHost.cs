@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json.Nodes;
 
 using Stackific.Mcp.JsonRpc;
@@ -10,27 +11,20 @@ namespace Stackific.Mcp.Server;
 /// Serves an <see cref="McpServer"/> over a byte-channel transport — the stdio transport in practice
 /// (spec §8). It reads inbound client requests/notifications from the transport, dispatches each through
 /// <see cref="McpServer.HandleRequestAsync"/>, and writes the responses and request-scoped notifications
-/// back over the same channel. Interim notifications and LIVE server→client requests
-/// (<c>elicitation/create</c> / <c>sampling/createMessage</c> / <c>roots/list</c>) ride the same channel,
-/// correlated to the client's reply purely by JSON-RPC id via a <see cref="RequestCorrelator"/>. The C#
-/// counterpart of the TypeScript <c>serveStdio</c>.
+/// back over the same channel.
 /// </summary>
 /// <remarks>
 /// <para>
-/// Statelessness (§7.6): there is no session. Each request is self-contained and dispatched on its own;
-/// the only cross-message state is the id-correlation of a server→client request to its reply (§7.2).
+/// Statelessness (§7.6): there is no session. Each request is self-contained and dispatched on its own.
 /// </para>
 /// <para>
-/// <b>Live server→client requests over stdio.</b> The host writes a server→client request as a JSON-RPC
-/// <em>request</em> frame through <see cref="IByteChannelTransport.Send"/>. A strict stdio
-/// <c>StdioServerTransport</c> enforces the §8.3 stream-role rule (a server MUST NOT write a request to
-/// stdout, R-8.3-b) and so REJECTS that frame with a <see cref="TransportError"/>; the awaiting handler
-/// then observes the failure. This matches the TypeScript <c>serveStdio</c>, where the equivalent
-/// <c>transport.send</c> is likewise role-checked. Over such a transport the supported mechanism for
-/// soliciting client input is the §11 <c>input_required</c> retry loop (via
-/// <see cref="ToolContext.ElicitInputAsync"/> etc.), NOT the live request. A transport whose send-role
-/// permits server→client requests (for example a bidirectional in-memory byte channel) carries the live
-/// request end to end.
+/// <b>No server→client request channel (§8.3 / §9.6.2 R-9.6.2-d).</b> A server MUST NOT write a JSON-RPC
+/// <em>request</em> to its output stream. The host therefore never issues server-initiated requests; the
+/// supported mechanism for soliciting client input is the §11 <c>input_required</c> retry loop (via
+/// <see cref="ToolContext.ElicitInputAsync"/> / <see cref="ToolContext.CreateMessageAsync"/> /
+/// <see cref="ToolContext.ListRootsAsync"/>). An inbound JSON-RPC response is therefore unsolicited and
+/// ignored (§7.4). A <c>notifications/cancelled</c> aborts the matching in-flight request and suppresses
+/// its response (§8.3 R-8.3-g).
 /// </para>
 /// </remarks>
 public sealed class StdioServerHost : IDisposable
@@ -39,9 +33,11 @@ public sealed class StdioServerHost : IDisposable
   private readonly IMcpRequestHandler _server;
   private readonly AuthInfo? _authInfo;
   private readonly RequestCorrelator _correlator = new();
+  // §8.3 (R-8.3-g) / §15.2: each in-flight request's cancellation source, keyed by its JSON-RPC id, so an
+  // inbound notifications/cancelled can abort the running handler AND suppress its (now-cancelled) response.
+  private readonly ConcurrentDictionary<RequestId, CancellationTokenSource> _inflight = new();
   private readonly IDisposable _messageSubscription;
   private readonly IDisposable _closeSubscription;
-  private long _serverRequestSeq;
   private bool _disposed;
 
   private StdioServerHost(IByteChannelTransport transport, IMcpRequestHandler server, AuthInfo? authInfo)
@@ -77,16 +73,25 @@ public sealed class StdioServerHost : IDisposable
     switch (message)
     {
       case JsonRpcSuccessResponse or JsonRpcErrorResponse:
-        // A client reply to a live server→client request — correlate it by id. An uncorrelated response
-        // (no matching outstanding request) is silently ignored, never answered (§7.4: a server does not
-        // respond to a response).
+        // §7.4 / §9.6.2 (R-9.6.2-d): the server issues no server→client requests, so any inbound response
+        // is unsolicited. Deliver() finds no outstanding request and silently ignores it (a server never
+        // responds to a response).
         _correlator.Deliver(message);
         return;
 
-      case JsonRpcNotification:
-        // Notifications carry no response in the stateless model; cancellation is threaded by the
-        // dispatcher via the per-request token. Forward for completeness, ignoring the result.
-        _ = _server.HandleNotificationAsync((JsonRpcNotification)message, CancellationToken.None);
+      case JsonRpcNotification notification:
+        // §8.3 (R-8.3-g) / §15.2.2: a notifications/cancelled aborts the matching in-flight request — the
+        // handler observes its token and the host suppresses any further frame for that id (see DispatchAsync).
+        if (notification.Method == McpMethods.NotificationsCancelled
+          && Cancellation.ReadCancelledRequestId(notification.Params) is { } cancelId
+          && _inflight.TryGetValue(cancelId, out var cancelSource))
+        {
+          // The handler may complete and dispose its source concurrently on another thread; tolerate it.
+          try { cancelSource.Cancel(); }
+          catch (ObjectDisposedException) { }
+        }
+        // Notifications carry no response in the stateless model; forward for completeness, ignoring the result.
+        _ = _server.HandleNotificationAsync(notification, CancellationToken.None);
         return;
 
       case JsonRpcRequest request:
@@ -100,10 +105,12 @@ public sealed class StdioServerHost : IDisposable
   private async Task DispatchAsync(JsonRpcRequest request)
   {
     var notifier = new StdioNotifier(this);
+    using var cts = new CancellationTokenSource();
+    _inflight[request.Id] = cts;
     JsonRpcMessage response;
     try
     {
-      response = await _server.HandleRequestAsync(request, notifier, _authInfo, CancellationToken.None).ConfigureAwait(false);
+      response = await _server.HandleRequestAsync(request, notifier, _authInfo, cts.Token).ConfigureAwait(false);
     }
     catch (McpError error)
     {
@@ -113,7 +120,18 @@ public sealed class StdioServerHost : IDisposable
     {
       response = new JsonRpcErrorResponse(request.Id, McpError.InternalError(error.Message).ToJsonRpcError());
     }
-    TrySend(response);
+    finally
+    {
+      _inflight.TryRemove(request.Id, out _);
+    }
+
+    // §8.3 (R-8.3-g, MUST NOT): once this request has been cancelled, the server emits NO further message
+    // for its id — neither the result nor a cancellation error response. A request that completed before
+    // any cancellation sends its response normally.
+    if (!cts.IsCancellationRequested)
+    {
+      TrySend(response);
+    }
   }
 
   /// <summary>Writes a message to the transport, swallowing a transport-level failure (a closed channel).</summary>
@@ -133,24 +151,6 @@ public sealed class StdioServerHost : IDisposable
     }
   }
 
-  /// <summary>
-  /// Issues a live server→client request: mints a unique id (the <c>srv-N</c> scheme), writes the request
-  /// frame, and returns the task that resolves with the client's correlated reply. A send failure (a
-  /// role-enforcing stdio server transport, or a closed channel) fails the awaiting task immediately so
-  /// the handler does not hang.
-  /// </summary>
-  private Task<JsonRpcMessage> IssueServerRequestAsync(string method, JsonObject? parameters)
-  {
-    var id = new RequestId($"srv-{Interlocked.Increment(ref _serverRequestSeq)}");
-    var reply = _correlator.Issue(id);
-    if (!TrySend(new JsonRpcRequest(id, method, parameters)))
-    {
-      _correlator.Fail(id, new TransportError(
-        "The transport rejected a server→client request frame; over a strict stdio server transport use the §11 input_required loop instead."));
-    }
-    return reply;
-  }
-
   /// <inheritdoc/>
   public void Dispose()
   {
@@ -162,8 +162,9 @@ public sealed class StdioServerHost : IDisposable
   }
 
   /// <summary>
-  /// The notifier handed to each dispatched request: notifications and live server→client requests both
-  /// ride the host's transport, the latter correlated to the client's reply by id.
+  /// The notifier handed to each dispatched request: request-scoped notifications ride the host's
+  /// transport. There is no server→client request channel (§9.6.2 R-9.6.2-d / §8.3); a server reaches
+  /// the client only via the §11 <c>input_required</c> retry loop.
   /// </summary>
   private sealed class StdioNotifier(StdioServerHost host) : IServerNotifier
   {
@@ -172,8 +173,5 @@ public sealed class StdioServerHost : IDisposable
       host.TrySend(notification);
       return Task.CompletedTask;
     }
-
-    public Task<JsonRpcMessage> RequestAsync(string method, JsonObject? parameters, CancellationToken cancellationToken) =>
-      host.IssueServerRequestAsync(method, parameters).WaitAsync(cancellationToken);
   }
 }

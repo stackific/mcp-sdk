@@ -614,6 +614,36 @@ public static class UiHost
     };
   }
 
+  // ─── §26.4 — Dedicated render origin (R-26.4-l) ─────────────────────────────────
+
+  /// <summary>
+  /// Returns the dedicated render origin a UI resource declared via its <c>domain</c> UI-metadata field
+  /// (spec §26.4, R-26.4-l), or <c>null</c> when none was declared. A host SHOULD render such a resource
+  /// under its own isolated origin so it cannot reach the cookies/storage of other UI surfaces.
+  /// </summary>
+  /// <param name="meta">The resource's UI metadata, or <c>null</c>.</param>
+  /// <returns>The declared dedicated origin, or <c>null</c>.</returns>
+  public static string? DedicatedRenderOrigin(ResourceUiMeta? meta) => meta?.Domain;
+
+  /// <summary>
+  /// Returns <c>true</c> when a UI is isolated under its declared dedicated origin (spec §26.4, R-26.4-l):
+  /// either no <paramref name="declaredDomain"/> was declared (no isolation constraint applies), or the
+  /// <paramref name="renderOrigin"/> equals the declared domain AND is not shared with any other UI surface
+  /// in <paramref name="otherUiOrigins"/>. Origins are compared byte-for-byte (never case-folded).
+  /// </summary>
+  /// <param name="declaredDomain">The resource's declared dedicated origin, or <c>null</c> when none.</param>
+  /// <param name="renderOrigin">The origin the host actually rendered the UI under.</param>
+  /// <param name="otherUiOrigins">The render origins of the host's other UI surfaces.</param>
+  /// <returns><c>true</c> when the isolation requirement is satisfied (or not applicable).</returns>
+  public static bool IsIsolatedUnderDedicatedOrigin(string? declaredDomain, string renderOrigin, IEnumerable<string> otherUiOrigins)
+  {
+    ArgumentNullException.ThrowIfNull(renderOrigin);
+    ArgumentNullException.ThrowIfNull(otherUiOrigins);
+    return declaredDomain is null
+      || (string.Equals(renderOrigin, declaredDomain, StringComparison.Ordinal)
+          && !otherUiOrigins.Contains(renderOrigin, StringComparer.Ordinal));
+  }
+
   // ─── §26.7 — Data-exposure guard (R-26.7-m) ─────────────────────────────────────
 
   /// <summary>

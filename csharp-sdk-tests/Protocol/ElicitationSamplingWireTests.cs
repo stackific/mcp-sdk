@@ -586,6 +586,45 @@ public sealed class ElicitationSamplingWireTests
     Assert.Contains("\"role\":\"assistant\"", json);
     Assert.Contains("\"content\":[", json);
     Assert.Contains("\"model\":\"deepseek-chat\"", json);
+    // §21.2.8 (R-21.2.8-e): the result MUST carry the resultType discriminator; a sampling completion is "complete".
+    Assert.Contains("\"resultType\":\"complete\"", json);
+  }
+
+  [Fact]
+  public void Create_message_result_validated_rejects_missing_model()
+  {
+    // TV-33.14 / §21.2.8 (R-21.2.8-c): model is REQUIRED and MUST be non-empty on emit.
+    var result = new CreateMessageResult
+    {
+      Role = Role.Assistant,
+      Content = [SamplingContentBlocks.Text("x")],
+      Model = "",
+    };
+    Assert.Throws<ArgumentException>(() => result.Validated());
+  }
+
+  [Fact]
+  public void Create_message_result_validated_rejects_non_complete_result_type()
+  {
+    // §21.2.8 (R-21.2.8-e): a sampling completion's discriminator MUST be "complete".
+    var result = new CreateMessageResult
+    {
+      Role = Role.Assistant,
+      Content = [SamplingContentBlocks.Text("x")],
+      Model = "m",
+      ResultType = ResultTypes.InputRequired,
+    };
+    Assert.Throws<ArgumentException>(() => result.Validated());
+  }
+
+  [Fact]
+  public void Create_message_result_receive_tolerates_absent_result_type()
+  {
+    // §3.6 receiver degradation: a result the server receives without resultType binds with the
+    // discriminator defaulting to "complete" rather than failing.
+    var back = McpJson.Deserialize<CreateMessageResult>(
+      """{"role":"assistant","content":[{"type":"text","text":"x"}],"model":"m"}""")!;
+    Assert.Equal(ResultTypes.Complete, back.ResultType);
   }
 
   [Fact]

@@ -410,4 +410,27 @@ public sealed class UiHostTests
       Assert.False(UiHost.IsServerSdkObligation(concern));
     }
   }
+
+  // ── §26.4 (R-26.4-l): dedicated render origin / isolation ──
+
+  [Fact]
+  public void Dedicated_render_origin_reads_the_declared_domain()
+  {
+    Assert.Equal("https://ui.example", UiHost.DedicatedRenderOrigin(new ResourceUiMeta { Domain = "https://ui.example" }));
+    Assert.Null(UiHost.DedicatedRenderOrigin(new ResourceUiMeta()));
+    Assert.Null(UiHost.DedicatedRenderOrigin(null));
+  }
+
+  [Fact]
+  public void Ui_is_isolated_only_under_its_declared_domain_and_not_shared()
+  {
+    // Isolated: render origin matches the declared domain and no other UI shares that origin.
+    Assert.True(UiHost.IsIsolatedUnderDedicatedOrigin("https://ui.example", "https://ui.example", ["https://other.example"]));
+    // Not isolated: rendered under a different origin than declared.
+    Assert.False(UiHost.IsIsolatedUnderDedicatedOrigin("https://ui.example", "https://elsewhere.example", []));
+    // Not isolated: the declared origin is shared with another UI surface.
+    Assert.False(UiHost.IsIsolatedUnderDedicatedOrigin("https://ui.example", "https://ui.example", ["https://ui.example"]));
+    // No declared domain ⇒ no isolation constraint applies.
+    Assert.True(UiHost.IsIsolatedUnderDedicatedOrigin(null, "https://anywhere.example", ["https://anywhere.example"]));
+  }
 }
