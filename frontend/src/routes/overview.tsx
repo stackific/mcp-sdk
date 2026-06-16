@@ -27,8 +27,8 @@ function LanguageSelector() {
         <CardDescription>
           Choose the implementation that backs this companion. The frontend is shared; your choice
           repoints it at that language's MCP client host — a different backend + server setup on its
-          own ports. <strong>TypeScript</strong> is fully wired; Python and C# are runnable
-          placeholders.
+          own ports. <strong>TypeScript</strong> and <strong>Python</strong> are fully wired (real
+          MCP via their SDKs); C# is a runnable placeholder.
         </CardDescription>
       </CardHeader>
       <CardContent>

@@ -50,8 +50,9 @@ tasks:
       - pnpm install
 
   setup:py:
-    desc: Install the Python stack (uv sync for client + server)
+    desc: Install the Python stack (uv sync for py-sdk + client + server)
     cmds:
+      - task: py:sdk:install
       - task: py:server:install
       - task: py:client:install
 
@@ -60,6 +61,11 @@ tasks:
     cmds:
       - dotnet restore csharp-mcp-server/csharp-mcp-server.csproj
       - dotnet restore csharp-mcp-client/csharp-mcp-client.csproj
+
+  py:sdk:install:
+    internal: true
+    dir: py-sdk
+    cmds: [uv sync]
 
   py:server:install:
     internal: true
@@ -119,7 +125,7 @@ tasks:
       - pnpm --filter @stackific/ts-mcp-client dev
 
   py:server:
-    desc: Python MCP server placeholder (FastAPI, :8101)
+    desc: Python MCP server on py-sdk (FastAPI, :8101)
     dir: py-mcp-server
     env:
       PY_MCP_SERVER_PORT: '{{.PY_MCP_SERVER_PORT}}'
@@ -127,7 +133,7 @@ tasks:
       - uv run python main.py
 
   py:client:
-    desc: Python MCP client host placeholder (FastAPI, :8102)
+    desc: Python MCP client host on py-sdk (FastAPI, :8102)
     dir: py-mcp-client
     env:
       PY_MCP_CLIENT_PORT: '{{.PY_MCP_CLIENT_PORT}}'
@@ -159,6 +165,26 @@ tasks:
       STOP_PORTS: '{{.ALL_PORTS}}'
     cmds:
       - node scripts/stop-ports.mjs
+
+  # ── Test ─────────────────────────────────────────────────────────────────────
+  test:
+    desc: Run the test suites for every stack
+    cmds:
+      - task: test:ts
+      - task: test:py
+
+  test:ts:
+    desc: Run the TypeScript test suites (ts-sdk + ts-mcp-client)
+    cmds:
+      - pnpm --dir ts-sdk test
+      - pnpm --filter @stackific/ts-mcp-client test
+
+  test:py:
+    desc: Run the Python test suites (py-sdk + py-mcp-server + py-mcp-client)
+    cmds:
+      - uv run --directory py-sdk pytest
+      - uv run --directory py-mcp-server pytest
+      - uv run --directory py-mcp-client pytest
 
   # ── Build / typecheck ────────────────────────────────────────────────────────
   build:
