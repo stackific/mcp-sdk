@@ -572,8 +572,9 @@ public sealed class StdioTransportTests
       }
       """));
 
-    Assert.Equal(ProbeOutcomeKind.UnsupportedVersion, outcome.Kind);
-    Assert.Contains("2026-07-28", outcome.SupportedVersions!);
+    var unsupported = Assert.IsType<ProbeOutcome.UnsupportedVersion>(outcome);
+    Assert.Equal(ProbeOutcomeKind.UnsupportedVersion, unsupported.Kind);
+    Assert.Contains("2026-07-28", unsupported.SupportedVersions);
     Assert.True(client.SupportCache.Get("cmd:server")!.SpeaksProtocol);
   }
 

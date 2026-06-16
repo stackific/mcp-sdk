@@ -372,8 +372,12 @@ public sealed record WwwAuthenticateChallenge(
 /// Builders, the parser, and scope helpers for the <c>Bearer</c> <c>WWW-Authenticate</c> challenge
 /// (spec §23.1, R-23.1-t – R-23.1-ad).
 /// </summary>
-public static class WwwAuthenticate
+public static partial class WwwAuthenticate
 {
+  // Matches a backslash escape (`\` followed by any character) inside an RFC 7235 quoted-string, so the
+  // escape can be removed and the escaped character kept (`\"` → `"`, `\\` → `\`).
+  [GeneratedRegex(@"\\(.)")]
+  private static partial Regex QuotedEscapeRegex();
   /// <summary>Serializes one challenge parameter as <c>key="value"</c>, quoting the value per RFC 7235.</summary>
   private static string QuotedParam(string key, string value)
   {
@@ -499,7 +503,7 @@ public static class WwwAuthenticate
     {
       var key = m.Groups[1].Value.ToLowerInvariant();
       var raw = m.Groups[2].Success
-        ? Regex.Replace(m.Groups[2].Value, "\\\\(.)", "$1")
+        ? QuotedEscapeRegex().Replace(m.Groups[2].Value, "$1")
         : m.Groups[3].Value;
       switch (key)
       {

@@ -464,8 +464,14 @@ public static class UiHost
 
   /// <summary>Outcome of a host mediation decision.</summary>
   /// <param name="Route"><c>true</c> when the host may route the request onward to the server.</param>
-  /// <param name="Reason">The decline reason when <paramref name="Route"/> is <c>false</c>.</param>
-  public readonly record struct MediationDecision(bool Route, DeclineReason Reason);
+  /// <param name="Reason">
+  /// The decline reason when <paramref name="Route"/> is <c>false</c>; <c>null</c> on the routed
+  /// (success) path, where no reason applies.
+  /// </param>
+  public readonly record struct MediationDecision(bool Route, DeclineReason? Reason);
+
+  /// <summary>A routed (success) mediation decision: the host may forward the request and no decline reason applies.</summary>
+  private static readonly MediationDecision Routed = new(true, null);
 
   /// <summary>
   /// Decides whether a host may route a UI-initiated <c>tools/call</c> to the server (spec §26.5.3,
@@ -503,7 +509,7 @@ public static class UiHost
     {
       return new MediationDecision(false, DeclineReason.NoConsent);
     }
-    return new MediationDecision(true, DeclineReason.NoConsent);
+    return Routed;
   }
 
   /// <summary>
@@ -520,7 +526,7 @@ public static class UiHost
   {
     if (!hostHonors) return new MediationDecision(false, DeclineReason.Policy);
     if (!userConfirmed) return new MediationDecision(false, DeclineReason.NoConsent);
-    return new MediationDecision(true, DeclineReason.NoConsent);
+    return Routed;
   }
 
   /// <summary>

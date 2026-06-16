@@ -446,7 +446,7 @@ public sealed class ConformanceRequirementsTests
   public void DecideRequestStateHandling()
   {
     var rejected = ConformanceRequirements.DecideRequestStateHandling(true, false);
-    Assert.Equal("untrusted", rejected.Trust);
+    Assert.Equal(ConformanceRequirements.RequestStateTrust.Untrusted, rejected.Trust);
     Assert.True(rejected.Reject);
 
     Assert.False(ConformanceRequirements.DecideRequestStateHandling(true, true).Reject);
@@ -469,12 +469,12 @@ public sealed class ConformanceRequirementsTests
     var http = ConformanceRequirements.EvaluateTransportConformance("streamable-http");
     Assert.True(http.AuthorizationApplies);
     Assert.False(http.AuthorizationForbidden);
-    Assert.Equal("bearer", http.CredentialConveyance);
+    Assert.Equal(ConformanceRequirements.TransportCredentialConveyance.Bearer, http.CredentialConveyance);
 
     var stdio = ConformanceRequirements.EvaluateTransportConformance("stdio");
     Assert.False(stdio.AuthorizationApplies);
     Assert.True(stdio.AuthorizationForbidden);
-    Assert.Equal("environment", stdio.CredentialConveyance);
+    Assert.Equal(ConformanceRequirements.TransportCredentialConveyance.Environment, stdio.CredentialConveyance);
   }
 
   // ─── no partial conformance + citations ───────────────────────────────────────

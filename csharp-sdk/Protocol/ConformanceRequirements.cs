@@ -618,22 +618,23 @@ public static partial class ConformanceRequirements
   /// <summary>
   /// Validates a client's retry request after an <c>input_required</c> result (spec §29.3 item 4,
   /// R-29.3-j). The retry MUST use a request id distinct from the original, echo <c>requestState</c>
-  /// byte-for-byte when one was provided, and omit it when none was provided. Identity comparison is
-  /// performed on the supplied raw id values; <c>requestState</c> comparison is ordinal string equality
-  /// (the value is opaque and echoed exactly, R-29.3-f).
+  /// byte-for-byte when one was provided, and omit it when none was provided. Identity comparison uses
+  /// <see cref="RequestId"/> value equality, which preserves the JSON type (a numeric and a string id
+  /// are never coerced); <c>requestState</c> comparison is ordinal string equality (the value is opaque
+  /// and echoed exactly, R-29.3-f).
   /// </summary>
-  /// <param name="originalId">The original request's id (string or number, boxed).</param>
+  /// <param name="originalId">The original request's id (a JSON string or number).</param>
   /// <param name="retryId">The retry request's id (must differ from the original).</param>
   /// <param name="providedState">The <c>requestState</c> the server provided, or <c>null</c> when none.</param>
   /// <param name="retryState">The <c>requestState</c> the retry carries, or <c>null</c> when absent.</param>
   /// <returns>The validation outcome.</returns>
   public static InputRequiredRetryValidation ValidateInputRequiredRetry(
-    object originalId,
-    object retryId,
+    RequestId originalId,
+    RequestId retryId,
     string? providedState = null,
     string? retryState = null)
   {
-    if (Equals(retryId, originalId))
+    if (retryId.Equals(originalId))
     {
       return new InputRequiredRetryValidation(false, RetryFailure.ReusedId);
     }
@@ -796,10 +797,21 @@ public static partial class ConformanceRequirements
   public static StatelessConformanceInvariants StatelessInvariants { get; } =
     new(true, true, true, true, true);
 
+  /// <summary>
+  /// The trust a server may place in a <c>requestState</c> value (spec §29.7 item 4). The model admits a
+  /// single value: a <c>requestState</c> that passed through a client is ALWAYS attacker-controlled input
+  /// (R-29.7-d), so there is no "trusted" disposition.
+  /// </summary>
+  public enum RequestStateTrust
+  {
+    /// <summary>Attacker-controlled input — the only disposition for a client-routed <c>requestState</c> (R-29.7-d).</summary>
+    Untrusted,
+  }
+
   /// <summary>The action a server takes for a <c>requestState</c> value (spec §29.7 item 4).</summary>
-  /// <param name="Trust">Always <c>untrusted</c> — a requestState is always attacker-controlled input.</param>
+  /// <param name="Trust">Always <see cref="RequestStateTrust.Untrusted"/> — a requestState is always attacker-controlled input.</param>
   /// <param name="Reject"><c>true</c> when the value must be rejected (security-significant and unverified).</param>
-  public readonly record struct RequestStateHandling(string Trust, bool Reject);
+  public readonly record struct RequestStateHandling(RequestStateTrust Trust, bool Reject);
 
   /// <summary>
   /// Decides how a server must treat a <c>requestState</c> value that passed through a client (spec
@@ -811,9 +823,7 @@ public static partial class ConformanceRequirements
   /// <param name="integrityVerified">Whether the value's integrity check passed.</param>
   /// <returns>The handling decision.</returns>
   public static RequestStateHandling DecideRequestStateHandling(bool securitySignificant, bool integrityVerified) =>
-    securitySignificant && !integrityVerified
-      ? new RequestStateHandling("untrusted", true)
-      : new RequestStateHandling("untrusted", false);
+    new(RequestStateTrust.Untrusted, securitySignificant && !integrityVerified);
 
   // ─── §29.8 — Transport conformance ──────────────────────────────────────────────
 
@@ -833,19 +843,38 @@ public static partial class ConformanceRequirements
       ? StreamableHttpNegotiationErrorStatus
       : null;
 
+  /// <summary>
+  /// How credentials are conveyed for a transport under the §29.8 conformance points (spec §29.8 items 4
+  /// &amp; 5). Distinct from the §23 <see cref="Protocol.CredentialConveyance"/> in that its third case is
+  /// <see cref="None"/> (neither §29.8-d nor §29.8-e applies), not a best-practice mechanism.
+  /// </summary>
+  public enum TransportCredentialConveyance
+  {
+    /// <summary>No credential-conveyance rule applies to this transport (R-29.8: any non-HTTP, non-stdio transport).</summary>
+    None,
+
+    /// <summary>Credentials ride as an OAuth bearer token (HTTP-based transport, R-29.8-d).</summary>
+    Bearer,
+
+    /// <summary>Credentials are obtained from the process environment (stdio transport, R-29.8-e).</summary>
+    Environment,
+  }
+
   /// <summary>The conformance evaluation of a SINGLE transport an implementation offers (spec §29.8).</summary>
   /// <param name="Transport">The transport being evaluated.</param>
   /// <param name="AuthorizationApplies">Whether the authorization framework SHOULD apply (HTTP) — R-29.8-d.</param>
   /// <param name="AuthorizationForbidden">Whether the authorization framework SHOULD NOT apply (stdio) — R-29.8-e.</param>
-  /// <param name="CredentialConveyance">How credentials are conveyed for this transport (<c>bearer</c>, <c>environment</c>, or <c>none</c>).</param>
+  /// <param name="CredentialConveyance">How credentials are conveyed for this transport.</param>
   public sealed record TransportConformance(
-    string Transport, bool AuthorizationApplies, bool AuthorizationForbidden, string CredentialConveyance);
+    string Transport, bool AuthorizationApplies, bool AuthorizationForbidden, TransportCredentialConveyance CredentialConveyance);
 
   /// <summary>
   /// Evaluates the authorization-applicability conformance points for a single transport (spec §29.8
   /// items 4 &amp; 5, R-29.8-d, R-29.8-e). An HTTP-based transport SHOULD conform to authorization and
-  /// conveys credentials as a <c>bearer</c> token; a stdio transport SHOULD NOT apply it and obtains
-  /// credentials from its <c>environment</c>; any other transport applies neither rule (<c>none</c>).
+  /// conveys credentials as a <see cref="TransportCredentialConveyance.Bearer"/> token; a stdio transport
+  /// SHOULD NOT apply it and obtains credentials from its
+  /// <see cref="TransportCredentialConveyance.Environment"/>; any other transport applies neither rule
+  /// (<see cref="TransportCredentialConveyance.None"/>).
   /// </summary>
   /// <param name="transport">The transport name (e.g. <c>stdio</c>, <c>streamable-http</c>, <c>http</c>).</param>
   /// <returns>The transport conformance evaluation.</returns>
@@ -854,9 +883,9 @@ public static partial class ConformanceRequirements
     ArgumentNullException.ThrowIfNull(transport);
     return transport switch
     {
-      "stdio" => new TransportConformance(transport, false, true, "environment"),
-      "streamable-http" or "http" => new TransportConformance(transport, true, false, "bearer"),
-      _ => new TransportConformance(transport, false, false, "none"),
+      "stdio" => new TransportConformance(transport, false, true, TransportCredentialConveyance.Environment),
+      "streamable-http" or "http" => new TransportConformance(transport, true, false, TransportCredentialConveyance.Bearer),
+      _ => new TransportConformance(transport, false, false, TransportCredentialConveyance.None),
     };
   }
 

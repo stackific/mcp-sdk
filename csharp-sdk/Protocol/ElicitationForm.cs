@@ -528,7 +528,7 @@ public static class ElicitationForm
       case PrimitiveSchemaKind.Number:
         if (!IsNumber(value)) return false;
         // integer schemas additionally require an integer value.
-        return AsString(propSchema["type"]) == "integer" ? IsInteger(value) : true;
+        return AsString(propSchema["type"]) != "integer" || IsInteger(value);
       case PrimitiveSchemaKind.Boolean:
         return value is JsonValue bv && bv.GetValueKind() is JsonValueKind.True or JsonValueKind.False;
       case PrimitiveSchemaKind.Enum:
@@ -713,9 +713,9 @@ public static class ElicitationForm
 
         case PrimitiveSchemaKind.Enum:
           var allowed = EnumValuesOf(propSchema);
-          var values = AsArray(value) is { } arr
+          List<string> values = AsArray(value) is { } arr
             ? arr.Select(AsString).Where(s => s is not null).Select(s => s!).ToList()
-            : AsString(value) is { } single ? [single] : new List<string>();
+            : AsString(value) is { } single ? [single] : [];
           if (allowed is not null)
           {
             foreach (var v in values)
@@ -1125,11 +1125,13 @@ public static class ElicitationForm
     if (AsObject(schema["properties"]) is not { } properties) return flagged;
     foreach (var (name, propSchema) in properties)
     {
-      var fields = new List<string?> { name };
+      var fields = new List<string> { name };
       if (AsObject(propSchema) is { } prop)
       {
-        fields.Add(AsString(prop["title"]) ?? "");
-        fields.Add(AsString(prop["description"]) ?? "");
+        // Collect only present strings — an absent title/description contributes nothing, so there is
+        // no need for an empty-string sentinel (which LooksSensitive would never flag anyway).
+        if (AsString(prop["title"]) is { } title) fields.Add(title);
+        if (AsString(prop["description"]) is { } description) fields.Add(description);
       }
       if (fields.Any(LooksSensitive)) flagged.Add(name);
     }

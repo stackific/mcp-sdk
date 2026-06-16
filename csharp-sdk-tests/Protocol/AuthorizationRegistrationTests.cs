@@ -457,7 +457,7 @@ public sealed class AuthorizationRegistrationTests
 
   [Fact]
   public void Is_confidential_token_is_unconditional() =>
-    Assert.True(AuthorizationSecurity.IsConfidentialToken());
+    Assert.True(AuthorizationSecurity.TokensAreConfidential);
 
   [Fact]
   public void Check_bearer_header_only_rejects_query_token()
@@ -488,7 +488,7 @@ public sealed class AuthorizationRegistrationTests
 
   [Fact]
   public void Refresh_token_is_never_assumed() =>
-    Assert.True(AuthorizationSecurity.RefreshTokenIsNeverAssumed());
+    Assert.True(AuthorizationSecurity.RefreshTokenAlwaysOptional);
 
   [Fact]
   public void Server_scopes_omit_offline_access()

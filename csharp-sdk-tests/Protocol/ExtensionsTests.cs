@@ -447,7 +447,7 @@ public sealed class ExtensionsTests
       Classification = "modular",
       Methods = ["my-extension/get"],
       MetaKeys = ["com.example/trace"],
-      ResultTypes = ["com.example.partial"],
+      ResultTypeValues = ["com.example.partial"],
       Fields = ["Tool.x"],
     });
     Assert.True(result.Ok);
@@ -461,7 +461,7 @@ public sealed class ExtensionsTests
       Identifier = "com.example/my-extension",
       Methods = ["tasks/get"],     // not under my-extension/
       MetaKeys = ["org.other/key"], // not controlled by com.example
-      ResultTypes = ["complete"],   // redefines core
+      ResultTypeValues = ["complete"],   // redefines core
     });
     Assert.False(result.Ok);
     var channels = result.Violations.Select(v => v.Channel).ToHashSet();

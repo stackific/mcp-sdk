@@ -186,7 +186,7 @@ public static class OAuth
   /// <exception cref="PkceSupportException">When PKCE <c>S256</c> support cannot be confirmed.</exception>
   public static void AssertPkceSupported(JsonObject asMeta)
   {
-    var methods = AuthorizationJsonAccessor.StringArray(asMeta["code_challenge_methods_supported"]);
+    var methods = AuthorizationJson.StringArray(asMeta["code_challenge_methods_supported"]);
     PkceSupport.AssertConfirmed(methods);
   }
 
@@ -432,27 +432,5 @@ public static class OAuth
     {
       return null;
     }
-  }
-}
-
-/// <summary>Internal helper to read a string array out of a <see cref="JsonNode"/> for the OAuth client wiring.</summary>
-internal static class AuthorizationJsonAccessor
-{
-  internal static IReadOnlyList<string>? StringArray(JsonNode? node)
-  {
-    if (node is not JsonArray array)
-    {
-      return null;
-    }
-    var list = new List<string>(array.Count);
-    foreach (var item in array)
-    {
-      if ((item as JsonValue)?.GetValue<string>() is not { } s)
-      {
-        return null;
-      }
-      list.Add(s);
-    }
-    return list;
   }
 }

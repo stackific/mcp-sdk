@@ -245,21 +245,11 @@ public sealed record DcrRetryResult(DynamicClientRegistrationResult Result, IRea
 /// </summary>
 public static class DcrRetry
 {
-  private static bool IsLoopbackRedirectHost(string host)
-  {
-    var h = host.ToLowerInvariant();
-    var colon = h.LastIndexOf(':');
-    if (colon > 0 && int.TryParse(h.AsSpan(colon + 1), out _))
-    {
-      h = h[..colon];
-    }
-    return h is "localhost" or "127.0.0.1" or "[::1]" or "::1";
-  }
-
   /// <summary>
   /// Classifies a set of redirect URIs as native or web and returns the <c>application_type</c> a client
   /// SHOULD register, consistent with those URIs (R-23.15-a, R-23.15-b, R-23.15-c). Redirect URIs that all
-  /// resolve to a loopback/localhost host indicate a native application → <see cref="ApplicationType.Native"/>;
+  /// resolve to a loopback host (<c>localhost</c>, <c>127.0.0.0/8</c>, or IPv6 <c>::1</c>, as decided by
+  /// <see cref="Uri.IsLoopback"/>) indicate a native application → <see cref="ApplicationType.Native"/>;
   /// otherwise <see cref="ApplicationType.Web"/>.
   /// </summary>
   /// <param name="redirectUris">The client's redirect URIs.</param>
@@ -267,7 +257,7 @@ public static class DcrRetry
   public static ApplicationType ApplicationTypeForRedirectUris(IReadOnlyList<string> redirectUris)
   {
     var allLoopback = redirectUris.Count > 0 && redirectUris.All(uri =>
-      Uri.TryCreate(uri, UriKind.Absolute, out var url) && IsLoopbackRedirectHost(url.Authority));
+      Uri.TryCreate(uri, UriKind.Absolute, out var url) && url.IsLoopback);
     return ClientIdAcquisition.ApplicationTypeFor(allLoopback);
   }
 
@@ -564,7 +554,10 @@ public sealed record ScopeUpgradeKey(string Resource, string Operation);
 /// </summary>
 public sealed class ScopeUpgradeTracker
 {
-  private readonly Dictionary<string, int> _attempts = new(StringComparer.Ordinal);
+  // Keyed directly on the ScopeUpgradeKey record, whose value (structural) equality distinguishes the
+  // (resource, operation) pair unambiguously — unlike a `$"{Resource} {Operation}"` string, which could
+  // collide (e.g. ("a b", "c") and ("a", "b c") would flatten to the same key).
+  private readonly Dictionary<ScopeUpgradeKey, int> _attempts = [];
   private readonly int _maxAttempts;
 
   /// <summary>Creates the tracker.</summary>
@@ -582,12 +575,10 @@ public sealed class ScopeUpgradeTracker
   /// <summary>The configured retry bound.</summary>
   public int MaxAttempts => _maxAttempts;
 
-  private static string KeyOf(ScopeUpgradeKey key) => $"{key.Resource} {key.Operation}";
-
   /// <summary>Returns the number of step-up attempts recorded so far for <paramref name="key"/> (R-23.1-ag).</summary>
   /// <param name="key">The resource-and-operation combination.</param>
   /// <returns>The attempt count.</returns>
-  public int AttemptsFor(ScopeUpgradeKey key) => _attempts.GetValueOrDefault(KeyOf(key), 0);
+  public int AttemptsFor(ScopeUpgradeKey key) => _attempts.GetValueOrDefault(key, 0);
 
   /// <summary>Returns <c>true</c> when another step-up attempt is permitted for <paramref name="key"/> (the bound has not been reached) (R-23.18-q).</summary>
   /// <param name="key">The resource-and-operation combination.</param>
@@ -600,26 +591,29 @@ public sealed class ScopeUpgradeTracker
   public int RecordAttempt(ScopeUpgradeKey key)
   {
     var next = AttemptsFor(key) + 1;
-    _attempts[KeyOf(key)] = next;
+    _attempts[key] = next;
     return next;
   }
 
   /// <summary>
   /// Records an attempt for <paramref name="key"/> and returns whether to <see cref="StepUpAction.Retry"/>
   /// or treat the failure as a <see cref="StepUpAction.PermanentFailure"/>, implementing the bounded retry
-  /// (R-23.18-q, R-23.1-af).
+  /// (R-23.18-q, R-23.1-af). The single bound is <see cref="CanRetry"/>: the attempt just recorded is a
+  /// retry exactly when a retry was permitted before it was recorded.
   /// </summary>
   /// <param name="key">The resource-and-operation combination.</param>
   /// <returns>The action to take.</returns>
   public StepUpAction NextAction(ScopeUpgradeKey key)
   {
-    var attempts = RecordAttempt(key);
-    return attempts <= _maxAttempts ? StepUpAction.Retry : StepUpAction.PermanentFailure;
+    // Evaluate the bound on the pre-record count so NextAction and CanRetry share one comparison.
+    var permitted = CanRetry(key);
+    RecordAttempt(key);
+    return permitted ? StepUpAction.Retry : StepUpAction.PermanentFailure;
   }
 
   /// <summary>Clears the attempt count for <paramref name="key"/> (e.g. after a successful retry).</summary>
   /// <param name="key">The resource-and-operation combination.</param>
-  public void Reset(ScopeUpgradeKey key) => _attempts.Remove(KeyOf(key));
+  public void Reset(ScopeUpgradeKey key) => _attempts.Remove(key);
 }
 
 /// <summary>A plan for one step-up re-authorization, from <see cref="ScopeStepUp.Plan"/> (spec §23.18).</summary>
@@ -852,12 +846,12 @@ public static class AuthorizationSecurity
   }
 
   /// <summary>
-  /// Returns <c>true</c> — access and refresh tokens MUST NOT be logged and MUST NOT be forwarded to third
-  /// parties (R-23.19-m, R-23.19-n). The rule is unconditional; this takes no token argument by design, so
-  /// it never incentivizes passing a token where it might be captured.
+  /// <c>true</c> — access and refresh tokens are confidential: they MUST NOT be logged and MUST NOT be
+  /// forwarded to third parties (R-23.19-m, R-23.19-n). The rule is unconditional, so it is a named
+  /// constant rather than a predicate over a token (which would only invite passing the secret somewhere
+  /// it could be captured).
   /// </summary>
-  /// <returns>Always <c>true</c>.</returns>
-  public static bool IsConfidentialToken() => true;
+  public const bool TokensAreConfidential = true;
 
   /// <summary>
   /// Returns a redacted placeholder for a token so diagnostics never carry the secret itself, enforcing
@@ -931,12 +925,12 @@ public static class AuthorizationSecurity
   }
 
   /// <summary>
-  /// Returns <c>true</c> — a client MUST NOT assume a refresh token will be issued; the authorization
-  /// server retains discretion (R-23.19-t). A guard for control flow: treat the refresh token as optional
-  /// and handle its absence (pair with <see cref="TokenResponse.HasNoRefreshToken"/>).
+  /// <c>true</c> — a client MUST NOT assume a refresh token will be issued; the authorization server
+  /// retains discretion (R-23.19-t). This is an unconditional control-flow invariant (treat the refresh
+  /// token as optional and handle its absence, pairing with <see cref="TokenResponse.HasNoRefreshToken"/>),
+  /// so it is a named constant rather than a no-argument predicate.
   /// </summary>
-  /// <returns>Always <c>true</c>.</returns>
-  public static bool RefreshTokenIsNeverAssumed() => true;
+  public const bool RefreshTokenAlwaysOptional = true;
 
   /// <summary>
   /// Validates that a server (protected resource) does NOT include <c>offline_access</c> in its

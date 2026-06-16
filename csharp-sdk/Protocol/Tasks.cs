@@ -658,15 +658,23 @@ public static class Tasks
   /// <summary>
   /// Builds the <c>-32003</c> error a server returns when a Tasks method is invoked but the extension is
   /// unavailable (§25.2, R-25.2-f). The <c>data.requiredCapabilities</c> names the Tasks extension so the
-  /// client can re-declare it.
+  /// client can re-declare it, and <c>data.method</c> records which Tasks method triggered the rejection
+  /// so the client can correlate it with the originating request.
   /// </summary>
   /// <param name="method">The Tasks method that was invoked (e.g. <c>"tasks/get"</c>).</param>
   /// <returns>The protocol error.</returns>
   public static McpError BuildTasksMissingCapabilityError(string method)
   {
     ArgumentNullException.ThrowIfNull(method);
-    return McpError.MissingRequiredClientCapability(
+    var error = McpError.MissingRequiredClientCapability(
       new JsonObject { ["extensions"] = new JsonObject { [ExtensionId] = new JsonObject() } });
+    // Surface the rejected method on both the message and the data so it is not silently discarded.
+    var data = error.ErrorData!.AsObject();
+    data["method"] = method;
+    return new McpError(
+      error.Code,
+      $"The Tasks extension ({ExtensionId}) is required for {method} but was not declared by the client.",
+      data);
   }
 }
 

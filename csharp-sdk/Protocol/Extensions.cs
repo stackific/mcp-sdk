@@ -920,8 +920,8 @@ public static partial class Extensions
     /// <summary>Channel 2 — reserved <c>_meta</c> keys the extension defines (R-24.5-d).</summary>
     public IReadOnlyList<string>? MetaKeys { get; init; }
 
-    /// <summary>Channel 3 — additional <c>resultType</c> discriminator values (R-24.5-e).</summary>
-    public IReadOnlyList<string>? ResultTypes { get; init; }
+    /// <summary>Channel 3 — additional <c>resultType</c> discriminator values (R-24.5-e). Named <c>ResultTypeValues</c> to avoid clashing with the <see cref="ResultTypes"/> static class.</summary>
+    public IReadOnlyList<string>? ResultTypeValues { get; init; }
 
     /// <summary>Channel 4 — additional fields the extension adds to existing objects (R-24.5-g), as <c>"&lt;ObjectName&gt;.&lt;fieldName&gt;"</c>.</summary>
     public IReadOnlyList<string>? Fields { get; init; }
@@ -982,7 +982,7 @@ public static partial class Extensions
       }
     }
 
-    foreach (var rt in def.ResultTypes ?? [])
+    foreach (var rt in def.ResultTypeValues ?? [])
     {
       if (string.Equals(rt, ResultTypes.Complete, StringComparison.Ordinal) ||
           string.Equals(rt, ResultTypes.InputRequired, StringComparison.Ordinal))

@@ -97,37 +97,31 @@ public static class Payload
   ///   <item><description>R-3.6-g: when <see cref="ResultTypeInterpretation.Recognized"/> is
   ///   <c>false</c>, callers MUST NOT read other members.</description></item>
   /// </list>
-  /// A non-null, non-string <c>resultType</c> (for example a number) is stringified before
-  /// comparison, mirroring the TypeScript <c>String(raw)</c> coercion; the result is then almost
-  /// always unrecognized.
+  /// A non-null, non-string <c>resultType</c> (for example a number) can never be one of the two
+  /// spec-defined string values, so it is reported as its JSON text form and treated as unrecognized
+  /// — the intended outcome for a malformed discriminator.
   /// </remarks>
   public static ResultTypeInterpretation InterpretResultType(JsonObject result)
   {
     ArgumentNullException.ThrowIfNull(result);
 
-    // An absent member and an explicit JSON null both fall back to "complete" (R-3.6-i).
     result.TryGetPropertyValue("resultType", out var raw);
-    var resolved = raw is null || raw.GetValueKind() == JsonValueKind.Null
-      ? ResultTypeNames.Complete
-      : StringifyResultType(raw);
-
-    return IsKnownResultType(resolved)
-      ? new ResultTypeInterpretation(true, resolved)
-      : new ResultTypeInterpretation(false, resolved);
-  }
-
-  /// <summary>Reduces a non-null <c>resultType</c> node to a string, mirroring <c>String(raw)</c>.</summary>
-  /// <param name="raw">The raw <c>resultType</c> node (already known to be non-null).</param>
-  /// <returns>The string form used for recognition.</returns>
-  private static string StringifyResultType(JsonNode raw) =>
-    raw.GetValueKind() switch
+    return raw switch
     {
-      // A genuine string is compared verbatim.
-      JsonValueKind.String => raw.GetValue<string>(),
-      // Anything else is coerced to text; it will not match a known value, so the response is
-      // treated as an error — which is the intended outcome for a non-string resultType.
-      _ => raw.ToJsonString(),
+      // An absent member and an explicit JSON null both fall back to "complete" (R-3.6-i).
+      null => new ResultTypeInterpretation(true, ResultTypeNames.Complete),
+      JsonValue v when v.GetValueKind() == JsonValueKind.Null => new ResultTypeInterpretation(true, ResultTypeNames.Complete),
+      // A genuine string is recognized only when it is one of the two spec-defined values.
+      JsonValue v when v.GetValueKind() == JsonValueKind.String =>
+        Interpret(v.GetValue<string>()),
+      // Any other kind (number, bool, object, array) is structurally not a valid discriminator: report
+      // its JSON text and treat the whole response as an error (R-3.6-f).
+      _ => new ResultTypeInterpretation(false, raw.ToJsonString()),
     };
+
+    static ResultTypeInterpretation Interpret(string resultType) =>
+      new(IsKnownResultType(resultType), resultType);
+  }
 
   // ─── Result base shape (§3.6) ─────────────────────────────────────────────────
 

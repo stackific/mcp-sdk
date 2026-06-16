@@ -8,9 +8,8 @@ namespace Stackific.Mcp.Tests.Protocol;
 
 /// <summary>
 /// Coverage for S06 — Stateless Per-Request Model &amp; Cross-Call Continuity (§4.4–§4.7): the opaque
-/// <see cref="ContinuationId"/> validators, the <see cref="StatelessModel"/> /
-/// <see cref="DeferredToTransport"/> documentation constants, and the <see cref="FeatureStatus"/> enum.
-/// Mirrors the TypeScript <c>stateless.test.ts</c> scenarios.
+/// <see cref="ContinuationId"/> validators and the <see cref="FeatureStatus"/> enum. Mirrors the
+/// TypeScript <c>stateless.test.ts</c> scenarios.
 /// </summary>
 public sealed class StatelessTests
 {
@@ -85,31 +84,6 @@ public sealed class StatelessTests
     // The client must echo verbatim; the validator only checks JSON-serializability.
     Assert.True(ContinuationId.IsValid("aGVsbG8gd29ybGQ="));
     Assert.True(ContinuationId.IsValid("550e8400-e29b-41d4-a716-446655440000"));
-  }
-
-  // ─── STATELESS_MODEL constants ───────────────────────────────────────────────
-
-  [Fact]
-  public void StatelessModel_DocumentsTheNormativeRuleIds()
-  {
-    Assert.Equal("R-4.4-a", StatelessModel.NoPriorRequestInference);
-    Assert.Equal("R-4.4-b", StatelessModel.NoHandshakeRequired);
-    Assert.Equal("R-4.4-c", StatelessModel.IdentityFromMetaOnly);
-    Assert.Equal("R-4.4-d", StatelessModel.NoPerConnectionState);
-    Assert.Equal("R-4.4-f", StatelessModel.ConnectionNotConversation);
-    Assert.Equal("R-4.5-a", StatelessModel.ExplicitContinuationOnly);
-    Assert.Equal("R-4.6-a", StatelessModel.ListResultsConnectionIndependent);
-  }
-
-  // ─── DEFERRED_TO_TRANSPORT constants ─────────────────────────────────────────
-
-  [Fact]
-  public void DeferredToTransport_DocumentsThreeRecommendedBehaviors()
-  {
-    Assert.Equal("R-4.4-h", DeferredToTransport.InterleavedTaskStreams);
-    Assert.Equal("R-4.4-i", DeferredToTransport.NoConnectionReuseRequirement);
-    Assert.Equal("R-4.4-j", DeferredToTransport.MidTaskResumeOnNewConnection);
-    Assert.Equal(3, DeferredToTransport.All.Count);
   }
 
   // ─── FeatureStatus enum ──────────────────────────────────────────────────────

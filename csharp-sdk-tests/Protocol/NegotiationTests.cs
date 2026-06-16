@@ -27,11 +27,8 @@ public sealed class NegotiationTests
 
   // ─── AC-09.1 — discovery optional (R-5.4-a) ─────────────────────────────────────────────────────
 
-  [Fact]
-  public void Server_discover_is_optional()
-  {
-    Assert.True(RevisionNegotiation.ServerDiscoverIsOptional);
-  }
+  // server/discover being OPTIONAL (R-5.4-a) is asserted behaviorally below: re-selection succeeds with
+  // no prior discovery, which is only possible if discovery is not a precondition.
 
   [Fact]
   public void Reselection_works_from_a_rejection_set_with_no_prior_discovery()
@@ -89,7 +86,7 @@ public sealed class NegotiationTests
   {
     var result = RevisionNegotiation.NegotiateRevision(["2020-01-01"], ["2026-07-28"]);
     Assert.False(result.Ok);
-    Assert.Equal("no-mutual-revision", result.Reason);
+    Assert.Equal(RevisionNegotiationFailure.NoMutualRevision, result.Reason);
     Assert.Null(result.SelectedRevision);
     Assert.Equal(["2020-01-01"], result.ClientPreference);
     Assert.Equal(["2026-07-28"], result.ServerSupported);
@@ -151,7 +148,7 @@ public sealed class NegotiationTests
     var err = McpError.UnsupportedProtocolVersion(["2026-07-28"], "1900-01-01").ToJsonRpcError();
     var result = RevisionNegotiation.ReselectAfterUnsupportedVersion(err, ["2020-01-01"]);
     Assert.False(result.Ok);
-    Assert.Equal("no-mutual-revision", result.Reason);
+    Assert.Equal(RevisionNegotiationFailure.NoMutualRevision, result.Reason);
   }
 
   [Fact]
@@ -203,9 +200,10 @@ public sealed class NegotiationTests
   public void A_valid_DiscoverResult_means_supported()
   {
     var outcome = RevisionNegotiation.InterpretProbeResponse(ResultResponse("[\"2026-07-28\"]"));
-    Assert.Equal(ProbeOutcomeKind.Supported, outcome.Kind);
-    Assert.Equal(["2026-07-28"], outcome.SupportedVersions);
-    Assert.NotNull(outcome.Result);
+    var supported = Assert.IsType<ProbeOutcome.Supported>(outcome);
+    Assert.Equal(ProbeOutcomeKind.Supported, supported.Kind);
+    Assert.Equal(["2026-07-28"], supported.SupportedVersions);
+    Assert.NotNull(supported.Result);
   }
 
   [Fact]
@@ -213,9 +211,10 @@ public sealed class NegotiationTests
   {
     var outcome = RevisionNegotiation.InterpretProbeResponse(
       ErrorResponse("""{"code":-32004,"message":"x","data":{"supported":["2026-07-28"],"requested":"1900-01-01"}}"""));
-    Assert.Equal(ProbeOutcomeKind.UnsupportedVersion, outcome.Kind);
-    Assert.Equal(["2026-07-28"], outcome.SupportedVersions);
-    Assert.Equal("1900-01-01", outcome.Requested);
+    var unsupported = Assert.IsType<ProbeOutcome.UnsupportedVersion>(outcome);
+    Assert.Equal(ProbeOutcomeKind.UnsupportedVersion, unsupported.Kind);
+    Assert.Equal(["2026-07-28"], unsupported.SupportedVersions);
+    Assert.Equal("1900-01-01", unsupported.Requested);
   }
 
   // ─── AC-09.16 — unrecognized/malformed/timeout → not-this-protocol (R-5.7-c/d) ──────────────────
@@ -455,19 +454,19 @@ public sealed class NegotiationTests
   [Fact]
   public void GateRequiredClientCapabilities_allows_when_all_required_are_declared()
   {
-    Assert.True(CapabilityNegotiation.GateRequiredClientCapabilities(
-      Caps("""{"elicitation":{}}"""), Caps("""{"elicitation":{}}""")).Ok);
+    // A null result means the request is allowed (no blocking error).
+    Assert.Null(CapabilityNegotiation.GateRequiredClientCapabilities(
+      Caps("""{"elicitation":{}}"""), Caps("""{"elicitation":{}}""")));
   }
 
   [Fact]
   public void GateRequiredClientCapabilities_rejects_with_minus_32003_listing_the_missing_subset()
   {
-    var result = CapabilityNegotiation.GateRequiredClientCapabilities(
+    var error = CapabilityNegotiation.GateRequiredClientCapabilities(
       Caps("""{"sampling":{}}"""), Caps("""{"elicitation":{}}"""));
-    Assert.False(result.Ok);
-    Assert.NotNull(result.Error);
-    Assert.Equal(-32003, result.Error!.Code);
-    var required = result.Error.Data!.AsObject()["requiredCapabilities"]!.AsObject();
+    Assert.NotNull(error);
+    Assert.Equal(-32003, error!.Code);
+    var required = error.Data!.AsObject()["requiredCapabilities"]!.AsObject();
     Assert.True(required.ContainsKey("elicitation"));
     Assert.False(required.ContainsKey("sampling"));
   }

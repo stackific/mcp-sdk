@@ -14,22 +14,22 @@ namespace Stackific.Mcp.Protocol;
 /// revision, and defines what a client does when a request is rejected.
 /// </summary>
 /// <remarks>
+/// <para>
 /// The selection rule (§5.4) picks the highest <em>mutually</em> supported revision — the first in the
 /// client's own ordered preference list that also appears in the server's set — using exact string
 /// match, never lexical or chronological comparison (R-5.1-a, R-5.1-b). When the intersection is empty
 /// the client MUST NOT fabricate a revision (R-5.4-c) and SHOULD surface an
 /// <see cref="IncompatibleProtocolError"/> (R-5.4-d). The §5.7 backward-compatibility probe and the
 /// per-endpoint <see cref="ProtocolSupportCache"/> live alongside it.
+/// </para>
+/// <para>
+/// <c>server/discover</c> is OPTIONAL before a first substantive request (R-5.4-a): a client MAY probe
+/// first, or proceed directly and handle an <c>UnsupportedProtocolVersion</c> rejection — the
+/// re-selection path (<see cref="ReselectAfterUnsupportedVersion"/>) works without any prior discovery.
+/// </para>
 /// </remarks>
 public static class RevisionNegotiation
 {
-  /// <summary>
-  /// Whether <c>server/discover</c> is required before a first substantive request. It is OPTIONAL
-  /// (R-5.4-a): a client MAY probe first, or proceed directly and handle an
-  /// <c>UnsupportedProtocolVersion</c> rejection. Mirrors TS <c>SERVER_DISCOVER_IS_OPTIONAL</c>.
-  /// </summary>
-  public const bool ServerDiscoverIsOptional = true;
-
   /// <summary>Both negotiation errors ride HTTP <c>400 Bad Request</c> on the HTTP transport (R-5.5-b, R-5.6-d).</summary>
   public const int NegotiationErrorHttpStatus = 400;
 
@@ -182,7 +182,7 @@ public static class RevisionNegotiation
   {
     if (response is not JsonObject obj)
     {
-      return ProbeOutcome.NotThisProtocol("no response (timeout) or non-object response");
+      return new ProbeOutcome.NotThisProtocol("no response (timeout) or non-object response");
     }
 
     // Success branch: a result carrying a valid DiscoverResult.
@@ -190,9 +190,9 @@ public static class RevisionNegotiation
     {
       if (obj["result"] is JsonObject resultObj && TryReadDiscoverResult(resultObj, out var supportedVersions, out var result))
       {
-        return ProbeOutcome.SupportedOutcome(supportedVersions, result);
+        return new ProbeOutcome.Supported([.. supportedVersions], result);
       }
-      return ProbeOutcome.NotThisProtocol("result is not a valid DiscoverResult");
+      return new ProbeOutcome.NotThisProtocol("result is not a valid DiscoverResult");
     }
 
     // Error branch: only a recognized -32004 with data.supported + data.requested is "this protocol".
@@ -205,13 +205,13 @@ public static class RevisionNegotiation
           requestedValue.GetValueKind() == JsonValueKind.String)
       {
         var supported = ReadStringArray(data, "supported");
-        return ProbeOutcome.UnsupportedVersionOutcome(supported, requestedValue.GetValue<string>());
+        return new ProbeOutcome.UnsupportedVersion([.. supported], requestedValue.GetValue<string>());
       }
       var codeText = error["code"]?.ToJsonString() ?? "null";
-      return ProbeOutcome.NotThisProtocol($"unrecognized error code {codeText}");
+      return new ProbeOutcome.NotThisProtocol($"unrecognized error code {codeText}");
     }
 
-    return ProbeOutcome.NotThisProtocol("response is neither a result nor an error");
+    return new ProbeOutcome.NotThisProtocol("response is neither a result nor an error");
   }
 
   /// <summary>
@@ -245,10 +245,12 @@ public static class RevisionNegotiation
   public static ProtocolSupportDetermination DeterminationFromProbe(ProbeOutcome outcome)
   {
     ArgumentNullException.ThrowIfNull(outcome);
-    return outcome.Kind switch
+    // Both family-speaking cases carry the supported set in a strongly-typed property, so pattern
+    // matching extracts it without a nullable-bag dereference.
+    return outcome switch
     {
-      ProbeOutcomeKind.Supported => ProtocolSupportDetermination.Speaks(outcome.SupportedVersions!),
-      ProbeOutcomeKind.UnsupportedVersion => ProtocolSupportDetermination.Speaks(outcome.SupportedVersions!),
+      ProbeOutcome.Supported s => ProtocolSupportDetermination.Speaks(s.SupportedVersions),
+      ProbeOutcome.UnsupportedVersion u => ProtocolSupportDetermination.Speaks(u.SupportedVersions),
       _ => ProtocolSupportDetermination.DoesNotSpeak,
     };
   }
@@ -321,6 +323,13 @@ public static class RevisionNegotiation
   }
 }
 
+/// <summary>Why §5.4 revision selection failed. The rule has a single failure mode.</summary>
+public enum RevisionNegotiationFailure
+{
+  /// <summary>The client's preference list and the server's supported set share no revision (R-5.4-c).</summary>
+  NoMutualRevision,
+}
+
 /// <summary>The two possible outcomes of the §5.4 revision-selection rule. Mirrors TS <c>RevisionNegotiationResult</c>.</summary>
 public sealed record RevisionNegotiationResult
 {
@@ -333,10 +342,10 @@ public sealed record RevisionNegotiationResult
   public string? SelectedRevision { get; private init; }
 
   /// <summary>
-  /// The failure reason when <see cref="Ok"/> is <c>false</c>; the only reason is
-  /// <c>"no-mutual-revision"</c>. <c>null</c> on success.
+  /// The failure reason when <see cref="Ok"/> is <c>false</c> (the only value is
+  /// <see cref="RevisionNegotiationFailure.NoMutualRevision"/>); <c>null</c> on success.
   /// </summary>
-  public string? Reason { get; private init; }
+  public RevisionNegotiationFailure? Reason { get; private init; }
 
   /// <summary>The client's preference list, carried on failure for diagnostics; empty on success.</summary>
   public IReadOnlyList<string> ClientPreference { get; private init; } = [];
@@ -360,7 +369,7 @@ public sealed record RevisionNegotiationResult
     new()
     {
       Ok = false,
-      Reason = "no-mutual-revision",
+      Reason = RevisionNegotiationFailure.NoMutualRevision,
       ClientPreference = [.. clientPreference],
       ServerSupported = [.. serverSupported],
     };
@@ -409,48 +418,53 @@ public enum ProbeOutcomeKind
   NotThisProtocol,
 }
 
-/// <summary>The outcome of interpreting a probe (<c>server/discover</c>) response (§5.7). Mirrors TS <c>ProbeOutcome</c>.</summary>
-public sealed record ProbeOutcome
+/// <summary>
+/// The outcome of interpreting a probe (<c>server/discover</c>) response (§5.7). Mirrors TS
+/// <c>ProbeOutcome</c>. Modeled as a closed record hierarchy — one derived type per
+/// <see cref="ProbeOutcomeKind"/> carrying ONLY the data valid for that case — so illegal combinations
+/// (for example a "not-this-protocol" outcome that nonetheless carries a parsed result) cannot be
+/// constructed. Match on the concrete type with a <c>switch</c> expression, or branch on <see cref="Kind"/>.
+/// </summary>
+public abstract record ProbeOutcome
 {
-  private ProbeOutcome() { }
+  // Closed hierarchy: only the nested derived records below may extend it.
+  private protected ProbeOutcome() { }
 
   /// <summary>Which class the probe response fell into.</summary>
-  public required ProbeOutcomeKind Kind { get; init; }
+  public abstract ProbeOutcomeKind Kind { get; }
 
   /// <summary>
-  /// For <see cref="ProbeOutcomeKind.Supported"/> the result's <c>supportedVersions</c>; for
-  /// <see cref="ProbeOutcomeKind.UnsupportedVersion"/> the error's <c>data.supported</c>; otherwise <c>null</c>.
+  /// A valid <c>DiscoverResult</c>: the server speaks this protocol family (§5.7).
   /// </summary>
-  public IReadOnlyList<string>? SupportedVersions { get; init; }
+  /// <param name="SupportedVersions">The result's advertised <c>supportedVersions</c>.</param>
+  /// <param name="Result">The parsed discovery result, when one was deserialized.</param>
+  public sealed record Supported(IReadOnlyList<string> SupportedVersions, DiscoverResult? Result) : ProbeOutcome
+  {
+    /// <inheritdoc/>
+    public override ProbeOutcomeKind Kind => ProbeOutcomeKind.Supported;
+  }
 
-  /// <summary>The parsed <c>DiscoverResult</c> when <see cref="Kind"/> is <see cref="ProbeOutcomeKind.Supported"/>; otherwise <c>null</c>.</summary>
-  public DiscoverResult? Result { get; init; }
+  /// <summary>
+  /// A recognized <c>-32004</c>: the server speaks this protocol family, but not the requested revision (§5.7).
+  /// </summary>
+  /// <param name="SupportedVersions">The error's <c>data.supported</c> revisions.</param>
+  /// <param name="Requested">The rejected revision.</param>
+  public sealed record UnsupportedVersion(IReadOnlyList<string> SupportedVersions, string Requested) : ProbeOutcome
+  {
+    /// <inheritdoc/>
+    public override ProbeOutcomeKind Kind => ProbeOutcomeKind.UnsupportedVersion;
+  }
 
-  /// <summary>The rejected revision when <see cref="Kind"/> is <see cref="ProbeOutcomeKind.UnsupportedVersion"/>; otherwise <c>null</c>.</summary>
-  public string? Requested { get; init; }
-
-  /// <summary>A short explanation when <see cref="Kind"/> is <see cref="ProbeOutcomeKind.NotThisProtocol"/>; otherwise <c>null</c>.</summary>
-  public string? Reason { get; init; }
-
-  /// <summary>Builds a "supported" outcome.</summary>
-  /// <param name="supportedVersions">The advertised revisions.</param>
-  /// <param name="result">The parsed discovery result.</param>
-  /// <returns>A "supported" outcome.</returns>
-  public static ProbeOutcome SupportedOutcome(IReadOnlyList<string> supportedVersions, DiscoverResult? result) =>
-    new() { Kind = ProbeOutcomeKind.Supported, SupportedVersions = [.. supportedVersions], Result = result };
-
-  /// <summary>Builds an "unsupported-version" outcome.</summary>
-  /// <param name="supported">The server's <c>data.supported</c> revisions.</param>
-  /// <param name="requested">The rejected revision.</param>
-  /// <returns>An "unsupported-version" outcome.</returns>
-  public static ProbeOutcome UnsupportedVersionOutcome(IReadOnlyList<string> supported, string requested) =>
-    new() { Kind = ProbeOutcomeKind.UnsupportedVersion, SupportedVersions = [.. supported], Requested = requested };
-
-  /// <summary>Builds a "not-this-protocol" outcome.</summary>
-  /// <param name="reason">A short explanation.</param>
-  /// <returns>A "not-this-protocol" outcome.</returns>
-  public static ProbeOutcome NotThisProtocol(string reason) =>
-    new() { Kind = ProbeOutcomeKind.NotThisProtocol, Reason = reason };
+  /// <summary>
+  /// Anything else (a different error code, malformed response, or timeout): the server does not speak
+  /// this protocol revision (§5.7, R-5.7-c).
+  /// </summary>
+  /// <param name="Reason">A short explanation of why the response was not recognized.</param>
+  public sealed record NotThisProtocol(string Reason) : ProbeOutcome
+  {
+    /// <inheritdoc/>
+    public override ProbeOutcomeKind Kind => ProbeOutcomeKind.NotThisProtocol;
+  }
 }
 
 /// <summary>
@@ -745,24 +759,22 @@ public static class CapabilityNegotiation
   }
 
   /// <summary>
-  /// Gates a request against the capabilities it requires (§6.4, R-6.4-h). When every required
-  /// capability is declared the result is <see cref="CapabilityGateResult.Ok"/>; otherwise it carries
-  /// the <c>-32003</c> <c>MissingRequiredClientCapability</c> error whose <c>data.requiredCapabilities</c>
-  /// lists exactly the required-but-undeclared capabilities. Mirrors TS <c>gateRequiredClientCapabilities</c>.
+  /// Gates a request against the capabilities it requires (§6.4, R-6.4-h). Returns <c>null</c> when
+  /// every required capability is declared (the request is allowed); otherwise returns the <c>-32003</c>
+  /// <c>MissingRequiredClientCapability</c> error whose <c>data.requiredCapabilities</c> lists exactly
+  /// the required-but-undeclared capabilities. Mirrors TS <c>gateRequiredClientCapabilities</c>.
   /// </summary>
   /// <param name="declared">The capabilities from the current request's <c>_meta</c>.</param>
   /// <param name="required">The capabilities the server needs to process the request.</param>
-  /// <returns>The gate result.</returns>
-  public static CapabilityGateResult GateRequiredClientCapabilities(JsonObject declared, JsonObject required)
+  /// <returns>The blocking <c>-32003</c> error, or <c>null</c> when the request is allowed.</returns>
+  public static JsonRpcError? GateRequiredClientCapabilities(JsonObject declared, JsonObject required)
   {
     ArgumentNullException.ThrowIfNull(declared);
     ArgumentNullException.ThrowIfNull(required);
     var missing = ComputeMissingClientCapabilities(declared, required);
-    if (missing.Count == 0)
-    {
-      return CapabilityGateResult.Allowed;
-    }
-    return CapabilityGateResult.Rejected(McpError.MissingRequiredClientCapability(missing).ToJsonRpcError());
+    return missing.Count == 0
+      ? null
+      : McpError.MissingRequiredClientCapability(missing).ToJsonRpcError();
   }
 
   /// <summary>Capability-negotiation errors ride HTTP <c>400 Bad Request</c> (R-6.4-i, R-6.4-k).</summary>
@@ -846,26 +858,6 @@ public static class CapabilityNegotiation
     Nested(obj, parent) is { } p &&
     p[flag] is JsonValue value &&
     value.GetValueKind() == JsonValueKind.True;
-}
-
-/// <summary>The outcome of <see cref="CapabilityNegotiation.GateRequiredClientCapabilities"/>. Mirrors TS <c>CapabilityGateResult</c>.</summary>
-public sealed record CapabilityGateResult
-{
-  private CapabilityGateResult() { }
-
-  /// <summary><c>true</c> when every required capability is declared.</summary>
-  public bool Ok { get; private init; }
-
-  /// <summary>The <c>-32003</c> error when <see cref="Ok"/> is <c>false</c>; otherwise <c>null</c>.</summary>
-  public JsonRpcError? Error { get; private init; }
-
-  /// <summary>A shared "all required capabilities declared" result.</summary>
-  public static CapabilityGateResult Allowed { get; } = new() { Ok = true };
-
-  /// <summary>Builds a rejection carrying the <c>-32003</c> error.</summary>
-  /// <param name="error">The missing-capability error.</param>
-  /// <returns>A rejection result.</returns>
-  public static CapabilityGateResult Rejected(JsonRpcError error) => new() { Ok = false, Error = error };
 }
 
 /// <summary>What a peer should do when the other peer lacks an optional behavior (§6.4). Mirrors TS <c>DegradationDecision</c>.</summary>
