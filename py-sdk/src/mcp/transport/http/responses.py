@@ -24,7 +24,9 @@ canonical home for the §22 registry); this module reuses — never redefines �
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from enum import StrEnum
 
 from mcp.protocol.errors import (
   HEADER_MISMATCH_CODE,
@@ -138,12 +140,13 @@ ORIGIN_HEADER = "Origin"
 # ─── Response-shape selection (§9.6) ───────────────────────────────────────────
 
 
-class ResponseShape:
+class ResponseShape(StrEnum):
   """The two ways a server MAY answer a JSON-RPC *request* body.
 
-  Exactly one is chosen per request; both succeed with HTTP ``200 OK``. (R-9.6-a)
-  Modelled as string constants (mirroring the TS const object) rather than an enum so
-  the value compares equal to the bare string a caller may pass on the wire.
+  Exactly one is chosen per request; both succeed with HTTP ``200 OK``. (R-9.6-a) A
+  ``StrEnum`` (the SDK-wide idiom for finite string-enums, e.g. ``ErrorCodeClass``):
+  each member still compares equal to its bare string for any caller passing it on the
+  wire, while gaining iteration/membership/repr for free.
   """
 
   #: One HTTP ``200 OK`` + ``application/json`` carrying a single JSON-RPC response. (§9.6.1)
@@ -269,7 +272,7 @@ class RequestEventStream:
   event string; how that string reaches the wire is the caller's concern.
   """
 
-  def __init__(self, sink) -> None:
+  def __init__(self, sink: Callable[[str], None]) -> None:
     """Create a stream whose formatted SSE events are delivered to ``sink``.
 
     :param sink: A callable receiving each formatted SSE event string to deliver on
@@ -614,7 +617,8 @@ def interpret_post_for_fallback(status: int, body: object) -> PostFallbackDecisi
   ``405`` means the client SHOULD probe for the legacy transport.
   """
   if _is_recognized_revision_error(body):
-    data = body["error"].get("data") if isinstance(body, dict) else None
+    # _is_recognized_revision_error already proved body is a dict whose `error` is a dict.
+    data = body["error"].get("data")
     supported = None
     if isinstance(data, dict) and isinstance(data.get("supported"), list):
       supported = list(data["supported"])

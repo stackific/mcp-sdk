@@ -493,6 +493,45 @@ class TestPagination:
     items = list(client.list_all_resources())
     assert items == [{"uri": "a"}]
 
+  def test_empty_string_next_cursor_is_echoed_not_end_of_results(self):
+    # An empty-string nextCursor is a PRESENT cursor: the client MUST NOT treat it as
+    # end-of-results, and MUST echo cursor:'' on the follow-up request — it must NOT drop
+    # the field (which would re-request the first page). (R-12.3-d, R-12.3-e / AC-18.8)
+    client, transport = stub_client()
+    seen_cursors = []
+
+    def on_request(message):
+      cursor = message["params"].get("cursor")
+      seen_cursors.append(cursor)
+      if "cursor" not in message["params"]:
+        # First page — hand back an empty-string nextCursor to continue.
+        result = {"resultType": "complete", "tools": [{"name": "a"}], "nextCursor": ""}
+      elif cursor == "":
+        # The client correctly echoed '' — return the final page (no nextCursor).
+        result = {"resultType": "complete", "tools": [{"name": "b"}]}
+      else:  # pragma: no cover — only reached if the client mishandles ''
+        result = {"resultType": "complete", "tools": [{"name": "WRONG"}]}
+      return {"jsonrpc": "2.0", "id": message["id"], "result": result}
+
+    transport.on_request = on_request
+    names = [t["name"] for t in client.list_all_tools()]
+    assert names == ["a", "b"]
+    # First request omits cursor (None), the second echoes the empty string verbatim.
+    assert seen_cursors == [None, ""]
+
+  def test_list_tools_sends_empty_string_cursor_verbatim(self):
+    # An explicit empty-string cursor argument is a present cursor and MUST be sent on the
+    # wire, not dropped. (R-12.1-a)
+    client, transport = stub_client()
+    transport.on_request = lambda m: {
+      "jsonrpc": "2.0",
+      "id": m["id"],
+      "result": {"resultType": "complete", "tools": []},
+    }
+    client.list_tools(cursor="")
+    params = transport.sent[-1]["params"]
+    assert "cursor" in params and params["cursor"] == ""
+
 
 # ─── M1 — invalid x-mcp-header tool filtering (§9.5.1) + Mcp-Param-* (§9.5.2) ──
 

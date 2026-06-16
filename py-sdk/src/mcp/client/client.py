@@ -45,6 +45,7 @@ from mcp.protocol.meta import (
   PROTOCOL_VERSION_META_KEY,
 )
 from mcp.protocol.multi_round_trip import MrtrRoundGuard, discriminate_result_type
+from mcp.protocol.pagination import is_cursor_present
 from mcp.protocol.progress import PROGRESS_NOTIFICATION_METHOD
 from mcp.protocol.streaming import (
   SUBSCRIPTIONS_ACKNOWLEDGED_METHOD,
@@ -89,6 +90,16 @@ def _progress_key(token: object) -> str:
   Mirrors the TS ``progressKey`` helper. (§15.1)
   """
   return f"s:{token}" if isinstance(token, str) else f"n:{token}"
+
+
+def _cursor_params(cursor: str | None) -> dict:
+  """Build the ``params`` for a paginated request from a cursor by PRESENCE, not
+  truthiness: a present cursor — including the empty string ``""`` (§12.1) — is sent
+  verbatim, while only an absent (``None``) cursor omits the field. This keeps the wire
+  path consistent with :func:`mcp.protocol.pagination.is_cursor_present`. (R-12.1-a,
+  R-12.3-e)
+  """
+  return {"cursor": cursor} if is_cursor_present(cursor) else {}
 
 
 class SubscriptionHandle:
@@ -522,7 +533,7 @@ class Client:
     keeping every valid tool usable (R-9.5.1-i/j). §9.5.2: remembers each tool's ``inputSchema``
     so a later ``tools/call`` can emit ``Mcp-Param-*`` routing headers.
     """
-    result = self.request("tools/list", {"cursor": cursor} if cursor else {})
+    result = self.request("tools/list", _cursor_params(cursor))
     tools = result.get("tools")
     if isinstance(tools, list):
       filtered = filter_valid_tools(tools).tools
@@ -557,11 +568,11 @@ class Client:
 
   def list_resources(self, cursor: str | None = None) -> dict:
     """``resources/list`` — one page of resources. (§17.2)"""
-    return self.request("resources/list", {"cursor": cursor} if cursor else {})
+    return self.request("resources/list", _cursor_params(cursor))
 
   def list_resource_templates(self, cursor: str | None = None) -> dict:
     """``resources/templates/list`` — one page of resource templates. (§17.3)"""
-    return self.request("resources/templates/list", {"cursor": cursor} if cursor else {})
+    return self.request("resources/templates/list", _cursor_params(cursor))
 
   def read_resource(self, uri: str) -> dict:
     """``resources/read`` — read a resource by URI. (§17.5)"""
@@ -569,7 +580,7 @@ class Client:
 
   def list_prompts(self, cursor: str | None = None) -> dict:
     """``prompts/list`` — one page of prompts. (§18.2)"""
-    return self.request("prompts/list", {"cursor": cursor} if cursor else {})
+    return self.request("prompts/list", _cursor_params(cursor))
 
   def get_prompt(self, name: str, arguments: dict | None = None) -> dict:
     """``prompts/get`` — resolve a prompt with arguments. (§18.4)"""
@@ -600,10 +611,13 @@ class Client:
     """
     cursor: str | None = None
     while True:
-      result = self.request(method, {"cursor": cursor} if cursor else {})
+      result = self.request(method, _cursor_params(cursor))
       for item in result.get(items_key) or []:
         yield item
       next_cursor = result.get("nextCursor")
+      # Absence of nextCursor (NOT a falsy '') signals the last page; an empty-string
+      # nextCursor is a present cursor that MUST be echoed to fetch the next page.
+      # (R-12.3-d, R-12.3-e)
       if not isinstance(next_cursor, str):
         return
       cursor = next_cursor

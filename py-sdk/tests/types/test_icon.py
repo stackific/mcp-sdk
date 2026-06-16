@@ -74,6 +74,12 @@ class TestIconSchema:
     assert not is_valid_icon({})
     assert not is_valid_icon("nope")
 
+  # AC-20.2 (R-14-b) — a reserved `_meta` member is accepted (tolerated extra key)
+  def test_meta_is_accepted(self):
+    assert is_valid_icon(
+      {"src": "https://x.com/i.png", "_meta": {"example.com/category": "analytics"}}
+    )
+
 
 class TestIconsMixin:
   """IconsSchema — optional icons array (AC-20.9 — R-14.2-b, R-14.2-v)."""

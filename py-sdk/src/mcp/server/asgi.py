@@ -35,18 +35,15 @@ from starlette.responses import Response, StreamingResponse
 
 from mcp.jsonrpc.framing import MalformedMessageError, classify_message
 from mcp.protocol.errors import (
-  HEADER_MISMATCH_CODE,
   INTERNAL_ERROR_CODE,
   INVALID_PARAMS_CODE,
   INVALID_REQUEST_CODE,
   METHOD_NOT_FOUND_CODE,
   PARSE_ERROR_CODE,
-  UNSUPPORTED_PROTOCOL_VERSION_CODE,
   build_error_object,
 )
 from mcp.protocol.meta import (
   CURRENT_PROTOCOL_VERSION,
-  PROTOCOL_VERSION_META_KEY,
   validate_request_meta,
 )
 from mcp.protocol.revision import MCP_PROTOCOL_VERSION_HEADER
@@ -59,6 +56,14 @@ from mcp.protocol.streaming import (
 from mcp.protocol.tasks import is_tasks_active_for_request, task_subscription_requires_capability
 from mcp.protocol.tasks import build_tasks_missing_capability_error
 from mcp.server.server import CancelSignal, McpServer, ServerError, ServerRequestContext
+from mcp.transport.http.headers import (
+  ProtocolVersionValidationOptions,
+  validate_accept,
+  validate_content_type,
+  validate_protocol_version_header,
+  validate_routing_headers,
+)
+from mcp.transport.http.param_headers import validate_param_headers
 
 #: A bearer/auth gate: given the request, returns a verdict dict — either
 #: ``{"ok": True, "authInfo": ...}`` or
@@ -67,9 +72,6 @@ AuthGate = Callable[[Request], dict]
 
 #: Sentinel placed on a stream's queue to signal "no more messages".
 _SENTINEL = object()
-
-_ACCEPT_TYPES = ("application/json", "text/event-stream")
-_NAME_METHODS = {"tools/call": "name", "prompts/get": "name", "resources/read": "uri"}
 
 
 def _sse(message: Any) -> str:
@@ -156,49 +158,45 @@ def create_asgi_mcp_handler(
       teardown_subscription(target)
 
   # ── request-header validation (§9.3–§9.4) ──
-  def validate_request_headers(headers: Any, body: dict, method: str) -> tuple[int, str] | None:
-    content_type = (headers.get("content-type") or "").split(";")[0].strip().lower()
-    if content_type != "application/json":
-      return HEADER_MISMATCH_CODE, "Content-Type must be application/json"
-    accept = (headers.get("accept") or "").lower()
-    listed = [p.split(";")[0].strip() for p in accept.split(",")]
-    if not all(t in listed for t in _ACCEPT_TYPES):
-      return HEADER_MISMATCH_CODE, "Accept must list application/json and text/event-stream"
-    mcp_method = headers.get("mcp-method")
-    if mcp_method is None:
-      return HEADER_MISMATCH_CODE, "Mcp-Method header is required"
-    if mcp_method != method:
-      return HEADER_MISMATCH_CODE, f'Mcp-Method "{mcp_method}" does not match body method "{method}"'
-    name_field = _NAME_METHODS.get(method)
-    mcp_name = headers.get("mcp-name")
-    if name_field is not None:
-      expected = (body.get("params") or {}).get(name_field)
-      if mcp_name is None:
-        return HEADER_MISMATCH_CODE, f"Mcp-Name header is required for {method}"
-      if not isinstance(expected, str) or mcp_name != expected:
-        return HEADER_MISMATCH_CODE, f'Mcp-Name "{mcp_name}" does not match body for {method}'
-    elif mcp_name is not None:
-      return HEADER_MISMATCH_CODE, f"Mcp-Name MUST NOT be sent for {method}"
+  def reject_for(request_id: Any, rejection: Any) -> Response:
+    """Surface an :class:`HttpRejection` from the tested header validators as the
+    JSON-RPC error response, echoing the originating request id."""
+    error = rejection.error
+    return reject(request_id, error["code"], error["message"], error.get("data"))
+
+  def validate_headers(headers: dict, body: dict, meta: dict) -> Any:
+    """Run the §9.3–§9.4 header + routing + protocol-version validators (the same tested
+    helpers the conformance suite exercises). Returns an :class:`HttpRejection` on the
+    first failure, else ``None``."""
+    for outcome in (validate_content_type(headers), validate_accept(headers)):
+      if not outcome.ok:
+        return outcome.rejection
+    routing = validate_routing_headers(headers, body)
+    if not routing.ok:
+      return routing.rejection
+    version = validate_protocol_version_header(
+      headers,
+      body,
+      ProtocolVersionValidationOptions(supported_versions=[CURRENT_PROTOCOL_VERSION]),
+    )
+    if not version.ok:
+      return version.rejection
     return None
 
-  def validate_protocol_version(headers: Any, meta: dict) -> tuple[int, str, Any] | None:
-    header = headers.get(MCP_PROTOCOL_VERSION_HEADER)
-    if header is None:
-      return HEADER_MISMATCH_CODE, f"{MCP_PROTOCOL_VERSION_HEADER} header is required", None
-    body_version = meta.get(PROTOCOL_VERSION_META_KEY)
-    if isinstance(body_version, str) and header != body_version:
-      return (
-        HEADER_MISMATCH_CODE,
-        f'{MCP_PROTOCOL_VERSION_HEADER} "{header}" does not match body _meta "{body_version}"',
-        None,
-      )
-    if header != CURRENT_PROTOCOL_VERSION:
-      return (
-        UNSUPPORTED_PROTOCOL_VERSION_CODE,
-        "Unsupported protocol version",
-        {"supported": [CURRENT_PROTOCOL_VERSION], "requested": header},
-      )
-    return None
+  def validate_param_headers_for(method: str, params: dict, headers: dict) -> Any:
+    """Validate ``Mcp-Param-*`` headers against the request body for a known ``tools/call``
+    (§9.5.4). Returns an :class:`HttpRejection` on a mismatch / impermissible value, else
+    ``None``. Unknown tools fall through (the dispatcher reports the -32602)."""
+    if method != "tools/call":
+      return None
+    name = params.get("name")
+    if not isinstance(name, str):
+      return None
+    schema = server.tool_input_schema(name)
+    if schema is None:
+      return None
+    outcome = validate_param_headers(schema, params.get("arguments") or {}, headers)
+    return None if outcome.ok else outcome.rejection
 
   async def handler(request: Request) -> Response:
     state["loop"] = asyncio.get_running_loop()
@@ -258,13 +256,15 @@ def create_asgi_mcp_handler(
     params = request_msg.get("params") or {}
     meta = params.get("_meta") if isinstance(params.get("_meta"), dict) else {}
 
-    # §9.3–§9.4 + §4.3: required headers, routing headers, then the _meta envelope.
-    header_error = validate_request_headers(request.headers, request_msg, method)
-    if header_error is not None:
-      return reject(request_id, header_error[0], header_error[1])
-    version_error = validate_protocol_version(request.headers, meta)
-    if version_error is not None:
-      return reject(request_id, version_error[0], version_error[1], version_error[2])
+    # §9.3–§9.4 + §9.5.4 + §4.3: required headers, routing headers, the param headers,
+    # then the _meta envelope. A plain dict is built once for the tested header validators.
+    headers = dict(request.headers)
+    header_rejection = validate_headers(headers, request_msg, meta)
+    if header_rejection is not None:
+      return reject_for(request_id, header_rejection)
+    param_rejection = validate_param_headers_for(method, params, headers)
+    if param_rejection is not None:
+      return reject_for(request_id, param_rejection)
     if method != "initialize":
       meta_error = validate_request_meta(meta)
       if not meta_error.ok:

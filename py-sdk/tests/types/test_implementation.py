@@ -28,6 +28,17 @@ class TestIsValid:
     assert not is_valid_implementation({"name": "c", "version": 2})
     assert not is_valid_implementation("nope")
 
+  # AC-20.2 (R-14-b) — a structure carrying a reserved `_meta` member is accepted; the
+  # extra key is tolerated and never causes rejection.
+  def test_meta_is_accepted(self):
+    assert is_valid_implementation(
+      {**MINIMAL, "_meta": {"example.com/category": "analytics"}}
+    )
+
+  def test_meta_preserved_in_extra(self):
+    impl = parse_implementation({**MINIMAL, "_meta": {"example.com/category": "analytics"}})
+    assert impl.extra["_meta"] == {"example.com/category": "analytics"}
+
 
 class TestParse:
   def test_minimal(self):
@@ -80,6 +91,15 @@ class TestParse:
   def test_unknown_field_preserved(self):
     impl = parse_implementation({**MINIMAL, "unknownFutureField": "value"})
     assert impl.extra["unknownFutureField"] == "value"
+
+  # AC-20.30 (R-14.3-d) — an arbitrary implementation-defined version carries NO protocol
+  # semantics: any non-semver string is accepted unchanged, never parsed or normalized.
+  @pytest.mark.parametrize("version", ["git-2025abc", "2024-W3", "nightly", "v3-rc.7+build"])
+  def test_arbitrary_version_accepted_unchanged(self, version):
+    raw = {"name": "c", "version": version}
+    assert is_valid_implementation(raw)  # any string version is structurally valid
+    impl = parse_implementation(raw)
+    assert impl.version == version  # round-tripped verbatim, no version semantics applied
 
   def test_invalid_raises(self):
     with pytest.raises(ValueError):

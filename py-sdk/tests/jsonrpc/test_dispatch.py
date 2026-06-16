@@ -46,3 +46,24 @@ class TestDispatch:
     outcome = dispatch_request({"jsonrpc": "2.0", "id": "abc", "method": "nope"}, {})
     assert outcome.response["id"] == "abc"
     assert isinstance(outcome.response["id"], str)
+
+  def test_method_names_are_case_sensitive(self):
+    # Method names are matched verbatim and case-sensitively (R-3.3-d / AC-03.9): a
+    # registry keyed on 'tools/call' MUST NOT answer a request for 'Tools/Call'.
+    registry = {"tools/call": MethodDescriptor()}
+    assert dispatch_request(_request("tools/call"), registry).ok
+    miscased = dispatch_request(_request("Tools/Call"), registry)
+    assert not miscased.ok
+    assert miscased.response["error"]["code"] == -32601
+
+  def test_distinct_case_variants_dispatch_independently(self):
+    # Two names differing only in case are distinct keys, each resolving to its own
+    # descriptor — there is no case-folding or normalization. (R-3.3-d)
+    registry = {
+      "tools/call": MethodDescriptor(),
+      "Tools/Call": MethodDescriptor(requires_params=True),
+    }
+    assert dispatch_request(_request("tools/call"), registry).ok  # no params required
+    miscased = dispatch_request(_request("Tools/Call"), registry)  # params required, absent
+    assert not miscased.ok
+    assert miscased.response["error"]["code"] == -32602

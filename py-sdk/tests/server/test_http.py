@@ -70,6 +70,13 @@ class TestPost:
     resp = h("POST", "/mcp", {}, raw)
     assert resp.status == 200
 
+  def test_invalid_utf8_body_returns_400_parse_error(self):
+    # AC-14.1 (R-9.1-a): a POST body that is not well-formed UTF-8 MUST be rejected by the
+    # production server with a 400 parse error (-32700), not decoded leniently.
+    resp = handler()("POST", "/mcp", {}, b"\xff\xfe")
+    assert resp.status == 400
+    assert json.loads(resp.body)["error"]["code"] == PARSE_ERROR_CODE
+
   def test_method_not_found_rides_on_200(self):
     h = handler()
     req = {"jsonrpc": "2.0", "id": 5, "method": "bogus"}

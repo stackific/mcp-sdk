@@ -54,6 +54,28 @@ class TestProcessMessage:
     assert resp["id"] is None
     assert resp["error"]["code"] == INVALID_REQUEST_CODE
 
+  def test_malformed_notification_is_silently_discarded(self):
+    # A message that is notification-shaped (method present, no id) but malformed —
+    # here a notification whose `params` is an array, which classify_message rejects —
+    # MUST be silently discarded with NO sender-facing error envelope. (R-3.4-f)
+    resp = process_message(
+      server(), {"jsonrpc": "2.0", "method": "notifications/foo", "params": [1, 2]}
+    )
+    assert resp is None
+
+  def test_malformed_notification_missing_jsonrpc_is_discarded(self):
+    # Even an entirely unclassifiable notification-shaped message (missing `jsonrpc`)
+    # warrants no reply, because it carries `method` and no `id`. (R-3.4-f)
+    resp = process_message(server(), {"method": "notifications/foo"})
+    assert resp is None
+
+  def test_malformed_request_shaped_still_replies_invalid_request(self):
+    # A malformed message that is request-shaped (carries an `id`) is NOT a notification,
+    # so it still earns a -32600 envelope with a null id (the original id is untrusted).
+    resp = process_message(server(), {"id": 7, "method": "m"})  # missing `jsonrpc`
+    assert resp["id"] is None
+    assert resp["error"]["code"] == INVALID_REQUEST_CODE
+
   def test_notify_sink_receives_tool_notifications(self):
     s = server()
     s.dispatch  # ensure server constructed

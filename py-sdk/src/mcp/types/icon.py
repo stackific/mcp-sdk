@@ -267,7 +267,9 @@ def fetch_icon(
     response = fetcher(current)  # R-14.2-q: credential-free request (see fetcher contract).
     status = response.status_code
     if is_redirect_status(status):
-      location = response.headers.get("location") if hasattr(response.headers, "get") else None
+      # The FetchResponse protocol guarantees ``headers`` is a mapping (httpx.Headers and
+      # dict both support .get), so no defensive hasattr guard is needed.
+      location = response.headers.get("location")
       if not location:
         raise IconValidationError(src, f"redirect {status} without a Location header")
       next_url = urllib.parse.urljoin(current, location)

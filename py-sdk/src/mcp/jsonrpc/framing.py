@@ -205,12 +205,13 @@ class InFlightTracker:
   """
 
   def __init__(self) -> None:
-    self._inflight: dict[str, RequestId] = {}
+    self._inflight: dict[tuple[str, RequestId], RequestId] = {}
 
   @staticmethod
-  def _key(id_: RequestId) -> str:
-    """Prefix the natural key with a type tag to distinguish ``"1"`` from ``1``."""
-    return f"s:{id_}" if isinstance(id_, str) else f"n:{id_}"
+  def _key(id_: RequestId) -> tuple[str, RequestId]:
+    """Tag the id with its JSON type so the string ``"1"`` never collides with the
+    number ``1`` — a ``(type-tag, id)`` tuple is hashable and needs no string scheme."""
+    return ("s", id_) if isinstance(id_, str) else ("n", id_)
 
   def register(self, id_: RequestId) -> None:
     """Register ``id_`` as in-flight for an outgoing request.

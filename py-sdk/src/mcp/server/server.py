@@ -333,6 +333,13 @@ class McpServer:
   def has_tool(self, name: str) -> bool:
     return name in self._tools
 
+  def tool_input_schema(self, name: str) -> dict | None:
+    """Return the registered ``inputSchema`` for tool ``name`` (or ``None`` if the tool
+    is unknown or declares no schema). Used by the HTTP receiver to validate a request's
+    ``Mcp-Param-*`` headers against the tool's annotated parameters (§9.5.4)."""
+    tool = self._tools.get(name)
+    return tool.input_schema if tool is not None else None
+
   @property
   def min_log_level(self) -> str:
     return self._log_level
@@ -457,7 +464,14 @@ class McpServer:
   def _paginate(self, items: list, key: str, params: dict) -> dict:
     offset = 0
     cursor = params.get("cursor")
-    if isinstance(cursor, str) and cursor:
+    # A cursor is decided by PRESENCE, not truthiness: the empty string is a present
+    # cursor (§12.1), so it MUST be decoded like any other rather than treated as a
+    # first-page request. An '' the server never issued does not decode and is rejected
+    # as unrecognized (-32602), per the cursor's own opaque-token convention. (R-12.1-a,
+    # R-12.2-a)
+    if cursor is not None:
+      if not isinstance(cursor, str):
+        raise ServerError(INVALID_PARAMS_CODE, "Invalid pagination cursor")
       offset = _decode_cursor_offset(cursor)
       if offset is None or offset < 0 or offset > len(items):
         raise ServerError(INVALID_PARAMS_CODE, "Invalid pagination cursor")

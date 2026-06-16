@@ -330,12 +330,32 @@ class TestToolsPagination:
     r = s.dispatch("tools/list", {"cursor": at_end}, ctx())
     assert r["tools"] == [] and "nextCursor" not in r
 
-  def test_empty_string_cursor_is_treated_as_first_page(self):
+  def test_empty_string_cursor_is_a_present_unrecognized_cursor(self):
+    # The empty string is a PRESENT cursor (§12.1), not absence — it MUST NOT silently
+    # fall through to the first page. Since the server never issues '' as a cursor, it
+    # does not decode and is rejected as an unrecognized cursor (-32602). (R-12.1-a,
+    # R-12.2-a)
     s = server(page_size=2)
     for i in range(3):
       s.register_tool(f"t{i}", lambda a, c: {})
-    r = s.dispatch("tools/list", {"cursor": ""}, ctx())
-    assert len(r["tools"]) == 2 and "nextCursor" in r
+    with pytest.raises(ServerError) as exc:
+      s.dispatch("tools/list", {"cursor": ""}, ctx())
+    assert exc.value.code == INVALID_PARAMS_CODE
+
+  def test_server_issued_cursor_positions_after_it(self):
+    # Round-trip the server's own first-page nextCursor: re-sending it (a present, valid
+    # cursor) MUST return the page positioned AFTER it, never page one. (R-12.2-a)
+    s = server(page_size=2)
+    for i in range(3):
+      s.register_tool(f"t{i}", lambda a, c: {})
+    first = s.dispatch("tools/list", {}, ctx())
+    assert len(first["tools"]) == 2 and "nextCursor" in first
+    second = s.dispatch("tools/list", {"cursor": first["nextCursor"]}, ctx())
+    assert len(second["tools"]) == 1 and "nextCursor" not in second
+    # No overlap: the two pages partition the three tools.
+    first_names = {t["name"] for t in first["tools"]}
+    second_names = {t["name"] for t in second["tools"]}
+    assert first_names.isdisjoint(second_names)
 
 
 # ── tools/call ────────────────────────────────────────────────────────────────

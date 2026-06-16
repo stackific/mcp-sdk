@@ -17,6 +17,16 @@ from mcp.protocol.meta import CURRENT_PROTOCOL_VERSION, PROTOCOL_VERSION_META_KE
 from mcp.server.server import McpServer, ServerError, ServerRequestContext
 
 
+def _is_notification_shaped(raw: object) -> bool:
+  """Return ``True`` when ``raw`` would be a notification: a ``method`` and no ``id``.
+
+  Used to decide that a *malformed* message which nonetheless looks like a notification
+  must be silently discarded rather than answered with an error envelope, since a
+  notification can never carry a response id. (R-3.4-f)
+  """
+  return isinstance(raw, dict) and "method" in raw and "id" not in raw
+
+
 def process_message(
   server: McpServer,
   raw: object,
@@ -31,7 +41,10 @@ def process_message(
     request id with the same JSON type and value.
   * A **notification** (or a stray response) returns ``None`` — a server sends no reply.
   * A **malformed** message returns an Invalid Request (``-32600``) envelope with a
-    ``null`` id, since the originating id cannot be trusted.
+    ``null`` id, since the originating id cannot be trusted — *except* a malformed message
+    that is notification-shaped (carries ``method`` but no ``id``), which is silently
+    discarded with no reply (``None``), since a notification never warrants a response.
+    (R-3.4-f)
 
   :param notify: optional sink for server→client notifications a tool emits during the
     request (e.g. ``notifications/message``); defaults to a no-op.
@@ -39,6 +52,11 @@ def process_message(
   try:
     classified = classify_message(raw)
   except MalformedMessageError as exc:
+    # A malformed *notification* (method present, id absent) MUST be silently discarded:
+    # it can never carry a response id, so there is nothing to reply to. Only a
+    # request-shaped or unclassifiable malformed message earns a -32600 envelope. (R-3.4-f)
+    if _is_notification_shaped(raw):
+      return None
     return {"jsonrpc": "2.0", "id": None, "error": build_error_object(INVALID_REQUEST_CODE, str(exc))}
 
   if classified.kind != "request":

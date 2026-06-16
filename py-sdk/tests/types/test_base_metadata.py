@@ -35,6 +35,10 @@ class TestIsValid:
     assert is_valid_base_metadata({"name": "shared-name"})
     assert is_valid_base_metadata({"name": "shared-name"})
 
+  # AC-20.2 (R-14-b) — a reserved `_meta` member is accepted (tolerated extra key)
+  def test_meta_is_accepted(self):
+    assert is_valid_base_metadata({"name": "x", "_meta": {"example.com/category": "analytics"}})
+
 
 class TestResolveDisplayName:
   # AC-20.4 (R-14.1-c) — title wins when present

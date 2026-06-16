@@ -386,6 +386,60 @@ class TestRequestHeaderValidation:
     assert json_body(text)["error"]["code"] == HEADER_MISMATCH_CODE
 
 
+class TestParamHeaderValidation:
+  """End-to-end §9.5.4 receiver validation: the handler validates ``Mcp-Param-*`` headers
+  against the request body using the tool's annotated ``inputSchema`` (R-9.5.4-b/-c)."""
+
+  def _handler(self):
+    """A handler whose ``geocode`` tool annotates ``region`` with ``x-mcp-header``."""
+    server = McpServer(INFO, {"tools": {}})
+    server.register_tool(
+      "geocode",
+      lambda args, ctx: {"content": [{"type": "text", "text": str(args.get("region", ""))}]},
+      input_schema={
+        "type": "object",
+        "properties": {"region": {"type": "string", "x-mcp-header": "Region"}},
+      },
+    )
+    return create_asgi_mcp_handler(server)
+
+  def _headers(self, **extra) -> dict:
+    hdr = headers_for("tools/call", name="geocode")
+    hdr.update({k.replace("_", "-"): v for k, v in extra.items()})
+    return hdr
+
+  def _body(self, region: str) -> bytes:
+    return request_body(1, "tools/call", {"name": "geocode", "arguments": {"region": region}})
+
+  def test_matching_param_header_accepted(self):
+    # The Mcp-Param-Region header matches the body argument → dispatch succeeds.
+    hdr = self._headers(**{"mcp-param-region": "us-east"})
+    status, _, text = call(self._handler(), headers=hdr, body=self._body("us-east"))
+    assert status == 200
+    assert json_body(text)["result"]["content"][0]["text"] == "us-east"
+
+  def test_value_mismatch_rejected(self):
+    # Header value disagrees with the body argument → 400 + -32001 (R-9.5.4-c).
+    hdr = self._headers(**{"mcp-param-region": "us-west"})
+    status, _, text = call(self._handler(), headers=hdr, body=self._body("us-east"))
+    assert status == 400
+    assert json_body(text)["error"]["code"] == HEADER_MISMATCH_CODE
+
+  def test_impermissible_characters_rejected(self):
+    # A header carrying a non-permissible (control) character → 400 + -32001 (R-9.5.4-b).
+    hdr = self._headers(**{"mcp-param-region": "us\x01east"})
+    status, _, text = call(self._handler(), headers=hdr, body=self._body("us\x01east"))
+    assert status == 400
+    assert json_body(text)["error"]["code"] == HEADER_MISMATCH_CODE
+
+  def test_missing_required_param_header_rejected(self):
+    # The body carries the annotated value but the header is omitted → 400 + -32001.
+    hdr = self._headers()  # no Mcp-Param-Region
+    status, _, text = call(self._handler(), headers=hdr, body=self._body("us-east"))
+    assert status == 400
+    assert json_body(text)["error"]["code"] == HEADER_MISMATCH_CODE
+
+
 class TestProtocolVersionValidation:
   def test_missing_protocol_version_header_rejected(self):
     hdr = headers_for("tools/list")

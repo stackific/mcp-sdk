@@ -10,14 +10,11 @@ into request headers; clients on this transport MUST support it. This module cov
 * receiver validation of those headers against the body (§9.5.4), including numeric
   comparison of integers.
 
-Header primitives ported here
------------------------------
-The TypeScript module imports a handful of helpers (``getHeader``,
-``MCP_PARAM_HEADER_PREFIX``, ``build_header_mismatch``, ``is_param_header``, and the
-``HttpHeaders`` / ``HttpValidation`` shapes) from its sibling ``headers.ts``. The
-Python port of that sibling does not exist yet, so the small set this module needs is
-defined here directly; the shared ``-32001`` ``HeaderMismatch`` code is imported from
-its canonical home, :mod:`mcp.protocol.errors`, to keep the dependency graph acyclic.
+The shared header primitives (``MCP_PARAM_HEADER_PREFIX``, ``get_header``,
+``is_param_header``, ``build_header_mismatch``, and the ``HttpHeaders`` / ``HttpRejection``
+/ ``HttpValidation`` shapes) live in their canonical home,
+:mod:`mcp.transport.http.headers`, and are imported (and re-exported) here so this module
+takes no second copy.
 
 Python note: ``bool`` is a subclass of ``int``. Every primitive-value branch tests
 ``bool``/``str``/``int`` explicitly (mirroring the TypeScript ``typeof`` checks) so a
@@ -28,9 +25,18 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Optional, Union
+from typing import Optional
 
 from mcp.protocol.errors import HEADER_MISMATCH_CODE
+from mcp.transport.http.headers import (
+  MCP_PARAM_HEADER_PREFIX,
+  HttpHeaders,
+  HttpRejection,
+  HttpValidation,
+  build_header_mismatch,
+  get_header,
+  is_param_header,
+)
 from mcp.transport.http.param_encoding import (
   ParamValue,
   decode_header_value,
@@ -65,67 +71,6 @@ __all__ = [
   "is_annotated_integer_in_range",
   "STALE_SCHEMA_STRATEGY",
 ]
-
-# ─── Header primitives (ported from headers.ts for this module's needs) ─────────
-
-#: Prefix for one-per-annotated-parameter headers, e.g. ``Mcp-Param-Region``.
-MCP_PARAM_HEADER_PREFIX = "Mcp-Param-"
-
-#: A bag of HTTP headers keyed by field name (names compared case-insensitively).
-HttpHeaders = dict
-
-
-def get_header(headers: HttpHeaders, name: str) -> Optional[str]:
-  """Return the value of header ``name``, matching the field name case-insensitively
-  (R-9.3-b). Returns ``None`` when absent."""
-  target = name.lower()
-  for key, value in headers.items():
-    if key.lower() == target:
-      return value
-  return None
-
-
-def is_param_header(name: str) -> bool:
-  """Return ``True`` when ``name`` is an ``Mcp-Param-*`` header (case-insensitive).
-
-  An intermediary that does not process the message body MUST forward an unrecognized
-  ``Mcp-Param-*`` header unchanged and otherwise ignore it (R-9.5.4-a); this predicate
-  marks such headers so intermediaries pass them through without validation.
-  """
-  return name.lower().startswith(MCP_PARAM_HEADER_PREFIX.lower())
-
-
-@dataclass(frozen=True)
-class HttpRejection:
-  """A rejected POST: HTTP ``400`` plus a JSON-RPC error to put in the body."""
-
-  status: int
-  error: dict
-
-
-@dataclass(frozen=True)
-class HttpValidation:
-  """Outcome of a header/body validator.
-
-  ``ok=True`` carries no ``rejection``; ``ok=False`` carries the
-  :class:`HttpRejection` to surface to the client.
-  """
-
-  ok: bool
-  rejection: Optional[HttpRejection] = None
-
-
-#: HTTP status for every header/body rejection in §9.5.4.
-_BAD_REQUEST_STATUS = 400
-
-
-def build_header_mismatch(message: str = "Header does not match request body") -> HttpRejection:
-  """Build a ``HeaderMismatch`` (``-32001``) rejection (HTTP ``400``). (§9.3–§9.4)"""
-  return HttpRejection(
-    status=_BAD_REQUEST_STATUS,
-    error={"code": HEADER_MISMATCH_CODE, "message": message},
-  )
-
 
 # ─── Helpers ────────────────────────────────────────────────────────────────────
 
