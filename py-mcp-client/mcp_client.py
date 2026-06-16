@@ -122,7 +122,8 @@ def ensure_connected() -> Client:
     try:
       client.discover()
     except Exception as exc:  # noqa: BLE001 — unreachable server → connected stays False
-      bus.emit_frame({"dir": "local", "kind": "error", "summary": f"discover failed: {exc}"})
+      # Surface the failure type (not the raw exception text) on the wire view.
+      bus.emit_frame({"dir": "local", "kind": "error", "summary": f"discover failed: {type(exc).__name__}"})
     bus.emit_frame({"dir": "local", "kind": "lifecycle", "summary": f"connected — protocol {client.negotiated_version or 'unknown'}"})
     return client
 
@@ -198,7 +199,8 @@ class _Api:
       try:
         discover_result = client.discover()
       except Exception as exc:  # noqa: BLE001
-        discover_error = {"message": str(exc), "code": getattr(exc, "code", None)}
+        # Surface a protocol error's message (a server-provided field), not raw exception text.
+        discover_error = {"message": getattr(exc, "message", "discovery failed"), "code": getattr(exc, "code", None)}
       return {"discoverResult": discover_result, "discoverError": discover_error, "status": get_status()}
 
     return _with_trace("discover", run)

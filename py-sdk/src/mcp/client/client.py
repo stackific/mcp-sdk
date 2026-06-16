@@ -48,6 +48,9 @@ class RequestError(Exception):
   def __init__(self, code: int | None, message: str, data: object = None) -> None:
     super().__init__(message)
     self.code = code
+    #: The protocol error message (a server-provided JSON-RPC ``error.message``), exposed
+    #: as a plain attribute so callers surface it without stringifying the exception.
+    self.message = message
     self.data = data
 
 

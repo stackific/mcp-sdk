@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 from collections.abc import Callable
 
@@ -35,18 +36,27 @@ from mcp_client import (
 )
 from transport import transport_probe
 
+log = logging.getLogger("py-mcp-client")
+
 app = FastAPI(title="py-mcp-client")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET", "POST", "OPTIONS"], allow_headers=["Content-Type"])
 
 
 def run(fn: Callable[[], object]) -> dict:
-  """Shape an MCP call into the frontend's ApiResult ({ok, result} / {ok, error})."""
+  """Shape an MCP call into the frontend's ApiResult ({ok, result} / {ok, error}).
+
+  A delivered JSON-RPC protocol error (:class:`RequestError`) is surfaced with its
+  structured ``code`` + protocol ``message`` (server-provided fields the SPA renders).
+  Any other failure is logged server-side and reported with a generic message, so no
+  internal exception detail is exposed to the caller.
+  """
   try:
     return {"ok": True, "result": fn()}
   except RequestError as exc:
-    return {"ok": False, "error": {"message": str(exc), "code": exc.code, "data": exc.data}}
-  except Exception as exc:  # noqa: BLE001 — transport/other failure → uniform error shape
-    return {"ok": False, "error": {"message": str(exc)}}
+    return {"ok": False, "error": {"message": exc.message, "code": exc.code, "data": exc.data}}
+  except Exception:  # noqa: BLE001 — transport/other failure → generic, non-leaking error
+    log.exception("client host request failed")
+    return {"ok": False, "error": {"message": "Internal client host error"}}
 
 
 @app.get("/health")
