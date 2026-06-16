@@ -25,6 +25,13 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Callable, Literal
 
+from mcp.protocol.meta import (
+  CLIENT_CAPABILITIES_META_KEY,
+  CLIENT_INFO_META_KEY,
+  PROTOCOL_VERSION_META_KEY,
+  validate_request_meta,
+)
+
 #: Cancels a previously registered handler.
 Unsubscribe = Callable[[], None]
 
@@ -152,6 +159,73 @@ CUSTOM_TRANSPORT_OBLIGATIONS: dict[str, str] = {
   "SHOULD_DOCUMENT": "R-7.3-d",
   "SHOULD_REUSE_STDIO_FRAMING": "R-7.3-e",
 }
+
+# ─── Per-request envelope & statelessness (§7.4, §7.6) ────────────────────────
+
+@dataclass(frozen=True)
+class RequestContext:
+  """The per-request context a server derives **solely** from a request's ``_meta``."""
+
+  #: ``io.modelcontextprotocol/protocolVersion`` for this request.
+  protocol_version: str
+  #: ``io.modelcontextprotocol/clientInfo`` for this request.
+  client_info: object
+  #: ``io.modelcontextprotocol/clientCapabilities`` for this request.
+  client_capabilities: object
+
+
+def _read_meta(request: object) -> dict | None:
+  """Read ``params._meta`` from a request-shaped value, or ``None``."""
+  if not isinstance(request, dict):
+    return None
+  params = request.get("params")
+  if not isinstance(params, dict):
+    return None
+  meta = params.get("_meta")
+  return meta if isinstance(meta, dict) else None
+
+
+def request_carries_meta_envelope(request: object) -> bool:
+  """Return ``True`` when a request carries the inline ``_meta`` envelope with the three
+  reserved ``io.modelcontextprotocol/*`` keys (R-7.4-d, R-7.4-f).
+
+  The inline envelope is REQUIRED regardless of transport; the message body is the
+  source of truth. A transport MAY mirror these fields into transport-level metadata
+  (see :func:`extract_envelope_for_mirroring`), but that mirror never substitutes for
+  the inline envelope.
+  """
+  meta = _read_meta(request)
+  return meta is not None and validate_request_meta(meta).ok
+
+
+def derive_request_context(request: object) -> RequestContext | None:
+  """Derive the per-request context **solely from the request's own ``_meta``**, never
+  from the connection or any prior request (R-7.6-e, R-7.6-f).
+
+  Returns ``None`` when the request does not carry a valid envelope; the server then
+  has no basis to process it (and MUST NOT infer one from earlier requests). Two
+  requests on one connection with different envelopes yield two independent contexts.
+  """
+  meta = _read_meta(request)
+  if meta is None or not validate_request_meta(meta).ok:
+    return None
+  return RequestContext(
+    protocol_version=meta[PROTOCOL_VERSION_META_KEY],
+    client_info=meta[CLIENT_INFO_META_KEY],
+    client_capabilities=meta[CLIENT_CAPABILITIES_META_KEY],
+  )
+
+
+def extract_envelope_for_mirroring(request: object) -> RequestContext | None:
+  """Extract the envelope fields a transport MAY mirror into transport-level metadata
+  for routing/inspection (e.g. HTTP headers) (R-7.4-e).
+
+  Values are read **from the message body**, which remains authoritative — the mirror
+  is a derived copy, never an alternative input. Returns ``None`` when the body carries
+  no valid envelope, so a transport never mirrors fabricated values.
+  """
+  return derive_request_context(request)
+
 
 #: Stdio-specific disconnection policy, owned by the stdio transport (§8), per §7.5.
 STDIO_DISCONNECT_POLICY: dict[str, str] = {

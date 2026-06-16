@@ -4,6 +4,13 @@ Re-exports the public surface of :mod:`mcp.jsonrpc.framing` and
 :mod:`mcp.jsonrpc.payload`.
 """
 
+from mcp.jsonrpc.dispatch import (
+  DispatchOutcome,
+  MethodDescriptor,
+  MethodRegistry,
+  ParamsValidator,
+  dispatch_request,
+)
 from mcp.jsonrpc.framing import (
   ClassifiedMessage,
   InFlightTracker,
@@ -54,4 +61,9 @@ __all__ = [
   "is_cursor",
   "McpError",
   "is_valid_mcp_error",
+  "MethodDescriptor",
+  "MethodRegistry",
+  "ParamsValidator",
+  "DispatchOutcome",
+  "dispatch_request",
 ]
