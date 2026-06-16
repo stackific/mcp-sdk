@@ -7,20 +7,22 @@ host** (a different backend + server configuration on its own ports):
 | Stack          | Status        | MCP server         | Client host        | OAuth AS |
 | -------------- | ------------- | ------------------ | ------------------ | -------- |
 | **TypeScript** | ✅ full       | `ts-mcp-server` :8001 | `ts-mcp-client` :8002 | :8003    |
+| **C#**         | ✅ full       | `csharp-mcp-server` :8201 | `csharp-mcp-client` :8202 | :8203 |
 | **Python**     | 🧩 placeholder | `py-mcp-server` :8101 | `py-mcp-client` :8102 | —        |
-| **C#**         | 🧩 placeholder | `csharp-mcp-server` :8201 | `csharp-mcp-client` :8202 | —    |
 
-The shared **frontend** runs on **:8000**. The **TypeScript** stack is the full implementation: it
-demonstrates **every** server and client capability — plus the V2 RC extensions (Tasks, Interactive
-UI) and **OAuth 2.1 authorization** — over **Streamable HTTP only**, with a live "under the hood"
-JSON-RPC wire view on every page. **Python** and **C#** are runnable **placeholders**: they serve the
-same REST + SSE surface the SPA expects (so the home page connects and discovers), but return a
-friendly "not implemented in the placeholder" for the deeper capabilities. They exist to show that
-selecting a language swaps the entire backend + server configuration.
+The shared **frontend** runs on **:8000**. The **TypeScript** and **C#** stacks are full
+implementations: each demonstrates **every** server and client capability — plus the V2 RC extensions
+(Tasks, Interactive UI) and **OAuth 2.1 authorization** — over **Streamable HTTP only**, with a live
+"under the hood" JSON-RPC wire view on every page. The C# stack is built on its own from-the-spec SDK
+(`csharp-sdk/`, `Stackific.Mcp`), the .NET 10 counterpart of `@stackific/mcp-sdk-ts`. **Python** is a
+runnable **placeholder**: it serves the same REST + SSE surface the SPA expects (so the home page
+connects and discovers), but returns a friendly "not implemented in the placeholder" for the deeper
+capabilities. It exists to show that selecting a language swaps the entire backend + server configuration.
 
-> Built on the home-grown `@stackific/mcp-sdk-ts` SDK (in `ts-sdk/`), whose client and server runtimes
-> speak the V2 RC revision `2026-07-28` — **stateless and handshake-less** (`server/discover` replaces
-> `initialize`; no `Mcp-Session-Id`). The active stack + negotiated version are shown live in the sidebar.
+> Both full stacks speak the V2 RC revision `2026-07-28` — **stateless and handshake-less**
+> (`server/discover` replaces `initialize`; no `Mcp-Session-Id`). The TypeScript stack uses
+> `@stackific/mcp-sdk-ts` (in `ts-sdk/`); the C# stack uses `Stackific.Mcp` (in `csharp-sdk/`). The
+> active stack + negotiated version are shown live in the sidebar.
 
 ## Repository layout
 
@@ -29,10 +31,12 @@ frontend/            Shared Vite + TanStack Router + shadcn-style SPA (:8000) �
 ts-sdk/              @stackific/mcp-sdk-ts — the MCP SDK (client + server runtimes)
 ts-mcp-client/       TypeScript MCP client host (Hono, :8002) — full implementation
 ts-mcp-server/       TypeScript reference MCP server + OAuth AS (Hono, :8001 / :8003)
+csharp-sdk/          Stackific.Mcp — the MCP SDK for .NET 10 (client + server runtimes, built from the spec)
+csharp-sdk-tests/    xUnit test suite for Stackific.Mcp
+csharp-mcp-client/   C# MCP client host (.NET 10 Minimal API, :8202) — full implementation
+csharp-mcp-server/   C# reference MCP server + OAuth AS (.NET 10 Minimal API, :8201 / :8203)
 py-mcp-client/       Python MCP client host placeholder (FastAPI, :8102)
 py-mcp-server/       Python reference MCP server placeholder (FastAPI, :8101)
-csharp-mcp-client/   C# MCP client host placeholder (.NET 10 Minimal API, :8202)
-csharp-mcp-server/   C# reference MCP server placeholder (.NET 10 Minimal API, :8201)
 Taskfile.yml         The single entrypoint that drives the whole monorepo
 ```
 

@@ -1,0 +1,30 @@
+<!--
+  Stackific.Mcp — a from-the-spec implementation of the Model Context Protocol
+  (wire revision 2026-07-28) for .NET 10. This is the C# counterpart of the
+  TypeScript `@stackific/mcp-sdk-ts` package: protocol primitives, transports, and
+  the client + server runtimes.
+
+  The assembly references the ASP.NET Core shared framework so the server runtime
+  can plug into a Minimal API host, and the client transport can use HttpClient —
+  both ship in-framework, so the SDK carries no third-party NuGet dependencies.
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Stackific.Mcp</RootNamespace>
+    <AssemblyName>Stackific.Mcp</AssemblyName>
+    <PackageId>Stackific.Mcp</PackageId>
+    <Description>Model Context Protocol SDK for .NET (wire revision 2026-07-28): protocol types, Streamable HTTP transport, and client + server runtimes.</Description>
+
+    <!-- Public surface is fully documented (constitution: in-depth inline docs);
+         missing XML docs therefore fail the build rather than warn. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+</Project>
