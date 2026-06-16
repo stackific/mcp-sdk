@@ -353,18 +353,18 @@ public static class ToolSchemas
     switch (value)
     {
       case JsonArray array:
-      {
-        var max = depth;
-        foreach (var element in array) max = Math.Max(max, DepthOf(element, depth + 1, cap));
-        return max;
-      }
+        {
+          var max = depth;
+          foreach (var element in array) max = Math.Max(max, DepthOf(element, depth + 1, cap));
+          return max;
+        }
 
       case JsonObject obj:
-      {
-        var max = depth;
-        foreach (var (_, child) in obj) max = Math.Max(max, DepthOf(child, depth + 1, cap));
-        return max;
-      }
+        {
+          var max = depth;
+          foreach (var (_, child) in obj) max = Math.Max(max, DepthOf(child, depth + 1, cap));
+          return max;
+        }
 
       default:
         return depth;

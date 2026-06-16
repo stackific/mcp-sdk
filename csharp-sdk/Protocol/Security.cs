@@ -974,20 +974,20 @@ public static class Security
     switch (value)
     {
       case JsonArray array:
-      {
-        var output = new JsonArray();
-        foreach (var item in array) output.Add(RedactForLogging(item?.DeepClone()));
-        return output;
-      }
-      case JsonObject obj:
-      {
-        var output = new JsonObject();
-        foreach (var (key, v) in obj)
         {
-          output[key] = IsSensitiveLogKey(key) ? RedactedPlaceholder : RedactForLogging(v?.DeepClone());
+          var output = new JsonArray();
+          foreach (var item in array) output.Add(RedactForLogging(item?.DeepClone()));
+          return output;
         }
-        return output;
-      }
+      case JsonObject obj:
+        {
+          var output = new JsonObject();
+          foreach (var (key, v) in obj)
+          {
+            output[key] = IsSensitiveLogKey(key) ? RedactedPlaceholder : RedactForLogging(v?.DeepClone());
+          }
+          return output;
+        }
       default:
         return value?.DeepClone();
     }
@@ -1306,23 +1306,23 @@ public static class Security
     switch (node)
     {
       case JsonObject obj:
-      {
-        var max = 0;
-        foreach (var (_, value) in obj)
         {
-          max = Math.Max(max, SchemaNestingDepth(value, cap - 1));
+          var max = 0;
+          foreach (var (_, value) in obj)
+          {
+            max = Math.Max(max, SchemaNestingDepth(value, cap - 1));
+          }
+          return 1 + max;
         }
-        return 1 + max;
-      }
       case JsonArray array:
-      {
-        var max = 0;
-        foreach (var value in array)
         {
-          max = Math.Max(max, SchemaNestingDepth(value, cap - 1));
+          var max = 0;
+          foreach (var value in array)
+          {
+            max = Math.Max(max, SchemaNestingDepth(value, cap - 1));
+          }
+          return 1 + max;
         }
-        return 1 + max;
-      }
       default:
         return 0;
     }

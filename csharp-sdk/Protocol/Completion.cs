@@ -245,40 +245,40 @@ public static class Completion
     switch (reference)
     {
       case PromptReference prompt:
-      {
-        var names = catalog.PromptArgumentNames(prompt.Name);
-        if (names is null)
         {
-          return CompletionTargetResolution.Invalid(
-            McpError.InvalidParams($"unknown prompt \"{prompt.Name}\"", new JsonObject { ["promptName"] = prompt.Name }));
-        }
+          var names = catalog.PromptArgumentNames(prompt.Name);
+          if (names is null)
+          {
+            return CompletionTargetResolution.Invalid(
+              McpError.InvalidParams($"unknown prompt \"{prompt.Name}\"", new JsonObject { ["promptName"] = prompt.Name }));
+          }
 
-        if (!names.Contains(argumentName))
-        {
-          return CompletionTargetResolution.Invalid(
-            McpError.InvalidParams($"prompt \"{prompt.Name}\" has no argument \"{argumentName}\""));
-        }
+          if (!names.Contains(argumentName))
+          {
+            return CompletionTargetResolution.Invalid(
+              McpError.InvalidParams($"prompt \"{prompt.Name}\" has no argument \"{argumentName}\""));
+          }
 
-        return CompletionTargetResolution.Valid;
-      }
+          return CompletionTargetResolution.Valid;
+        }
 
       case ResourceTemplateReference template:
-      {
-        var variables = catalog.ResourceTemplateVariableNames(template.Uri);
-        if (variables is null)
         {
-          return CompletionTargetResolution.Invalid(
-            McpError.InvalidParams($"unknown resource template \"{template.Uri}\"", new JsonObject { ["uri"] = template.Uri }));
-        }
+          var variables = catalog.ResourceTemplateVariableNames(template.Uri);
+          if (variables is null)
+          {
+            return CompletionTargetResolution.Invalid(
+              McpError.InvalidParams($"unknown resource template \"{template.Uri}\"", new JsonObject { ["uri"] = template.Uri }));
+          }
 
-        if (!variables.Contains(argumentName))
-        {
-          return CompletionTargetResolution.Invalid(
-            McpError.InvalidParams($"resource template \"{template.Uri}\" has no variable \"{argumentName}\""));
-        }
+          if (!variables.Contains(argumentName))
+          {
+            return CompletionTargetResolution.Invalid(
+              McpError.InvalidParams($"resource template \"{template.Uri}\" has no variable \"{argumentName}\""));
+          }
 
-        return CompletionTargetResolution.Valid;
-      }
+          return CompletionTargetResolution.Valid;
+        }
 
       default:
         return CompletionTargetResolution.Invalid(McpError.InvalidParams("Unknown completion reference type."));
