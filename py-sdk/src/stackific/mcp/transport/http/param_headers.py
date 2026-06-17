@@ -23,6 +23,7 @@ boolean never falls through to the integer path.
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
 from typing import Optional
@@ -357,7 +358,7 @@ def _to_number(value: object) -> Optional[float]:
       parsed = float(text)
     except ValueError:
       return None
-    return parsed if parsed == parsed and parsed not in (float("inf"), float("-inf")) else None
+    return parsed if math.isfinite(parsed) else None
   return None
 
 

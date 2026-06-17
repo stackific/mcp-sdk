@@ -212,10 +212,6 @@ def is_absolute_uri(value: object) -> bool:
   return scheme[:1].isalpha() and all(c.isalnum() or c in "+-." for c in scheme)
 
 
-#: Backward-compatible private alias of :func:`is_absolute_uri`.
-_is_absolute_uri = is_absolute_uri
-
-
 def _require_absolute_uri(value: str) -> str:
   """Field validator: reject a ``resourceSubscriptions`` entry that is not an absolute URI."""
   if not is_absolute_uri(value):

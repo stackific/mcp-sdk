@@ -105,7 +105,11 @@ async def debug_stream() -> StreamingResponse:
 # ── Connection + discovery ──
 @app.post("/api/connect")
 def api_connect() -> dict:
-  return run(lambda: (reconnect(), get_status())[1])
+  def _connect() -> dict:
+    reconnect()
+    return get_status()
+
+  return run(_connect)
 
 
 @app.get("/api/status")

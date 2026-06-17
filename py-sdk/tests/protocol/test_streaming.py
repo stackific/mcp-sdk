@@ -387,12 +387,14 @@ class TestSubscriptionRegistry:
     registry = SubscriptionRegistry()
     registry.add(Subscription(1, {"toolsListChanged": True}, FULL_CAPS))
     assert registry.size == 1
-    assert registry.remove("1", "transport-close")
+    removed = registry.remove("1", "transport-close")
+    assert removed
     assert registry.size == 0
     assert registry.get("1") is None
 
   def test_remove_returns_false_when_absent(self):
-    assert not SubscriptionRegistry().remove("nope", "transport-close")
+    removed = SubscriptionRegistry().remove("nope", "transport-close")
+    assert not removed
 
   def test_re_establish_is_new_subscription_with_new_id(self):
     registry = SubscriptionRegistry()

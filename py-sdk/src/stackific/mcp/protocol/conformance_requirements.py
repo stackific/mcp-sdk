@@ -428,7 +428,7 @@ def obliged_sections_for_capabilities(advertised: Iterable[str]) -> list[str]:
     sections.add(obligation.section)
     for extra in obligation.additional_sections:
       sections.add(extra)
-  return sorted(sections, key=lambda s: int(s))
+  return sorted(sections, key=int)
 
 
 # ─── §29.2 — Baseline server request disposition ────────────────────────────────

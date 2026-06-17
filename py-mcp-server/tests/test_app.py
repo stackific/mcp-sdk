@@ -57,6 +57,7 @@ def base_url():
     try:
       c.close()
     except Exception:
+      # Best-effort cleanup of test clients; ignore teardown errors.
       pass
   _clients.clear()
   server.should_exit = True

@@ -392,7 +392,7 @@ class TestDiscovery:
 
   def test_instructions_absent_resolves_to_none(self):
     client, transport = make_client()
-    transport.script = [lambda m: _discover_response(m)]  # no instructions key
+    transport.script = [_discover_response]  # no instructions key
     client.discover()
     assert client.instructions is None
 
@@ -418,13 +418,13 @@ class TestDiscovery:
   def test_connected_property_flips_after_discover(self):
     client, transport = make_client()
     assert client.connected is False
-    transport.script.append(lambda m: _discover_response(m))
+    transport.script.append(_discover_response)
     client.discover()
     assert client.connected is True
 
   def test_discover_request_carries_envelope(self):
     client, transport = make_client(capabilities={"tools": {}})
-    transport.script.append(lambda m: _discover_response(m))
+    transport.script.append(_discover_response)
     client.discover()
     meta = transport.sent[0]["params"]["_meta"]
     assert transport.sent[0]["method"] == "server/discover"

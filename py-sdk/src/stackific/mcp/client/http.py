@@ -192,10 +192,8 @@ class StreamableHttpClientTransport(ClientTransport):
     self._error_handlers.append(handler)
 
     def unsubscribe() -> None:
-      try:
+      if handler in self._error_handlers:
         self._error_handlers.remove(handler)
-      except ValueError:
-        pass
 
     return unsubscribe
 
@@ -206,10 +204,8 @@ class StreamableHttpClientTransport(ClientTransport):
     self._close_handlers.append(handler)
 
     def unsubscribe() -> None:
-      try:
+      if handler in self._close_handlers:
         self._close_handlers.remove(handler)
-      except ValueError:
-        pass
 
     return unsubscribe
 
@@ -444,6 +440,7 @@ class StreamableHttpClientTransport(ClientTransport):
               continue
             self._emit(frame)
       except httpx.HTTPError:
+        # Connection dropped / stream ended; the finally below closes the stream.
         pass
       finally:
         closed.set()
