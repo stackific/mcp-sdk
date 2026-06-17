@@ -347,6 +347,16 @@ tasks:
       - task: ghas:py
       - task: ghas:csharp
 
+  ghas:gate:
+    desc: GHAS gate (pre-push) — CodeQL scan that fails on any finding not in .codeql-baseline.txt
+    cmds:
+      - bash scripts/ghas-gate.sh
+
+  ghas:baseline:
+    desc: Refresh the accepted GHAS baseline (.codeql-baseline.txt) from the current CodeQL scan
+    cmds:
+      - bash scripts/ghas-gate.sh --update
+
   ghas:ts:
     desc: CodeQL security-and-quality over the JS/TS sources
     cmds:
@@ -362,10 +372,15 @@ tasks:
       - gh codeql database analyze .codeql/db-py --download --threads=0 --format=sarif-latest --output=.codeql/py.sarif codeql/python-queries:codeql-suites/python-security-and-quality.qls
 
   ghas:csharp:
-    desc: CodeQL security-and-quality over the C# sources (needs a dotnet build trace)
+    # Buildless C# extraction (--build-mode=none): CodeQL reads C# straight from source
+    # instead of tracing a compile. This avoids the warm-cache trap — when an earlier gate
+    # step (task build) has already built bin/obj, a traced `dotnet build` is a no-op and
+    # CodeQL sees no source ("could not process any C#"). Buildless yields the identical
+    # finding set here and needs no build, so it is both robust and faster.
+    desc: CodeQL security-and-quality over the C# sources (buildless extraction)
     cmds:
       - mkdir -p .codeql
-      - gh codeql database create .codeql/db-cs --language=csharp --command='dotnet build Stackific.Mcp.slnx --no-incremental /p:UseSharedCompilation=false' --source-root=. --overwrite
+      - gh codeql database create .codeql/db-cs --language=csharp --build-mode=none --source-root=. --overwrite
       - gh codeql database analyze .codeql/db-cs --download --threads=0 --format=sarif-latest --output=.codeql/cs.sarif codeql/csharp-queries:codeql-suites/csharp-security-and-quality.qls
 
   lint:

@@ -7,7 +7,9 @@
 # Hooks:
 #   commit-msg → conventional-commit subject + DCO sign-off (catches a missing sign-off locally)
 #   pre-commit → gitleaks secret scan of the staged diff (fast, staged-only)
-#   pre-push   → secrets → lint → format → build → test, in order, fail-fast on the first failure
+#   pre-push   → secrets → lint → format → build → test → ghas, in order, fail-fast on the first failure
+#                (ghas = local CodeQL security-and-quality scan; fails only on findings not in
+#                 .codeql-baseline.txt — refresh that baseline with `task ghas:baseline`)
 commit-msg:
   commands:
     conventional-dco:
@@ -37,3 +39,8 @@ pre-push:
     # Run the test suites.
     4_test:
       run: task test
+    # Deep static analysis: local CodeQL (GHAS) security-and-quality scan for every
+    # language. Fails only on findings not in .codeql-baseline.txt (accepted findings),
+    # so it catches regressions without blocking on deliberately-accepted patterns.
+    5_ghas:
+      run: task ghas:gate
