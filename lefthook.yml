@@ -5,10 +5,13 @@
 #   git push       → the pre-push gate runs automatically
 #
 # The gate mirrors what CI enforces so a failing push is caught locally first:
-# lint → format → build → test, run in order and stopping at the first failure.
+# secrets → lint → format → build → test, run in order and stopping at the first failure.
 pre-push:
   piped: true
   commands:
+    # Secret scan over tracked content (gitleaks; example tokens allowlisted in .gitleaks.toml).
+    0_secrets:
+      run: task secrets
     # Static analysis / dead-import detection (ruff over the Python stacks).
     1_lint:
       run: task lint

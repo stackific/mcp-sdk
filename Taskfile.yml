@@ -48,9 +48,15 @@ tasks:
     desc: Install the pre-push git hooks + dependencies for every stack (Node/pnpm, Python/uv, .NET)
     cmds:
       - task: setup:hooks
+      - task: setup:tools
       - task: setup:ts
       - task: setup:py
       - task: setup:csharp
+
+  setup:tools:
+    desc: Install local gate tools (gitleaks for the secret scan) via Homebrew if missing
+    cmds:
+      - command -v gitleaks >/dev/null 2>&1 || brew install gitleaks
 
   setup:hooks:
     desc: Install the lefthook-managed git hooks (pre-push quality gate)
@@ -324,6 +330,11 @@ tasks:
     desc: Run the full pre-push gate (lint → format → build → test) via lefthook
     cmds:
       - lefthook run pre-push --all-files
+
+  secrets:
+    desc: Scan tracked content for committed secrets (gitleaks; example tokens allowlisted in .gitleaks.toml)
+    cmds:
+      - gitleaks git . --no-banner --redact --config .gitleaks.toml
 
   lint:
     desc: Lint every stack (Prettier check for JS/TS, Ruff for Python, dotnet format --verify for C#)
