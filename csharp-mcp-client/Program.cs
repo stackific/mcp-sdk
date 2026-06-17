@@ -39,7 +39,7 @@ var serverUrl = (Env("CSHARP_MCP_SERVER_URL", "MCP_SERVER_URL") ?? "http://local
 if (!serverUrl.EndsWith("/mcp", StringComparison.Ordinal)) serverUrl += "/mcp";
 
 var authServerUrl = (Env("CSHARP_AUTH_SERVER_URL", "AUTH_SERVER_URL") ?? "http://localhost:8203").TrimEnd('/');
-var frontendUrl = Environment.GetEnvironmentVariable("FRONTEND_URL") ?? "http://localhost:8000";
+var frontendUrl = Environment.GetEnvironmentVariable("DEMO_URL") ?? "http://localhost:8000";
 
 // Sampling (DeepSeek via its Anthropic-compatible endpoint) — same env contract as ts-mcp-client.
 var deepSeekKey = Environment.GetEnvironmentVariable("DEEPSEEK_API_KEY") ?? "";

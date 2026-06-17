@@ -1,0 +1,41 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / ExtensionDefinitionViolation
+
+# Interface: ExtensionDefinitionViolation
+
+Defined in: [protocol/extension-mechanism.ts:635](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/protocol/extension-mechanism.ts#L635)
+
+A single reason an [ExtensionDefinition](ExtensionDefinition.md) fails framework conformance.
+
+## Properties
+
+### channel
+
+> **channel**: [`ExtensionSurfaceChannel`](../type-aliases/ExtensionSurfaceChannel.md) \| `"identifier"`
+
+Defined in: [protocol/extension-mechanism.ts:637](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/protocol/extension-mechanism.ts#L637)
+
+Which surface channel (or the identifier) the violation concerns.
+
+***
+
+### value
+
+> **value**: `string`
+
+Defined in: [protocol/extension-mechanism.ts:639](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/protocol/extension-mechanism.ts#L639)
+
+The offending value (a method, key, resultType, field, or the identifier).
+
+***
+
+### message
+
+> **message**: `string`
+
+Defined in: [protocol/extension-mechanism.ts:641](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/protocol/extension-mechanism.ts#L641)
+
+Human-readable description of why it violates the framework.

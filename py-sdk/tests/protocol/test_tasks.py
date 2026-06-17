@@ -7,9 +7,9 @@ error builders, subscription helpers) is preserved.
 
 import pytest
 
-from mcp.jsonrpc.payload import RESULT_TYPE_COMPLETE, RESULT_TYPE_INPUT_REQUIRED
-from mcp.protocol.errors import MISSING_CLIENT_CAPABILITY_CODE
-from mcp.protocol.tasks import (
+from stackific.mcp.jsonrpc.payload import RESULT_TYPE_COMPLETE, RESULT_TYPE_INPUT_REQUIRED
+from stackific.mcp.protocol.errors import MISSING_CLIENT_CAPABILITY_CODE
+from stackific.mcp.protocol.tasks import (
   NON_TERMINAL_TASK_STATUSES,
   TASK_LIFECYCLE_METHODS,
   TASK_MISSING_CAPABILITY_CODE,

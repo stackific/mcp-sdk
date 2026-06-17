@@ -1,0 +1,13 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / UiVisibility
+
+# Type Alias: UiVisibility
+
+> **UiVisibility** = *typeof* [`UI_VISIBILITY_VALUES`](../variables/UI_VISIBILITY_VALUES.md)\[`number`\]
+
+Defined in: [protocol/ui.ts:427](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/protocol/ui.ts#L427)
+
+A single visibility actor. (§26.3, R-26.3-d)

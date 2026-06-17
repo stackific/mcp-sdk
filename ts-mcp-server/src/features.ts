@@ -5,7 +5,7 @@
  * (elicitation form+url, sampling, roots) and the Tasks extension.
  *
  * Replicated faithfully from the original reference server, but rebuilt on the
- * SDK's promoted runtime (`@stackific/mcp-sdk-ts/server`): this file declares NO
+ * SDK's promoted runtime (`@stackific/mcp-sdk/server`): this file declares NO
  * protocol abstractions — it imports `McpServer`/`TaskStore`/`ServerError` and
  * only registers features. Tool input schemas are plain JSON Schema (validated by
  * the SDK), and server→client calls go through the SDK's tool `ctx`.
@@ -16,7 +16,7 @@ import {
   withCacheHints,
   uiToolResult,
   UI_MIME_TYPE,
-} from '@stackific/mcp-sdk-ts/server';
+} from '@stackific/mcp-sdk/server';
 
 import { COUNTER_APP_HTML } from './apps/counter-app.generated.js';
 
@@ -224,7 +224,7 @@ export function buildCompanionServer(): McpServer {
         mode: 'url',
         message: 'Please confirm your purchase in the opened page.',
         elicitationId,
-        url: `${(typeof process !== 'undefined' ? process.env.FRONTEND_URL : undefined) ?? 'http://localhost:8000'}/elicit/${elicitationId}`,
+        url: `${(typeof process !== 'undefined' ? process.env.DEMO_URL : undefined) ?? 'http://localhost:8000'}/elicit/${elicitationId}`,
       });
       return {
         content: [

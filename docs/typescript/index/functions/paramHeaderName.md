@@ -1,0 +1,23 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / paramHeaderName
+
+# Function: paramHeaderName()
+
+> **paramHeaderName**(`rawName`): `string`
+
+Defined in: [transport/http/param-headers.ts:207](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/transport/http/param-headers.ts#L207)
+
+Returns the header name for an annotated parameter.
+
+## Parameters
+
+### rawName
+
+`string`
+
+## Returns
+
+`string`

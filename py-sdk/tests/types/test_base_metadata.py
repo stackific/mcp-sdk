@@ -3,7 +3,7 @@
 Mirrors ts-sdk/src/__tests__/types/base-metadata.test.ts.
 """
 
-from mcp.types.base_metadata import is_valid_base_metadata, resolve_display_name
+from stackific.mcp.types.base_metadata import is_valid_base_metadata, resolve_display_name
 
 
 class TestIsValid:

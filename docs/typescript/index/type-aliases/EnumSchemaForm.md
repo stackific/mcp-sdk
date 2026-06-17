@@ -1,0 +1,13 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / EnumSchemaForm
+
+# Type Alias: EnumSchemaForm
+
+> **EnumSchemaForm** = `"untitled-single-select"` \| `"titled-single-select"` \| `"untitled-multi-select"` \| `"titled-multi-select"` \| `"legacy-titled"`
+
+Defined in: [protocol/elicitation-form.ts:345](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/protocol/elicitation-form.ts#L345)
+
+The structural classification of an [EnumSchema](EnumSchema.md), by distinguishing keyword.

@@ -3,8 +3,8 @@
 
 import pytest
 
-from mcp.protocol.errors import INTERNAL_ERROR_CODE, INVALID_PARAMS_CODE, METHOD_NOT_FOUND_CODE
-from mcp.protocol.ui_host import (
+from stackific.mcp.protocol.errors import INTERNAL_ERROR_CODE, INVALID_PARAMS_CODE, METHOD_NOT_FOUND_CODE
+from stackific.mcp.protocol.ui_host import (
   ALLOWED_UI_EXPOSURE_KEYS,
   DECLINABLE_UI_REQUESTS,
   DIALECT_CHANNEL_PATH,

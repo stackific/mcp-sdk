@@ -12,12 +12,12 @@ from __future__ import annotations
 
 import pytest
 
-from mcp.client.client import Client, RequestError
-from mcp.client.transport import ClientTransportError
-from mcp.protocol.errors import INVALID_PARAMS_CODE
-from mcp.server.server import McpServer
-from mcp.testing import InMemoryClientTransport, connect_in_memory
-from mcp.testing.in_memory import InMemoryClientTransport as DirectImport
+from stackific.mcp.client.client import Client, RequestError
+from stackific.mcp.client.transport import ClientTransportError
+from stackific.mcp.protocol.errors import INVALID_PARAMS_CODE
+from stackific.mcp.server.server import McpServer
+from stackific.mcp.testing import InMemoryClientTransport, connect_in_memory
+from stackific.mcp.testing.in_memory import InMemoryClientTransport as DirectImport
 
 SERVER_INFO = {"name": "in-memory-srv", "version": "1.0"}
 CLIENT_INFO = {"name": "in-memory-cli", "version": "0.1"}
@@ -69,7 +69,7 @@ class TestPackageSurface:
     assert DirectImport is InMemoryClientTransport
 
   def test_transport_is_a_client_transport(self):
-    from mcp.client.transport import ClientTransport
+    from stackific.mcp.client.transport import ClientTransport
 
     assert issubclass(InMemoryClientTransport, ClientTransport)
 

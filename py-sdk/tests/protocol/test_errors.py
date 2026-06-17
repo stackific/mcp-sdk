@@ -20,7 +20,7 @@ Mirrors the TS suite ``src/__tests__/protocol/errors.test.ts``, AC-mapped:
   AC-34.25 (R-22-a)              — registry exactness & classification.
 """
 
-from mcp.protocol.errors import (
+from stackific.mcp.protocol.errors import (
   ERROR_CODE_REGISTRY,
   HEADER_MISMATCH_CODE,
   INTERNAL_ERROR_CODE,
@@ -55,7 +55,7 @@ from mcp.protocol.errors import (
   suppresses_error_response,
   validate_extension_error_code,
 )
-from mcp.protocol.negotiation import reselect_after_unsupported_version
+from stackific.mcp.protocol.negotiation import reselect_after_unsupported_version
 
 
 class TestConstants:

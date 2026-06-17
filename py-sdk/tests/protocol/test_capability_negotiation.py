@@ -6,7 +6,7 @@ Mirrors ``ts-sdk/src/__tests__/protocol/capability-negotiation.test.ts`` AC for 
 ``is_valid_client_capabilities`` / ``is_valid_server_capabilities`` — plus extra edge cases.
 """
 
-from mcp.protocol.capability_negotiation import (
+from stackific.mcp.protocol.capability_negotiation import (
   CAPABILITY_ERROR_HTTP_STATUS,
   INVALID_PARAMS_CODE,
   MISSING_CLIENT_CAPABILITY_CODE,
@@ -31,7 +31,7 @@ from mcp.protocol.capability_negotiation import (
   server_method_required_capability,
   validate_request_meta,
 )
-from mcp.protocol.meta import (
+from stackific.mcp.protocol.meta import (
   CLIENT_CAPABILITIES_META_KEY,
   CLIENT_INFO_META_KEY,
   PROTOCOL_VERSION_META_KEY,

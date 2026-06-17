@@ -1,0 +1,13 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / TOOLS\_CALL\_METHOD
+
+# Variable: TOOLS\_CALL\_METHOD
+
+> `const` **TOOLS\_CALL\_METHOD**: `"tools/call"`
+
+Defined in: [protocol/tools.ts:67](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/protocol/tools.ts#L67)
+
+Method name of the tool-invocation request, defined in S25; named here for gating. (§16.1)

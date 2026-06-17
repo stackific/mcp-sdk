@@ -1,0 +1,13 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / RESOURCE\_TEMPLATE\_REFERENCE\_TYPE
+
+# Variable: RESOURCE\_TEMPLATE\_REFERENCE\_TYPE
+
+> `const` **RESOURCE\_TEMPLATE\_REFERENCE\_TYPE**: `"ref/resource"`
+
+Defined in: [protocol/completion.ts:179](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/protocol/completion.ts#L179)
+
+The `type` discriminator value identifying a resource / resource-template reference. (§19.3, R-19.3-c)

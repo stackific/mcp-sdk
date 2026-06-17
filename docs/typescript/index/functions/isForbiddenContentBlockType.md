@@ -1,0 +1,24 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / isForbiddenContentBlockType
+
+# Function: isForbiddenContentBlockType()
+
+> **isForbiddenContentBlockType**(`type`): `boolean`
+
+Defined in: [types/content.ts:160](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/types/content.ts#L160)
+
+Returns `true` when `type` belongs to the forbidden sampling content set.
+(R-14.8-a, R-14.8-b)
+
+## Parameters
+
+### type
+
+`string`
+
+## Returns
+
+`boolean`

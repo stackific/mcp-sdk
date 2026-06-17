@@ -284,7 +284,7 @@ public static class Features
       new Tool { Name = "confirm_purchase", Title = "Confirm Purchase (URL elicitation)", Description = "Server requests confirmation via URL elicitation.", InputSchema = Schema("""{"type":"object"}""") },
       async ctx =>
       {
-        var frontend = Environment.GetEnvironmentVariable("FRONTEND_URL") ?? "http://localhost:8000";
+        var frontend = Environment.GetEnvironmentVariable("DEMO_URL") ?? "http://localhost:8000";
         var elicitationId = $"purchase-{Guid.NewGuid():N}";
         var result = await ctx.ElicitInputAsync(new ElicitRequestURLParams
         {

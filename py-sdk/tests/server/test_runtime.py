@@ -1,14 +1,14 @@
 """Tests for process_message + end-to-end server over the in-memory transport."""
 
-from mcp.protocol.discovery import build_discover_request, is_discover_result
-from mcp.protocol.errors import (
+from stackific.mcp.protocol.discovery import build_discover_request, is_discover_result
+from stackific.mcp.protocol.errors import (
   INTERNAL_ERROR_CODE,
   INVALID_REQUEST_CODE,
   METHOD_NOT_FOUND_CODE,
 )
-from mcp.server.runtime import process_message
-from mcp.server.server import McpServer, ServerRequestContext
-from mcp.transport.in_memory import create_in_memory_transport_pair
+from stackific.mcp.server.runtime import process_message
+from stackific.mcp.server.server import McpServer, ServerRequestContext
+from stackific.mcp.transport.in_memory import create_in_memory_transport_pair
 
 INFO = {"name": "srv", "version": "1.0"}
 CAPS = {"tools": {}}

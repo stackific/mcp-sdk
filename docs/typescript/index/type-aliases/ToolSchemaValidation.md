@@ -1,0 +1,13 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / ToolSchemaValidation
+
+# Type Alias: ToolSchemaValidation
+
+> **ToolSchemaValidation** = \{ `ok`: `true`; `dialect`: `string`; \} \| \{ `ok`: `false`; `reason`: `string`; \}
+
+Defined in: [protocol/tools.ts:313](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/protocol/tools.ts#L313)
+
+Discriminated outcome of [validateToolSchema](../functions/validateToolSchema.md).

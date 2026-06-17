@@ -1,0 +1,11 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / CONTENT\_TYPE\_HEADER
+
+# Variable: CONTENT\_TYPE\_HEADER
+
+> `const` **CONTENT\_TYPE\_HEADER**: `"Content-Type"` = `'Content-Type'`
+
+Defined in: [transport/http/headers.ts:35](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/transport/http/headers.ts#L35)

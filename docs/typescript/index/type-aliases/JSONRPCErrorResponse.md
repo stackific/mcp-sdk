@@ -1,0 +1,11 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / JSONRPCErrorResponse
+
+# Type Alias: JSONRPCErrorResponse
+
+> **JSONRPCErrorResponse** = `z.infer`\<*typeof* [`JSONRPCErrorResponseSchema`](../variables/JSONRPCErrorResponseSchema.md)\>
+
+Defined in: [jsonrpc/framing.ts:130](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/jsonrpc/framing.ts#L130)

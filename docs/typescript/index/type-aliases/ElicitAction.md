@@ -1,0 +1,13 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / ElicitAction
+
+# Type Alias: ElicitAction
+
+> **ElicitAction** = *typeof* [`ELICIT_ACTION`](../variables/ELICIT_ACTION.md)\[keyof *typeof* [`ELICIT_ACTION`](../variables/ELICIT_ACTION.md)\]
+
+Defined in: [protocol/elicitation-form.ts:587](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/protocol/elicitation-form.ts#L587)
+
+One of the three defined elicitation actions. (§20.5, R-20.5-a)

@@ -8,7 +8,7 @@ are the Python analogues of the TS ``CacheableResultSchema`` / ``CacheScopeSchem
 import inspect
 import sys
 
-from mcp.protocol.caching import (
+from stackific.mcp.protocol.caching import (
   CACHE_SCOPES,
   CACHEABLE_METHODS,
   METHOD_TO_NOTIFICATION_MAP,

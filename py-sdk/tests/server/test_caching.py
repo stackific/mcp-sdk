@@ -14,7 +14,7 @@ Behavior under test (matching TS exactly):
 
 import inspect
 
-from mcp.server.caching import with_cache_hints
+from stackific.mcp.server.caching import with_cache_hints
 
 
 # ─── both hints supplied → top-level ttlMs + cacheScope set (§13.4) ────────────

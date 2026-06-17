@@ -9,7 +9,7 @@ audience binding (§23.6/§23.8/§23.19) and the ``403 insufficient_scope`` step
 import pytest
 from starlette.requests import Request
 
-from mcp.server.auth import bearer_auth_gate, build_protected_resource_metadata
+from stackific.mcp.server.auth import bearer_auth_gate, build_protected_resource_metadata
 
 RESOURCE_METADATA_URL = "https://srv.test/.well-known/oauth-protected-resource"
 EXPECTED_AUDIENCE = "https://srv.test/mcp"

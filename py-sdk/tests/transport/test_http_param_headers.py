@@ -1,6 +1,6 @@
 """Tests for ``Mcp-Param-*`` header construction & validation (§9.5.1–§9.5.4).
 
-Covers every export of :mod:`mcp.transport.http.param_headers`: the local header
+Covers every export of :mod:`stackific.mcp.transport.http.param_headers`: the local header
 primitives (``get_header``/``is_param_header``/``build_header_mismatch``), annotation
 collection at every nesting depth, ``x-mcp-header`` name validity, per-tool validation,
 ``filter_valid_tools`` (invalid tools excluded while valid ones are kept), header-name
@@ -9,9 +9,9 @@ derivation, ``build_param_headers`` emission, and receiver-side ``validate_param
 
 import pytest
 
-from mcp.protocol.errors import HEADER_MISMATCH_CODE
-from mcp.transport.http.param_encoding import encode_header_value
-from mcp.transport.http.param_headers import (
+from stackific.mcp.protocol.errors import HEADER_MISMATCH_CODE
+from stackific.mcp.transport.http.param_encoding import encode_header_value
+from stackific.mcp.transport.http.param_headers import (
   MCP_PARAM_HEADER_PREFIX,
   STALE_SCHEMA_STRATEGY,
   AnnotatedParam,

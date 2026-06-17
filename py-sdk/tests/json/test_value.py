@@ -4,7 +4,7 @@ import math
 
 import pytest
 
-from mcp.json.value import (
+from stackific.mcp.json.value import (
   SAFE_INTEGER_MAX,
   SAFE_INTEGER_MIN,
   assert_integer,

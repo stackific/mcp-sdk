@@ -1,0 +1,25 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / parseImplementation
+
+# Function: parseImplementation()
+
+> **parseImplementation**(`value`): `objectOutputType`
+
+Defined in: [types/implementation.ts:61](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/types/implementation.ts#L61)
+
+Parses and validates an `Implementation` descriptor.
+Throws `ZodError` when `name` or `version` is absent or not a string.
+Unknown properties are passed through without error. (§2.3.4)
+
+## Parameters
+
+### value
+
+`unknown`
+
+## Returns
+
+`objectOutputType`

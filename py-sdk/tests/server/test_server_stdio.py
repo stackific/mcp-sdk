@@ -13,9 +13,9 @@ from __future__ import annotations
 import io
 import json
 
-from mcp.protocol.errors import INVALID_REQUEST_CODE, METHOD_NOT_FOUND_CODE
-from mcp.server.server import McpServer
-from mcp.server.stdio import process_line, serve_stdio, write_message
+from stackific.mcp.protocol.errors import INVALID_REQUEST_CODE, METHOD_NOT_FOUND_CODE
+from stackific.mcp.server.server import McpServer
+from stackific.mcp.server.stdio import process_line, serve_stdio, write_message
 
 INFO = {"name": "srv", "version": "1.0"}
 CAPS = {"tools": {}}

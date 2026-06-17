@@ -9,7 +9,7 @@ Mirrors ``ts-sdk/src/__tests__/protocol/capabilities.test.ts`` and covers:
 
 import pytest
 
-from mcp.protocol.capabilities import (
+from stackific.mcp.protocol.capabilities import (
   MissingCapabilityError,
   assert_capability,
   has_capability,

@@ -11,7 +11,7 @@
  *   6. token via authorization_code + code_verifier (OAuth 2.1 / PKCE)
  *   7. authorized MCP tools/call (whoami) — the server sees ctx.http.authInfo
  */
-import { Client, StreamableHTTPClientTransport } from '@stackific/mcp-sdk-ts';
+import { Client, StreamableHTTPClientTransport } from '@stackific/mcp-sdk';
 import {
   createPkcePair,
   discoverOAuthMetadata,
@@ -19,14 +19,14 @@ import {
   buildAuthorizeUrl,
   exchangeAuthorizationCode,
   verifyAuthorizationRedirect,
-} from '@stackific/mcp-sdk-ts/client';
+} from '@stackific/mcp-sdk/client';
 
-import { AUTH_SERVER_URL, FRONTEND_URL } from './config.js';
+import { AUTH_SERVER_URL, DEMO_URL } from './config.js';
 import { bus } from './debug-bus.js';
 import { httpFetch } from './http.js';
 
 const PROTECTED_MCP = `${AUTH_SERVER_URL}/mcp`;
-const REDIRECT_URI = `${FRONTEND_URL}/oauth/callback`;
+const REDIRECT_URI = `${DEMO_URL}/oauth/callback`;
 
 export interface AuthStep {
   n: number;

@@ -1,4 +1,4 @@
-# @stackific/mcp-sdk-ts
+# @stackific/mcp-sdk
 
 A specification-compliant **Model Context Protocol** SDK for TypeScript, targeting
 protocol revision **`2026-07-28`** (the stateless, per-request `_meta` model).
@@ -17,7 +17,7 @@ Workers**, **Deno**, and **Bun**:
 ## Install
 
 ```bash
-pnpm add @stackific/mcp-sdk-ts
+pnpm add @stackific/mcp-sdk
 # or: npm i / yarn add
 ```
 
@@ -25,10 +25,10 @@ pnpm add @stackific/mcp-sdk-ts
 
 | Import | Contents | Runtime |
 | --- | --- | --- |
-| `@stackific/mcp-sdk-ts` | All protocol primitives + client + server | Node |
-| `@stackific/mcp-sdk-ts/client` | `Client`, `StreamableHTTPClientTransport` | **edge-safe** (no `node:*`) |
-| `@stackific/mcp-sdk-ts/server` | `McpServer`, `createMcpRequestHandler`, `toHonoMcpHandler` | **edge-safe** (no `node:*`) |
-| `@stackific/mcp-sdk-ts/server/node` | `createNodeHttpHandler` | Node only |
+| `@stackific/mcp-sdk` | All protocol primitives + client + server | Node |
+| `@stackific/mcp-sdk/client` | `Client`, `StreamableHTTPClientTransport` | **edge-safe** (no `node:*`) |
+| `@stackific/mcp-sdk/server` | `McpServer`, `createMcpRequestHandler`, `toHonoMcpHandler` | **edge-safe** (no `node:*`) |
+| `@stackific/mcp-sdk/server/node` | `createNodeHttpHandler` | Node only |
 
 > The package **root** re-exports everything (including the stdio transport and the
 > authorization helpers, which use `node:*`). For Cloudflare Workers, import from the
@@ -44,7 +44,7 @@ correlates responses by id, routes server→client requests (sampling / elicitat
 / roots) to your handlers, and performs discovery + revision negotiation.
 
 ```ts
-import { Client, StreamableHTTPClientTransport } from '@stackific/mcp-sdk-ts/client';
+import { Client, StreamableHTTPClientTransport } from '@stackific/mcp-sdk/client';
 
 const transport = new StreamableHTTPClientTransport('https://my-server.example/mcp');
 const client = new Client(
@@ -96,7 +96,7 @@ const transport = new StreamableHTTPClientTransport(url, {
 Define a server once with `McpServer`, then serve it on any runtime.
 
 ```ts
-import { McpServer } from '@stackific/mcp-sdk-ts/server';
+import { McpServer } from '@stackific/mcp-sdk/server';
 
 export function buildServer(): McpServer {
   const server = new McpServer(
@@ -138,7 +138,7 @@ Tool handlers get a `ctx` with `notify`, `log`, `elicitInput`, `createMessage`,
 
 ```ts
 import { createServer } from 'node:http';
-import { createNodeHttpHandler } from '@stackific/mcp-sdk-ts/server/node';
+import { createNodeHttpHandler } from '@stackific/mcp-sdk/server/node';
 import { buildServer } from './server.js';
 
 createServer(createNodeHttpHandler(buildServer(), { path: '/mcp' })).listen(7001, () => {
@@ -150,7 +150,7 @@ createServer(createNodeHttpHandler(buildServer(), { path: '/mcp' })).listen(7001
 
 ```ts
 import { Hono } from 'hono';
-import { toHonoMcpHandler } from '@stackific/mcp-sdk-ts/server';
+import { toHonoMcpHandler } from '@stackific/mcp-sdk/server';
 import { buildServer } from './server.js';
 
 const app = new Hono();
@@ -163,7 +163,7 @@ export default app; // Cloudflare Workers / Deno / Bun
 ### Serve on Cloudflare Workers (plain `fetch`)
 
 ```ts
-import { createMcpRequestHandler } from '@stackific/mcp-sdk-ts/server';
+import { createMcpRequestHandler } from '@stackific/mcp-sdk/server';
 import { buildServer } from './server.js';
 
 const handle = createMcpRequestHandler(buildServer(), { path: '/mcp' });
@@ -201,12 +201,13 @@ const handle = createMcpRequestHandler(server, {
 
 ## API reference
 
-Full API documentation is generated from source (TypeDoc) into [`docs/api/`](./docs/api/README.md)
-— browsable as Markdown directly on GitHub. Regenerate after changing the public
-surface:
+Full API documentation is generated from source (TypeDoc) into the monorepo's
+[`docs/typescript/`](../docs/typescript/README.md) — browsable as Markdown directly on
+GitHub, alongside the Python and C# SDK docs (see [`docs/`](../docs/README.md)). Regenerate
+after changing the public surface:
 
 ```bash
-pnpm docs        # typedoc → docs/api/ (Markdown)
+pnpm docs        # typedoc → ../docs/typescript/ (Markdown); or `task docs` for all three SDKs
 ```
 
 ## Development
@@ -216,5 +217,5 @@ pnpm install
 pnpm build       # tsc → dist/
 pnpm test        # vitest
 pnpm typecheck
-pnpm docs        # regenerate docs/api/
+pnpm docs        # regenerate ../docs/typescript/
 ```

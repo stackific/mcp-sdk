@@ -1,0 +1,13 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / MessageDirection
+
+# Type Alias: MessageDirection
+
+> **MessageDirection** = `"client-to-server"` \| `"server-to-client"`
+
+Defined in: [transport/contract.ts:124](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/transport/contract.ts#L124)
+
+The two directions a message may travel at the JSON-RPC layer. (§7.4)

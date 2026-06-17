@@ -2,7 +2,7 @@
 
 import pytest
 
-from mcp.protocol.resources import (
+from stackific.mcp.protocol.resources import (
   RESOURCE_GATED_METHODS,
   RESOURCES_LIST_CHANGED_METHOD,
   RESOURCES_LIST_METHOD,

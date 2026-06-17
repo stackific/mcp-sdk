@@ -3,7 +3,7 @@
 Mirrors ts-sdk/src/__tests__/types/resource-contents.test.ts.
 """
 
-from mcp.types.resource_contents import (
+from stackific.mcp.types.resource_contents import (
   is_valid_base64,
   is_valid_blob_resource_contents,
   is_valid_resource_contents,

@@ -7,7 +7,7 @@
  *     that rejects unauthenticated requests with 401 + WWW-Authenticate, and on a
  *     valid Bearer token threads the identity into the tool `ctx.authInfo`.
  *
- * The protected MCP server is built on `@stackific/mcp-sdk-ts/server`; this file
+ * The protected MCP server is built on `@stackific/mcp-sdk/server`; this file
  * declares no protocol abstractions, only the OAuth endpoints + feature wiring.
  */
 import { Hono } from 'hono';
@@ -17,7 +17,7 @@ import {
   toHonoMcpHandler,
   bearerAuthGate,
   buildProtectedResourceMetadata,
-} from '@stackific/mcp-sdk-ts/server';
+} from '@stackific/mcp-sdk/server';
 
 // ── Web-Crypto helpers (edge-safe; no node:crypto) ──
 const textEncoder = new TextEncoder();

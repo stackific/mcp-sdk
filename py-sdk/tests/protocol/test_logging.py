@@ -21,8 +21,8 @@ Mirrors the TypeScript ``logging.test.ts`` AC coverage and adds builder-path tes
 
 import pytest
 
-from mcp.protocol.errors import INVALID_PARAMS_CODE
-from mcp.protocol.logging import (
+from stackific.mcp.protocol.errors import INVALID_PARAMS_CODE
+from stackific.mcp.protocol.logging import (
   LOGGING_LEVELS,
   LOGGING_MESSAGE_METHOD,
   TRACE_CONTEXT_BARE_KEYS,

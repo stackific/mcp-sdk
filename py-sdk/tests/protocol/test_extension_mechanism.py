@@ -6,9 +6,9 @@ per numbered acceptance criterion (AC-38.1 – AC-38.43).
 
 import pytest
 
-from mcp.jsonrpc.payload import RESULT_TYPE_COMPLETE, RESULT_TYPE_INPUT_REQUIRED
-from mcp.protocol.errors import MISSING_CLIENT_CAPABILITY_CODE
-from mcp.protocol.extension_mechanism import (
+from stackific.mcp.jsonrpc.payload import RESULT_TYPE_COMPLETE, RESULT_TYPE_INPUT_REQUIRED
+from stackific.mcp.protocol.errors import MISSING_CLIENT_CAPABILITY_CODE
+from stackific.mcp.protocol.extension_mechanism import (
   CORE_RESULT_TYPE_VALUES,
   EXTENSION_CLASSIFICATIONS,
   EXTENSION_SURFACE_CHANNELS,

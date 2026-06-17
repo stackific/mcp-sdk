@@ -1,0 +1,11 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / CompleteResult
+
+# Type Alias: CompleteResult
+
+> **CompleteResult** = `z.infer`\<*typeof* [`CompleteResultSchema`](../variables/CompleteResultSchema.md)\>
+
+Defined in: [protocol/completion.ts:425](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/protocol/completion.ts#L425)

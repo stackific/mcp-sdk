@@ -1,0 +1,49 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [client](../README.md) / buildAuthorizeUrl
+
+# Function: buildAuthorizeUrl()
+
+> **buildAuthorizeUrl**(`metadata`, `options`): `string`
+
+Defined in: [client/oauth.ts:197](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/client/oauth.ts#L197)
+
+Builds the authorization-request URL (response_type=code + PKCE). (§23.5)
+
+## Parameters
+
+### metadata
+
+`objectOutputType`
+
+### options
+
+#### clientId
+
+`string`
+
+#### redirectUri
+
+`string`
+
+#### resource
+
+`string`
+
+#### scope?
+
+`string`
+
+#### state
+
+`string`
+
+#### codeChallenge
+
+`string`
+
+## Returns
+
+`string`

@@ -1,0 +1,23 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / isCacheableMethod
+
+# Function: isCacheableMethod()
+
+> **isCacheableMethod**(`method`): `boolean`
+
+Defined in: [protocol/caching.ts:309](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/protocol/caching.ts#L309)
+
+Returns `true` when `method` is one of the five methods that carry caching hints.
+
+## Parameters
+
+### method
+
+`string`
+
+## Returns
+
+`boolean`

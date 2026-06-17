@@ -1,0 +1,11 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / CompletionReference
+
+# Type Alias: CompletionReference
+
+> **CompletionReference** = `z.infer`\<*typeof* [`CompletionReferenceSchema`](../variables/CompletionReferenceSchema.md)\>
+
+Defined in: [protocol/completion.ts:241](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/protocol/completion.ts#L241)

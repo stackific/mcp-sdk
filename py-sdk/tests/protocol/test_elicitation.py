@@ -7,7 +7,7 @@ adapted to the Python predicate-based port (``is_valid_*`` where TS uses Zod
 
 import pytest
 
-from mcp.protocol.elicitation import (
+from stackific.mcp.protocol.elicitation import (
   ELICITATION_CREATE_METHOD,
   ELICITATION_MODE_FORM,
   ELICITATION_MODE_URL,
@@ -406,8 +406,8 @@ class TestCapability:
 # `InputRequiredResult` and is recognized by the §11 / S17 input-request anchor.
 class TestInputRequiredDelivery:
   def test_elicit_request_is_valid_input_required_member(self):
-    from mcp.jsonrpc.payload import RESULT_TYPE_INPUT_REQUIRED
-    from mcp.protocol.multi_round_trip import (
+    from stackific.mcp.jsonrpc.payload import RESULT_TYPE_INPUT_REQUIRED
+    from stackific.mcp.protocol.multi_round_trip import (
       is_valid_input_request,
       is_valid_input_required_result,
     )
@@ -426,8 +426,8 @@ class TestInputRequiredDelivery:
     assert is_valid_elicit_request(elicit)
 
   def test_url_elicit_request_is_valid_input_required_member(self):
-    from mcp.jsonrpc.payload import RESULT_TYPE_INPUT_REQUIRED
-    from mcp.protocol.multi_round_trip import (
+    from stackific.mcp.jsonrpc.payload import RESULT_TYPE_INPUT_REQUIRED
+    from stackific.mcp.protocol.multi_round_trip import (
       is_valid_input_request,
       is_valid_input_required_result,
     )

@@ -26,7 +26,7 @@ Mirrors the TypeScript ``progress.test.ts`` AC coverage and adds builder-path te
 
 import pytest
 
-from mcp.protocol.progress import (
+from stackific.mcp.protocol.progress import (
   CANCELLED_NOTIFICATION_METHOD,
   PROGRESS_NOTIFICATION_METHOD,
   SERVER_DISCOVER_METHOD,

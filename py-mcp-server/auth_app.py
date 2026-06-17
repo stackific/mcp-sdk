@@ -20,7 +20,7 @@ import time
 
 from fastapi import FastAPI, Request, Response
 
-from mcp.server import (
+from stackific.mcp.server import (
   McpServer,
   bearer_auth_gate,
   build_protected_resource_metadata,

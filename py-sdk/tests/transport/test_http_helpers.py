@@ -3,7 +3,7 @@
 Mirrors the TypeScript conformance suites for the ``transport/http`` package — the
 request half (``http.test.ts``, AC-14.1 … AC-14.33) and the response half
 (``http-responses.test.ts``, AC-15.1 … AC-15.25) — exercising the public surface of
-:mod:`mcp.transport.http` **through the package barrel** (``__init__.py``) so the
+:mod:`stackific.mcp.transport.http` **through the package barrel** (``__init__.py``) so the
 re-export mirroring of TS ``index.ts`` is covered as well. Each test class names its
 acceptance criterion; the assertions cite the normative atoms (R-9.x-y) they exercise.
 
@@ -20,7 +20,7 @@ import pytest
 
 # Import the whole public surface through the NEW package barrel so the __init__
 # re-export (mirroring index.ts) is itself under test.
-from mcp.transport.http import (
+from stackific.mcp.transport.http import (
   ACCEPT_MEDIA_TYPES,
   ALL_INTERFACES_BIND_ADDRESS,
   BASE64_SENTINEL_PREFIX,
@@ -106,9 +106,9 @@ from mcp.transport.http import (
   validate_stream_message,
   validate_tool_x_mcp_headers,
 )
-from mcp.transport.http import HeaderMismatchCause
-from mcp.transport.contract import TransportError
-from mcp.transport.framing import decode_message_unit
+from stackific.mcp.transport.http import HeaderMismatchCause
+from stackific.mcp.transport.contract import TransportError
+from stackific.mcp.transport.framing import decode_message_unit
 
 PV = "2026-07-28"
 META = {"io.modelcontextprotocol/protocolVersion": PV}
@@ -1066,7 +1066,7 @@ class TestPackageBarrelReExport:
   """The new package __init__ re-exports the full public surface (mirrors index.ts)."""
 
   def test_barrel_exposes_all_names(self) -> None:
-    import mcp.transport.http as pkg
+    import stackific.mcp.transport.http as pkg
 
     # A representative symbol from each of the four sibling modules must be present
     # on the package barrel, and every name listed in __all__ must resolve.

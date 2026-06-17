@@ -29,15 +29,15 @@ import io
 
 import pytest
 
-from mcp.protocol.errors import UNSUPPORTED_PROTOCOL_VERSION_CODE
-from mcp.protocol.meta import (
+from stackific.mcp.protocol.errors import UNSUPPORTED_PROTOCOL_VERSION_CODE
+from stackific.mcp.protocol.meta import (
   CLIENT_CAPABILITIES_META_KEY,
   CLIENT_INFO_META_KEY,
   PROTOCOL_VERSION_META_KEY,
 )
-from mcp.transport.contract import TransportError, Unsubscribe
-from mcp.transport.framing import NewlineFramer, try_decode_message_unit
-from mcp.transport.stdio import (
+from stackific.mcp.transport.contract import TransportError, Unsubscribe
+from stackific.mcp.transport.framing import NewlineFramer, try_decode_message_unit
+from stackific.mcp.transport.stdio import (
   StdioClientTransport,
   StdioServerTransport,
   is_blank_line,

@@ -2,8 +2,8 @@
 
 import pytest
 
-from mcp.protocol.errors import INVALID_PARAMS_CODE
-from mcp.protocol.resources_read import (
+from stackific.mcp.protocol.errors import INVALID_PARAMS_CODE
+from stackific.mcp.protocol.resources_read import (
   INODE_DIRECTORY_MIME_TYPE,
   LEGACY_RESOURCE_NOT_FOUND_CODE,
   RESOURCE_NOT_FOUND_CODE,

@@ -1,8 +1,8 @@
 """Tests for S8 — the MCP Apps / Interactive UI server helpers (§26), in
-:mod:`mcp.server.ui`.
+:mod:`stackific.mcp.server.ui`.
 
 These are the *server shaping* helpers (distinct from the protocol-level validation in
-:mod:`mcp.protocol.ui`, covered by ``tests/protocol/test_ui.py``): build a ``ui://``
+:mod:`stackific.mcp.protocol.ui`, covered by ``tests/protocol/test_ui.py``): build a ``ui://``
 resource block (:func:`ui_resource`) and a launcher tool result that embeds it and
 declares the UI under ``_meta.ui`` (:func:`ui_tool_result`). Pure shaping, no rendering.
 
@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pytest
 
-from mcp.server.ui import (
+from stackific.mcp.server.ui import (
   DEFAULT_UI_VISIBILITY,
   TOOL_UI_META_KEY,
   UI_MIME_TYPE,

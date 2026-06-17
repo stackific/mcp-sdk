@@ -1,0 +1,11 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / AudioContent
+
+# Type Alias: AudioContent
+
+> **AudioContent** = `z.infer`\<*typeof* [`AudioContentSchema`](../variables/AudioContentSchema.md)\>
+
+Defined in: [types/content.ts:77](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/types/content.ts#L77)

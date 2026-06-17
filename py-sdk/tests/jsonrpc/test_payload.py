@@ -1,6 +1,6 @@
 """Tests for payload shapes (§3.6–§3.9)."""
 
-from mcp.jsonrpc.payload import (
+from stackific.mcp.jsonrpc.payload import (
   RESULT_TYPE_COMPLETE,
   RESULT_TYPE_INPUT_REQUIRED,
   McpError,

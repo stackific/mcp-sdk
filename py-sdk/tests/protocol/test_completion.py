@@ -8,7 +8,7 @@ import time
 
 import pytest
 
-from mcp.protocol.completion import (
+from stackific.mcp.protocol.completion import (
   COMPLETION_COMPLETE_METHOD,
   COMPLETION_INTERNAL_ERROR_CODE,
   COMPLETION_INVALID_PARAMS_CODE,
@@ -48,8 +48,8 @@ from mcp.protocol.completion import (
   server_declares_completions,
   validate_complete_request,
 )
-from mcp.protocol.capability_negotiation import may_client_invoke
-from mcp.protocol.resources import uri_template_variables
+from stackific.mcp.protocol.capability_negotiation import may_client_invoke
+from stackific.mcp.protocol.resources import uri_template_variables
 
 PROMPT_REF = {"type": "ref/prompt", "name": "greet"}
 RES_REF = {"type": "ref/resource", "uri": "x://{id}"}

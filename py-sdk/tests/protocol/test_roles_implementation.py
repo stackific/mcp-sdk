@@ -10,23 +10,23 @@ exported constant *values* a caller depends on (e.g. comparing a received role s
 the closed-set predicate, and the peer relationship — plus the host is NOT a wire role.
 
 The protocol ``implementation`` module is a thin re-export for import-path stability, so
-we assert it is identical to the canonical :mod:`mcp.types.implementation` surface and
+we assert it is identical to the canonical :mod:`stackific.mcp.types.implementation` surface and
 exercise the full §14.3 shape, required/optional fields, and forward-compatibility
 through the re-exported names.
 """
 
 import pytest
 
-from mcp.protocol import implementation as proto_impl
-from mcp.protocol.implementation import (
+from stackific.mcp.protocol import implementation as proto_impl
+from stackific.mcp.protocol.implementation import (
   ICON_THEMES,
   Implementation,
   is_valid_icon,
   is_valid_implementation,
   parse_implementation,
 )
-from mcp.protocol.roles import MCP_ROLES, McpRole, is_mcp_role, peer_role
-from mcp.types.icon import Icon
+from stackific.mcp.protocol.roles import MCP_ROLES, McpRole, is_mcp_role, peer_role
+from stackific.mcp.types.icon import Icon
 
 
 # ─── McpRole — §1.1, §2.2 (AC-01.1) ───────────────────────────────────────────
@@ -105,8 +105,8 @@ class TestPeerRole:
 class TestReExportIdentity:
   def test_reexports_canonical_symbols(self):
     # Import-path stability: the protocol names ARE the canonical types-layer ones.
-    from mcp.types import icon as types_icon
-    from mcp.types import implementation as types_impl
+    from stackific.mcp.types import icon as types_icon
+    from stackific.mcp.types import implementation as types_impl
 
     assert Implementation is types_impl.Implementation
     assert parse_implementation is types_impl.parse_implementation

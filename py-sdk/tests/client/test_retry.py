@@ -1,6 +1,6 @@
 """Conformance tests for the retrying client transport (C9, §7.5).
 
-Covers every export of :mod:`mcp.client.retry`:
+Covers every export of :mod:`stackific.mcp.client.retry`:
 
 * :func:`is_retryable_error` — only transport-level failures are retryable.
 * :func:`compute_backoff_ms` / :class:`RetryPolicy` — the exponential-with-jitter
@@ -12,7 +12,7 @@ Covers every export of :mod:`mcp.client.retry`:
 
 import pytest
 
-from mcp.client.retry import (
+from stackific.mcp.client.retry import (
   DEFAULT_BASE_DELAY_MS,
   DEFAULT_MAX_DELAY_MS,
   DEFAULT_MAX_RETRIES,
@@ -21,7 +21,7 @@ from mcp.client.retry import (
   compute_backoff_ms,
   is_retryable_error,
 )
-from mcp.client.transport import ClientTransport, ClientTransportError
+from stackific.mcp.client.transport import ClientTransport, ClientTransportError
 
 REQUEST = {"jsonrpc": "2.0", "id": 1, "method": "ping"}
 OK_RESPONSE = {"jsonrpc": "2.0", "id": 1, "result": {}}

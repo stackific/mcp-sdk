@@ -1,0 +1,24 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / assertInteger
+
+# Function: assertInteger()
+
+> **assertInteger**(`n`): `void`
+
+Defined in: [json/value.ts:54](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/json/value.ts#L54)
+
+Asserts that `n` has no fractional part. Throws when a fractional value
+is supplied where an integer field is required. (R-2.5-b, AC-02.13)
+
+## Parameters
+
+### n
+
+`number`
+
+## Returns
+
+`void`

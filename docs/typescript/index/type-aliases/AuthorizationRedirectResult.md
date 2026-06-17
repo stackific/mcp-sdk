@@ -1,0 +1,13 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / AuthorizationRedirectResult
+
+# Type Alias: AuthorizationRedirectResult
+
+> **AuthorizationRedirectResult** = \{ `ok`: `true`; `code`: `string`; \} \| \{ `ok`: `false`; `reason`: `string`; `error?`: \{ `error`: `string`; `errorDescription?`: `string`; `errorUri?`: `string`; \}; \}
+
+Defined in: [protocol/authorization-flow.ts:1107](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/protocol/authorization-flow.ts#L1107)
+
+Outcome of [processAuthorizationRedirect](../functions/processAuthorizationRedirect.md).

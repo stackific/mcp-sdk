@@ -2,9 +2,9 @@
 
 import pytest
 
-from mcp.protocol.errors import INTERNAL_ERROR_CODE, INVALID_PARAMS_CODE
-from mcp.server.server import ServerError
-from mcp.server.tasks import InMemoryTaskStore
+from stackific.mcp.protocol.errors import INTERNAL_ERROR_CODE, INVALID_PARAMS_CODE
+from stackific.mcp.server.server import ServerError
+from stackific.mcp.server.tasks import InMemoryTaskStore
 
 
 def test_create_task_returns_working_handle():

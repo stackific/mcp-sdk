@@ -7,20 +7,20 @@ conformance — the requirement registry, the requirement-level classifier, the
 profile descriptor + validator, the baseline server request disposition, the
 capability→obligation map, the robustness disposition, the stateless invariants, the
 transport-conformance evaluator, and the §30 citation status. The feature-lifecycle
-vocabulary of :mod:`mcp.protocol.conformance` is exercised at the end.
+vocabulary of :mod:`stackific.mcp.protocol.conformance` is exercised at the end.
 """
 
 import re
 
-from mcp.jsonrpc.payload import RESULT_TYPE_COMPLETE, RESULT_TYPE_INPUT_REQUIRED
-from mcp.protocol.conformance import (
+from stackific.mcp.jsonrpc.payload import RESULT_TYPE_COMPLETE, RESULT_TYPE_INPUT_REQUIRED
+from stackific.mcp.protocol.conformance import (
   FEATURE_STATUS_ACTIVE,
   FEATURE_STATUS_DEPRECATED,
   FEATURE_STATUSES,
   FeatureStatus,
   is_feature_status,
 )
-from mcp.protocol.conformance_requirements import (
+from stackific.mcp.protocol.conformance_requirements import (
   CAPABILITY_OBLIGATIONS,
   CITATION_STATUS,
   CONFORMANCE_AXES,
@@ -59,12 +59,12 @@ from mcp.protocol.conformance_requirements import (
   validate_input_required_retry,
   validate_success_result_type,
 )
-from mcp.protocol.errors import (
+from stackific.mcp.protocol.errors import (
   INVALID_PARAMS_CODE,
   MISSING_CLIENT_CAPABILITY_CODE,
   UNSUPPORTED_PROTOCOL_VERSION_CODE,
 )
-from mcp.protocol.meta import (
+from stackific.mcp.protocol.meta import (
   CLIENT_CAPABILITIES_META_KEY,
   CLIENT_INFO_META_KEY,
   CURRENT_PROTOCOL_VERSION,

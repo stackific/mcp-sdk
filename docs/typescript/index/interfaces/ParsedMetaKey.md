@@ -1,0 +1,27 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / ParsedMetaKey
+
+# Interface: ParsedMetaKey
+
+Defined in: [json/meta-key.ts:73](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/json/meta-key.ts#L73)
+
+Parsed parts of a `_meta` key.
+
+## Properties
+
+### prefix
+
+> **prefix**: `string` \| `undefined`
+
+Defined in: [json/meta-key.ts:74](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/json/meta-key.ts#L74)
+
+***
+
+### name
+
+> **name**: `string`
+
+Defined in: [json/meta-key.ts:75](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/json/meta-key.ts#L75)

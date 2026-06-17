@@ -5,8 +5,8 @@ Mirrors ts-sdk/src/__tests__/types/implementation.test.ts.
 
 import pytest
 
-from mcp.types.icon import Icon
-from mcp.types.implementation import (
+from stackific.mcp.types.icon import Icon
+from stackific.mcp.types.implementation import (
   Implementation,
   is_valid_implementation,
   parse_implementation,

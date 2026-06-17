@@ -1,7 +1,8 @@
 [project]
 name = "stackific-mcp"
 version = "0.1.0"
-description = "Python MCP SDK — specification-compliant implementation (parity with @stackific/mcp-sdk-ts). Normative source: model-context-protocol-specification.md (MCP V2 RC, revision 2026-07-28)."
+license = "AGPL-3.0-only"
+description = "Python MCP SDK — specification-compliant implementation (parity with @stackific/mcp-sdk). Normative source: model-context-protocol-specification.md (MCP V2 RC, revision 2026-07-28)."
 requires-python = ">=3.12"
 # jsonschema provides the Draft 2020-12 value validator for tool inputSchema/outputSchema
 # (the Python analogue of the TS SDK's Ajv 2020 dependency).
@@ -17,7 +18,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/mcp"]
+# `stackific` is a PEP 420 namespace package (no __init__.py); the SDK lives at
+# `stackific/mcp` and is imported as `stackific.mcp.*` (parity with C# `Stackific.Mcp`).
+packages = ["src/stackific"]
 
 [dependency-groups]
 dev = ["pytest>=8.0"]
@@ -28,3 +31,11 @@ dev = ["pytest>=8.0"]
 addopts = "-q --import-mode=importlib"
 testpaths = ["tests"]
 pythonpath = ["src"]
+# Silence non-actionable third-party warnings only. The bulk socket leaks in the suite
+# are fixed at source (tests/client/test_http.py closes its threaded servers); what's left
+# is starlette 1.3.1's own httpx deprecation and a lone event loop its bare TestClient
+# leaves for the GC at interpreter shutdown — neither is fixable from our code.
+filterwarnings = [
+  "ignore:Using .httpx. with .starlette.testclient. is deprecated",
+  "ignore:unclosed event loop:ResourceWarning",
+]

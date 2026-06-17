@@ -20,7 +20,7 @@ AC coverage:
   AC-06.15 (R-4.6-a)  — list results connection-independent
 """
 
-from mcp.protocol.stateless import (
+from stackific.mcp.protocol.stateless import (
   DEFERRED_TO_TRANSPORT,
   STATELESS_MODEL,
   is_string_continuation_id,

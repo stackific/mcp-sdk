@@ -17,21 +17,21 @@ import json
 
 import pytest
 
-from mcp.protocol.errors import (
+from stackific.mcp.protocol.errors import (
   INTERNAL_ERROR_CODE,
   INVALID_PARAMS_CODE,
   METHOD_NOT_FOUND_CODE,
 )
-from mcp.protocol.meta import CURRENT_PROTOCOL_VERSION
-from mcp.protocol.tasks import TASK_MISSING_CAPABILITY_CODE
-from mcp.server.server import (
+from stackific.mcp.protocol.meta import CURRENT_PROTOCOL_VERSION
+from stackific.mcp.protocol.tasks import TASK_MISSING_CAPABILITY_CODE
+from stackific.mcp.server.server import (
   CancelSignal,
   McpServer,
   ServerError,
   ServerRequestContext,
   ToolContext,
 )
-from mcp.server.tasks import InMemoryTaskStore
+from stackific.mcp.server.tasks import InMemoryTaskStore
 
 # ── fixtures / helpers ────────────────────────────────────────────────────────
 

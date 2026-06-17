@@ -44,7 +44,7 @@ function errorEnvelope(id: string | number, e: unknown): Record<string, unknown>
  *
  * @example
  * ```ts
- * import { StdioServerTransport } from '@stackific/mcp-sdk-ts';
+ * import { StdioServerTransport } from '@stackific/mcp-sdk';
  * serveStdio(server, new StdioServerTransport(process.stdin, process.stdout));
  * ```
  */

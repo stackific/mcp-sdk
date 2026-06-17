@@ -2,14 +2,14 @@
 
 import pytest
 
-from mcp.jsonrpc.framing import (
+from stackific.mcp.jsonrpc.framing import (
   InFlightTracker,
   MalformedMessageError,
   classify_message,
   id_echo_matches,
   is_request_id,
 )
-from mcp.json.value import SAFE_INTEGER_MAX
+from stackific.mcp.json.value import SAFE_INTEGER_MAX
 
 
 class TestIsRequestId:

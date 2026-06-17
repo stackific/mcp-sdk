@@ -1,0 +1,11 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / InputRequest
+
+# Type Alias: InputRequest
+
+> **InputRequest** = `z.infer`\<*typeof* [`InputRequestSchema`](../variables/InputRequestSchema.md)\>
+
+Defined in: [protocol/multi-round-trip.ts:111](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/protocol/multi-round-trip.ts#L111)

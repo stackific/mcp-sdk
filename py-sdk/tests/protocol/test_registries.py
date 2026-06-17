@@ -24,7 +24,7 @@ edge cases. AC coverage:
 * AC-46.18 (R-AppD-f) — UI host mimeTypes REQUIRED incl. text/html;profile=mcp-app; ack MAY be empty
 """
 
-from mcp.protocol.errors import (
+from stackific.mcp.protocol.errors import (
   HEADER_MISMATCH_CODE,
   INTERNAL_ERROR_CODE,
   INVALID_PARAMS_CODE,
@@ -35,7 +35,7 @@ from mcp.protocol.errors import (
   RESOURCE_NOT_FOUND_LEGACY_CODE,
   UNSUPPORTED_PROTOCOL_VERSION_CODE,
 )
-from mcp.protocol.registries import (
+from stackific.mcp.protocol.registries import (
   APPENDIX_B_RESERVED_CODE_SET,
   CAPABILITY_REGISTRY,
   CAPABILITY_SIDES,

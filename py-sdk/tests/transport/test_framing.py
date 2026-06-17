@@ -2,8 +2,8 @@
 
 import pytest
 
-from mcp.transport.contract import TransportError
-from mcp.transport.framing import (
+from stackific.mcp.transport.contract import TransportError
+from stackific.mcp.transport.framing import (
   NEWLINE_BYTE,
   NewlineFramer,
   decode_message_unit,

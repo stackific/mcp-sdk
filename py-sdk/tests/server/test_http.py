@@ -18,16 +18,16 @@ from starlette.responses import Response
 from starlette.routing import Route
 from starlette.testclient import TestClient
 
-from mcp.protocol.discovery import build_discover_request, is_discover_result
-from mcp.protocol.errors import (
+from stackific.mcp.protocol.discovery import build_discover_request, is_discover_result
+from stackific.mcp.protocol.errors import (
   HEADER_MISMATCH_CODE,
   INVALID_PARAMS_CODE,
   METHOD_NOT_FOUND_CODE,
   PARSE_ERROR_CODE,
 )
-from mcp.server.asgi import create_asgi_mcp_handler
-from mcp.server.http import create_mcp_request_handler
-from mcp.server.server import McpServer
+from stackific.mcp.server.asgi import create_asgi_mcp_handler
+from stackific.mcp.server.http import create_mcp_request_handler
+from stackific.mcp.server.server import McpServer
 
 INFO = {"name": "srv", "version": "1.0"}
 CLIENT = {"name": "cli", "version": "0.1"}
@@ -511,7 +511,7 @@ class TestAsgiStreaming:
 
   def test_subscription_taskids_without_capability_rejected(self):
     # §25.10: a taskIds opt-in without the negotiated Tasks extension → -32003.
-    from mcp.protocol.tasks import TASK_MISSING_CAPABILITY_CODE
+    from stackific.mcp.protocol.tasks import TASK_MISSING_CAPABILITY_CODE
 
     server = McpServer(INFO, {"tools": {}})
     tc = _client(server)
@@ -573,7 +573,7 @@ class TestAsgiWireGating:
     assert resp.json()["error"]["code"] == PARSE_ERROR_CODE
 
   def test_unsupported_protocol_version_rejected(self):
-    from mcp.protocol.errors import UNSUPPORTED_PROTOCOL_VERSION_CODE
+    from stackific.mcp.protocol.errors import UNSUPPORTED_PROTOCOL_VERSION_CODE
 
     tc = _client(_make_async_server())
     # The header MUST match the body _meta version (else it is a -32001 header mismatch,

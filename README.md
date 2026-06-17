@@ -1,6 +1,6 @@
 # MCP V2 SDK — with a full-featured demo (multi-language)
 
-A runnable companion to the **MCP V2 RC specification**. The shared frontend can be backed by any of
+A runnable companion to the **[MCP V2 RC specification](docs/model-context-protocol.md)**. The shared frontend can be backed by any of
 several **language stacks** — pick one on the home page and it repoints at that stack's MCP **client
 host** (a different backend + server configuration on its own ports):
 
@@ -22,18 +22,19 @@ configuration.
 
 > All three full stacks speak the V2 RC revision `2026-07-28` — **stateless and handshake-less**
 > (`server/discover` replaces `initialize`; no `Mcp-Session-Id`). The TypeScript stack uses
-> `@stackific/mcp-sdk-ts` (in `ts-sdk/`), the Python stack uses `stackific-mcp` (in `py-sdk/`), and the
+> `@stackific/mcp-sdk` (in `ts-sdk/`), the Python stack uses `stackific-mcp` (imported as `stackific.mcp`, in `py-sdk/`), and the
 > C# stack uses `Stackific.Mcp` (in `csharp-sdk/`). The active stack + negotiated version are shown live
 > in the sidebar.
 
 ## Repository layout
 
 ```
-frontend/            Shared Vite + TanStack Router + shadcn-style SPA (:8000) — the language switcher
-ts-sdk/              @stackific/mcp-sdk-ts — the MCP SDK (client + server runtimes)
-ts-mcp-client/       TypeScript MCP client host (Hono, :8002) — full implementation
-ts-mcp-server/       TypeScript reference MCP server + OAuth AS (Hono, :8001 / :8003)
-py-sdk/              stackific-mcp — the Python MCP SDK (client + server runtimes), parity port of ts-sdk
+docs/                The MCP V2 RC specification + auto-generated SDK API docs (see docs/README.md)
+demo/                @stackific/mcp-demo — shared Vite + TanStack Router + shadcn-style SPA (:8000), the language switcher
+ts-sdk/              @stackific/mcp-sdk — the MCP SDK (client + server runtimes)
+ts-mcp-client/       @stackific/mcp-client-demo — TypeScript MCP client host (Hono, :8002), full implementation
+ts-mcp-server/       @stackific/mcp-server-demo — TypeScript reference MCP server + OAuth AS (Hono, :8001 / :8003)
+py-sdk/              stackific-mcp — the Python MCP SDK, imported as stackific.mcp (client + server runtimes), parity port of ts-sdk
 py-mcp-client/       Python MCP client host on py-sdk (FastAPI, :8102) — full implementation
 py-mcp-server/       Python reference MCP server + OAuth AS on py-sdk (FastAPI, :8101 / :8103)
 csharp-sdk/          Stackific.Mcp — the MCP SDK for .NET 10 (client + server runtimes, built from the spec)
@@ -43,14 +44,14 @@ csharp-mcp-server/   C# reference MCP server + OAuth AS (.NET 10 Minimal API, :8
 Taskfile.yml         The single entrypoint that drives the whole monorepo
 ```
 
-Inside the TypeScript stack, only `ts-mcp-client/` and `frontend/` are pnpm workspace members; `ts-sdk/`
+Inside the TypeScript stack, only `ts-mcp-client/` and `demo/` are pnpm workspace members; `ts-sdk/`
 and `ts-mcp-server/` install standalone (so the SDK link stays explicit and the reference server is
 deletable). Nothing in the workspace imports `ts-mcp-server/`.
 
 ## Architecture (per language)
 
 ```
-frontend (shared SPA, :8000)
+demo (shared SPA, :8000)
    │  REST + SSE (the live wire stream) — base URL chosen by the language switch
    ▼
 <lang>-mcp-client  ── hosts the MCP *client*, taps every JSON-RPC frame to /debug/stream
@@ -128,4 +129,10 @@ task test         # run every stack's test suite (ts-sdk + ts-mcp-client, py-*, 
 task lint         # lint every stack (Prettier check for JS/TS, Ruff for Python, dotnet format --verify for C#)
 task deadcode     # find dead/unused code (Knip for TS, Vulture for Python, Roslyn analyzers for C#)
 task format       # format every stack (Prettier for JS/TS/JSON/Markdown, dotnet format for C#)
+task docs         # auto-generate Markdown API docs for all three SDKs into docs/ (see docs/README.md)
 ```
+
+## License
+
+This project — every stack (TypeScript, Python, C#) and the shared `demo` SPA — is licensed
+under the **GNU Affero General Public License v3.0** (`AGPL-3.0-only`). See [`LICENSE`](LICENSE).

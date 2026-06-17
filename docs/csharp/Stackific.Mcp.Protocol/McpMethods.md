@@ -1,0 +1,49 @@
+# McpMethods class
+
+The complete registry of JSON-RPC method and notification names defined by the protocol and its in-scope extensions (spec Appendix A). Names are case-sensitive and reproduced verbatim.
+
+```csharp
+public static class McpMethods
+```
+
+## Public Members
+
+| name | description |
+| --- | --- |
+| const [CompletionComplete](McpMethods/CompletionComplete.md) | `completion/complete` — argument completion (§19.2). |
+| const [Discover](McpMethods/Discover.md) | `server/discover` — discovery + revision negotiation (§5). |
+| const [ElicitationCreate](McpMethods/ElicitationCreate.md) | `elicitation/create` — request user input (§20). |
+| const [Initialize](McpMethods/Initialize.md) | `initialize` — the legacy handshake request (§9.2). A spec client that has not switched to the modern `server/discover` flow issues `initialize`; the server echoes the client's requested protocol version, its advertised capabilities, and its identity. On Streamable HTTP this is the one method answered as a single non-streaming JSON response with no session (§9.2). |
+| const [LoggingSetLevel](McpMethods/LoggingSetLevel.md) | `logging/setLevel` — sets the minimum severity of `notifications/message` the server emits for subsequent requests; Deprecated (§15.3). The server holds the level and gates log emission at or above it. |
+| const [NotificationsCancelled](McpMethods/NotificationsCancelled.md) | `notifications/cancelled` — cancellation of a previously issued request (§15.2). |
+| const [NotificationsElicitationComplete](McpMethods/NotificationsElicitationComplete.md) | `notifications/elicitation/complete` — an out-of-band elicitation finished (§20). |
+| const [NotificationsMessage](McpMethods/NotificationsMessage.md) | `notifications/message` — a log message; Deprecated (§15.3). |
+| const [NotificationsProgress](McpMethods/NotificationsProgress.md) | `notifications/progress` — progress on a long-running request (§15.1). |
+| const [NotificationsPromptsListChanged](McpMethods/NotificationsPromptsListChanged.md) | `notifications/prompts/list_changed` — the prompt list changed (§18.6). |
+| const [NotificationsResourcesListChanged](McpMethods/NotificationsResourcesListChanged.md) | `notifications/resources/list_changed` — the resource list changed (§17.7). |
+| const [NotificationsResourcesUpdated](McpMethods/NotificationsResourcesUpdated.md) | `notifications/resources/updated` — a subscribed resource was updated (§17.7). |
+| const [NotificationsSubscriptionsAcknowledged](McpMethods/NotificationsSubscriptionsAcknowledged.md) | `notifications/subscriptions/acknowledged` — a subscription was established (§10.3). |
+| const [NotificationsTasks](McpMethods/NotificationsTasks.md) | `notifications/tasks` — a task's status changed (§25.10). |
+| const [NotificationsToolsListChanged](McpMethods/NotificationsToolsListChanged.md) | `notifications/tools/list_changed` — the tool list changed (§16.8). |
+| const [Ping](McpMethods/Ping.md) | `ping` — liveness check. |
+| const [PromptsGet](McpMethods/PromptsGet.md) | `prompts/get` — resolve a prompt (§18.4). |
+| const [PromptsList](McpMethods/PromptsList.md) | `prompts/list` — list prompts (§18.2). |
+| const [ResourcesList](McpMethods/ResourcesList.md) | `resources/list` — list resources (§17.2). |
+| const [ResourcesRead](McpMethods/ResourcesRead.md) | `resources/read` — read a resource (§17.5). |
+| const [ResourceTemplatesList](McpMethods/ResourceTemplatesList.md) | `resources/templates/list` — list resource templates (§17.3). |
+| const [RootsList](McpMethods/RootsList.md) | `roots/list` — request the client's filesystem roots; Deprecated (§21). |
+| const [SamplingCreateMessage](McpMethods/SamplingCreateMessage.md) | `sampling/createMessage` — request a model completion; Deprecated (§21). |
+| const [SubscriptionsListen](McpMethods/SubscriptionsListen.md) | `subscriptions/listen` — open a server-to-client notification stream (§10.2). |
+| const [TasksCancel](McpMethods/TasksCancel.md) | `tasks/cancel` — cancel a task (§25.9). |
+| const [TasksGet](McpMethods/TasksGet.md) | `tasks/get` — retrieve a task's current state (§25.7). |
+| const [TasksUpdate](McpMethods/TasksUpdate.md) | `tasks/update` — supply input to a task (§25.8). |
+| const [ToolsCall](McpMethods/ToolsCall.md) | `tools/call` — invoke a tool (§16.5). |
+| const [ToolsList](McpMethods/ToolsList.md) | `tools/list` — list available tools (§16.2). |
+| const [UiInitialize](McpMethods/UiInitialize.md) | `ui/initialize` — the UI-to-host initialization request that begins the §26 handshake (Appendix A). In scope only while the Interactive User-Interface extension is active. |
+| const [UiNotificationsInitialized](McpMethods/UiNotificationsInitialized.md) | `ui/notifications/initialized` — the UI-to-host notification completing the §26 handshake (Appendix A). In scope only while the Interactive User-Interface extension is active. |
+
+## See Also
+
+* namespace [Stackific.Mcp.Protocol](../README.md)
+
+<!-- DO NOT EDIT: generated by xmldocmd for Stackific.Mcp.dll -->

@@ -17,7 +17,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 // SDK first (ts-mcp-server / ts-mcp-client link it via file:../ts-sdk), then the server.
 // The SDK is consumed from its compiled `dist/` (its package exports point there), so it must be
 // BUILT here too — otherwise the apps fail at startup with ERR_MODULE_NOT_FOUND on
-// `@stackific/mcp-sdk-ts/dist/...`. `build: true` runs its `tsc` after the standalone install.
+// `@stackific/mcp-sdk/dist/...`. `build: true` runs its `tsc` after the standalone install.
 const extras = [
   { name: 'ts-sdk', dir: join(root, 'ts-sdk'), build: true },
   { name: 'ts-mcp-server', dir: join(root, 'ts-mcp-server') },

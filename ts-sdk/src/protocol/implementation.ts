@@ -4,7 +4,7 @@
  * The full shape (including `description`, `websiteUrl`, and the complete `Icon`
  * structure) is defined in §14.3 and lives in `src/types/implementation.ts` (S20).
  * This module is kept for import-path stability; prefer importing from
- * `@stackific/mcp-sdk-ts` or `./types` directly.
+ * `@stackific/mcp-sdk` or `./types` directly.
  */
 
 export {

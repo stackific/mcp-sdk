@@ -1,9 +1,9 @@
 """Tests for the Interactive UI ("apps") extension — both halves of the cluster:
 
 * S41 — Interactive UI Extension I: negotiation, ``_meta.ui`` declaration & UI resource
-  (§26.1–§26.4), in :mod:`mcp.protocol.ui`;
+  (§26.1–§26.4), in :mod:`stackific.mcp.protocol.ui`;
 * S42 — Interactive UI Extension II: the UI-to-host dialect, registry & security
-  (§26.5–§26.9), in :mod:`mcp.protocol.ui_host`.
+  (§26.5–§26.9), in :mod:`stackific.mcp.protocol.ui_host`.
 
 Mirrors the TypeScript test files ``__tests__/protocol/ui.test.ts`` (AC-41.1..AC-41.44)
 and ``__tests__/protocol/ui-host.test.ts`` (AC-42.1..AC-42.25), PLUS additional edge
@@ -15,9 +15,9 @@ host implementation consults, not by rendering anything (AC-41.10, AC-42.25).
 
 import pytest
 
-from mcp.protocol.errors import INTERNAL_ERROR_CODE, INVALID_PARAMS_CODE, METHOD_NOT_FOUND_CODE
-from mcp.protocol.meta import CLIENT_CAPABILITIES_META_KEY
-from mcp.protocol.ui import (
+from stackific.mcp.protocol.errors import INTERNAL_ERROR_CODE, INVALID_PARAMS_CODE, METHOD_NOT_FOUND_CODE
+from stackific.mcp.protocol.meta import CLIENT_CAPABILITIES_META_KEY
+from stackific.mcp.protocol.ui import (
   DEFAULT_UI_VISIBILITY,
   DENY_BY_DEFAULT_CSP,
   TOOL_UI_META_KEY,
@@ -69,7 +69,7 @@ from mcp.protocol.ui import (
   ui_resource_read_uri,
   ui_responsibility_owner,
 )
-from mcp.protocol.ui_host import (
+from stackific.mcp.protocol.ui_host import (
   ALLOWED_UI_EXPOSURE_KEYS,
   DECLINABLE_UI_REQUESTS,
   DECLINE_REASONS,

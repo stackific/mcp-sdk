@@ -6,7 +6,7 @@ Python-side edge cases.
 
 import pytest
 
-from mcp.protocol.pagination import (
+from stackific.mcp.protocol.pagination import (
   INVALID_CURSOR_CODE,
   PAGINATED_METHODS,
   OffsetPaginator,

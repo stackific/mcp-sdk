@@ -1,0 +1,13 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / DeclineReason
+
+# Type Alias: DeclineReason
+
+> **DeclineReason** = `"no-consent"` \| `"policy"` \| `"unknown-method"` \| `"invalid-params"`
+
+Defined in: [protocol/ui-host.ts:849](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/protocol/ui-host.ts#L849)
+
+Why a host declined a UI-initiated request, used to pick the §22 error code.

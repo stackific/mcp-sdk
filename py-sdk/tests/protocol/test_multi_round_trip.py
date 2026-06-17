@@ -5,8 +5,8 @@ Mirrors ``ts-sdk/src/__tests__/protocol/multi-round-trip.test.ts`` and
 Python-side edge cases.
 """
 
-from mcp.protocol.errors import INVALID_PARAMS_CODE, MISSING_CLIENT_CAPABILITY_CODE
-from mcp.protocol.multi_round_trip import (
+from stackific.mcp.protocol.errors import INVALID_PARAMS_CODE, MISSING_CLIENT_CAPABILITY_CODE
+from stackific.mcp.protocol.multi_round_trip import (
   INPUT_RESPONSE_SCHEMA_BY_METHOD,
   MALFORMED_INPUT_REQUIRED_RESULT_ERROR,
   RECOGNIZED_INPUT_REQUEST_METHODS,
