@@ -310,10 +310,6 @@ def uri_covered_by_subscription(updated_uri: str, subscribed_uri: str) -> bool:
   return updated_uri.startswith(base)
 
 
-#: Backward-compatible private alias of :func:`uri_covered_by_subscription`.
-_uri_covered_by_subscription = uri_covered_by_subscription
-
-
 def may_deliver_resource_update(updated_uri: str, subscribed_uris: list[str]) -> bool:
   """Return ``True`` when a ``resources/updated`` for ``updated_uri`` is permitted on a
   subscription whose acknowledged ``resourceSubscriptions`` are ``subscribed_uris`` — i.e.
