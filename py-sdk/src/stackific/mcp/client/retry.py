@@ -212,7 +212,7 @@ class RetryTransport(ClientTransport):
     for attempt in range(total_attempts):
       try:
         return self._inner.request(message)
-      except BaseException as error:  # noqa: BLE001 — we re-raise non-retryable below
+      except Exception as error:  # noqa: BLE001 — we re-raise non-retryable below
         last_error = error
         is_last = attempt >= total_attempts - 1
         if is_last or not self._policy.should_retry(error):

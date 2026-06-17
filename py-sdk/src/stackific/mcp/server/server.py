@@ -509,7 +509,7 @@ class McpServer:
       # §25.7: a GetTaskResult is the DetailedTask (with inline outcome) + resultType.
       return self._task_op(method, params, lambda store, tid: self._as_complete(store.get_detailed(tid)))
     if method == "tasks/cancel":
-      return self._task_op(method, params, lambda store, tid: self._cancel_task(store, tid))
+      return self._task_op(method, params, self._cancel_task)
     if method == "tasks/update":
       # §25.8: supply input to an input_required task, then return its DetailedTask.
       return self._task_op(method, params, lambda store, tid: self._update_task(store, tid, params))

@@ -238,6 +238,7 @@ class _Api:
         try:
           prior.unsubscribe()
         except Exception:
+          # Best-effort teardown; a failed unsubscribe must not block re-subscribe.
           pass
         _state["subscription"] = None
       handle = _state["client"].subscribe(notifications)

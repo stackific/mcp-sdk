@@ -38,6 +38,7 @@ REUSE (never redefined here):
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Callable, Iterable, Mapping
 
@@ -478,7 +479,7 @@ def get_extension_version(
     return raw
   if isinstance(raw, (int, float)) and not isinstance(raw, bool):
     # Reject non-finite floats (NaN/inf), which are not meaningful version markers.
-    if isinstance(raw, float) and raw != raw:  # NaN
+    if isinstance(raw, float) and math.isnan(raw):  # NaN
       return None
     if raw in (float("inf"), float("-inf")):
       return None

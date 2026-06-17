@@ -13,7 +13,7 @@ The normative source is ``model-context-protocol-specification.md``; docstrings 
 the relevant sections (``§``), requirements (``R-``) and acceptance criteria (``AC-``).
 """
 
-__all__ = ["__version__"]
+__all__ = ["PROTOCOL_REVISION", "__version__"]
 
 #: The MCP protocol revision this SDK implements (§7, stateless/handshake-less).
 PROTOCOL_REVISION = "2026-07-28"
