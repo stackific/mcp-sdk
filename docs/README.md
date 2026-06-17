@@ -16,8 +16,8 @@ Regenerate them with `task docs` — or per language: `task docs:ts`, `task docs
 | SDK            | Package / namespace                  | Generated docs                                  | Generator         |
 | -------------- | ------------------------------------ | ----------------------------------------------- | ----------------- |
 | **TypeScript** | `@stackific/mcp-sdk`                 | [`typescript/`](typescript/README.md)           | TypeDoc           |
-| **Python**     | `stackific-mcp` (`stackific.mcp`)    | [`python/`](python/stackific.mcp.md)            | pydoc-markdown    |
-| **C#**         | `Stackific.Mcp`                      | [`csharp/`](csharp/Stackific.Mcp.md)            | XmlDocMarkdown    |
+| **Python**     | `stackific-mcp` (`stackific.mcp`)    | [`python/`](python/README.md)                   | pydoc-markdown    |
+| **C#**         | `Stackific.Mcp`                      | [`csharp/`](csharp/README.md)                   | XmlDocMarkdown    |
 
 All three SDKs implement the same specification; the references above are produced from
 each SDK's own in-source documentation, so they stay in lock-step with the code.

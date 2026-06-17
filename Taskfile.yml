@@ -298,7 +298,7 @@ tasks:
         mods=$(cd src && find stackific/mcp -name '*.py' -not -path '*/__pycache__/*' \
           | sed -E 's#/__init__\.py$##; s#\.py$##; s#/#.#g' | sort -u)
         args=""; for m in $mods; do args="$args -m $m"; done
-        uvx --from pydoc-markdown==4.8.2 pydoc-markdown -I src $args --render-toc > ../docs/python/stackific.mcp.md
+        uvx --from pydoc-markdown==4.8.2 pydoc-markdown -I src $args --render-toc > ../docs/python/README.md
 
   docs:csharp:
     desc: 'Generate the Stackific.Mcp SDK API docs (xmldocmd → docs/csharp/)'
@@ -313,6 +313,11 @@ tasks:
         TOOLDLL=$(find "$HOME/.dotnet/tools/.store/xmldocmd" -name xmldocmd.dll -path '*/tools/*' | head -1)
         dotnet exec --runtimeconfig scripts/xmldocmd.runtimeconfig.json "$TOOLDLL" \
           csharp-sdk/bin/Debug/net10.0/Stackific.Mcp.dll docs/csharp --visibility public --clean
+      # xmldocmd names the assembly index Stackific.Mcp.md; rename it to README.md so GitHub
+      # renders it as the folder's landing page, repointing every internal link to it.
+      - |
+        find docs/csharp -name '*.md' -exec perl -pi -e 's#Stackific\.Mcp\.md#README.md#g' {} +
+        mv -f docs/csharp/Stackific.Mcp.md docs/csharp/README.md
 
   # ── Quality gate (lint / dead code / pre-push) ─────────────────────────────────
   prepush:
