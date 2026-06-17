@@ -1056,22 +1056,26 @@ function applyDefaults(args: Record<string, unknown>, schema?: Record<string, un
 
 /** Matches a concrete URI against an RFC 6570 `{var}` template; returns captured vars or null. */
 function matchTemplate(template: string, uri: string): Record<string, string> | null {
+  // Build the matcher segment by segment so the ONLY repetition that can come from
+  // the (server-defined) template is a length-bounded path capture: every literal
+  // run — braces included — is regex-escaped, so no quantifier or metacharacter can
+  // be injected from the template string itself (CodeQL js/polynomial-redos). The
+  // bounded `{1,1024}` capture also keeps adjacent `{a}{b}` vars from backtracking.
   const names: string[] = [];
-  const pattern = template.replace(/[.*+?^${}()|[\]\\]/g, (ch) => (ch === '{' || ch === '}' ? ch : `\\${ch}`));
-  const re = new RegExp(
-    '^' +
-      pattern.replace(/\{([^}]+)\}/g, (_m, n) => {
-        names.push(n);
-        // Length-bounded so adjacent `{a}{b}` vars can't form a polynomially
-        // backtracking `([^/]+)([^/]+)` matcher (CodeQL js/polynomial-redos);
-        // 1024 far exceeds any real URI path segment.
-        return '([^/]{1,1024})';
-      }) +
-      '$',
-  );
-  const m = re.exec(uri);
-  if (!m) return null;
+  const escapeLiteral = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const varRe = /\{([^{}]+)\}/g;
+  let pattern = '';
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = varRe.exec(template)) !== null) {
+    pattern += escapeLiteral(template.slice(last, m.index)) + '([^/]{1,1024})';
+    names.push(m[1]!);
+    last = varRe.lastIndex;
+  }
+  pattern += escapeLiteral(template.slice(last));
+  const matched = new RegExp(`^${pattern}$`).exec(uri);
+  if (!matched) return null;
   const vars: Record<string, string> = {};
-  names.forEach((n, i) => (vars[n] = decodeURIComponent(m[i + 1]!)));
+  names.forEach((name, i) => (vars[name] = decodeURIComponent(matched[i + 1]!)));
   return vars;
 }
