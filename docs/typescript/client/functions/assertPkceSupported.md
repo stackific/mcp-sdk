@@ -1,0 +1,23 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [client](../README.md) / assertPkceSupported
+
+# Function: assertPkceSupported()
+
+> **assertPkceSupported**(`metadata`): `void`
+
+Defined in: [client/oauth.ts:49](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/client/oauth.ts#L49)
+
+Confirms the AS advertises PKCE `S256`; throws otherwise (the client MUST refuse). (§28.5, R-28.5-k)
+
+## Parameters
+
+### metadata
+
+`Pick`\<[`AuthorizationServerMetadata`](../../index/type-aliases/AuthorizationServerMetadata.md), `"code_challenge_methods_supported"`\>
+
+## Returns
+
+`void`

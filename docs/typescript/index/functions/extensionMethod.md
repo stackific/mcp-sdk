@@ -1,0 +1,34 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / extensionMethod
+
+# Function: extensionMethod()
+
+> **extensionMethod**(`identifier`, `member`): `string`
+
+Defined in: [protocol/extension-mechanism.ts:281](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/protocol/extension-mechanism.ts#L281)
+
+Builds a namespaced method string for an extension from its identifier and a
+member name (e.g. `("io.modelcontextprotocol/tasks", "get") → "tasks/get"`).
+(R-24.5-b)
+
+## Parameters
+
+### identifier
+
+`string`
+
+### member
+
+`string`
+
+## Returns
+
+`string`
+
+## Throws
+
+when `identifier` yields no namespace (malformed or
+  empty-named) or `member` is empty.

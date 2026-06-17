@@ -201,12 +201,13 @@ const handle = createMcpRequestHandler(server, {
 
 ## API reference
 
-Full API documentation is generated from source (TypeDoc) into [`docs/api/`](./docs/api/README.md)
-— browsable as Markdown directly on GitHub. Regenerate after changing the public
-surface:
+Full API documentation is generated from source (TypeDoc) into the monorepo's
+[`docs/typescript/`](../docs/typescript/README.md) — browsable as Markdown directly on
+GitHub, alongside the Python and C# SDK docs (see [`docs/`](../docs/README.md)). Regenerate
+after changing the public surface:
 
 ```bash
-pnpm docs        # typedoc → docs/api/ (Markdown)
+pnpm docs        # typedoc → ../docs/typescript/ (Markdown); or `task docs` for all three SDKs
 ```
 
 ## Development
@@ -216,5 +217,5 @@ pnpm install
 pnpm build       # tsc → dist/
 pnpm test        # vitest
 pnpm typecheck
-pnpm docs        # regenerate docs/api/
+pnpm docs        # regenerate ../docs/typescript/
 ```

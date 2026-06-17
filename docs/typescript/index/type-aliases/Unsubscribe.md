@@ -1,0 +1,17 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / Unsubscribe
+
+# Type Alias: Unsubscribe
+
+> **Unsubscribe** = () => `void`
+
+Defined in: [transport/contract.ts:73](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/transport/contract.ts#L73)
+
+Cancels a previously registered handler.
+
+## Returns
+
+`void`

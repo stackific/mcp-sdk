@@ -1,5 +1,5 @@
 {
-  "name": "mcp-v2-companion",
+  "name": "@stackific/mcp-sdk-monorepo",
   "version": "0.1.0",
   "license": "AGPL-3.0-only",
   "private": true,

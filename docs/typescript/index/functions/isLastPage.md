@@ -1,0 +1,26 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / isLastPage
+
+# Function: isLastPage()
+
+> **isLastPage**(`result`): `boolean`
+
+Defined in: [protocol/pagination.ts:96](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/protocol/pagination.ts#L96)
+
+Returns `true` when this is the final page — `nextCursor` is absent.
+(R-12.2-d, R-12.3-c)
+
+## Parameters
+
+### result
+
+#### nextCursor?
+
+`string`
+
+## Returns
+
+`boolean`

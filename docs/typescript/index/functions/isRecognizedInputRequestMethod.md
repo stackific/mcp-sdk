@@ -1,0 +1,23 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / isRecognizedInputRequestMethod
+
+# Function: isRecognizedInputRequestMethod()
+
+> **isRecognizedInputRequestMethod**(`method`): method is "elicitation/create" \| "roots/list" \| "sampling/createMessage"
+
+Defined in: [protocol/multi-round-trip.ts:52](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/protocol/multi-round-trip.ts#L52)
+
+Returns `true` when `method` is one of the three recognized input-request kinds.
+
+## Parameters
+
+### method
+
+`string`
+
+## Returns
+
+method is "elicitation/create" \| "roots/list" \| "sampling/createMessage"

@@ -1,0 +1,11 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / TOOL\_NAME\_MAX\_LENGTH
+
+# Variable: TOOL\_NAME\_MAX\_LENGTH
+
+> `const` **TOOL\_NAME\_MAX\_LENGTH**: `128`
+
+Defined in: [protocol/tools.ts:516](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/protocol/tools.ts#L516)

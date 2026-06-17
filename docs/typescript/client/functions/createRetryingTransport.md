@@ -1,0 +1,29 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [client](../README.md) / createRetryingTransport
+
+# Function: createRetryingTransport()
+
+> **createRetryingTransport**(`factory`, `options?`): [`Transport`](../../index/interfaces/Transport.md)
+
+Defined in: [client/retry.ts:35](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/client/retry.ts#L35)
+
+Wraps `factory` (which builds a fresh inner transport) in a reconnecting
+transport. The returned transport presents stable handler registration to a
+[Client](../classes/Client.md) across inner reconnects.
+
+## Parameters
+
+### factory
+
+() => [`Transport`](../../index/interfaces/Transport.md)
+
+### options?
+
+[`RetryOptions`](../interfaces/RetryOptions.md) = `{}`
+
+## Returns
+
+[`Transport`](../../index/interfaces/Transport.md)

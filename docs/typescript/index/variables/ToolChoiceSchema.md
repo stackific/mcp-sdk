@@ -1,0 +1,18 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / ToolChoiceSchema
+
+# Variable: ToolChoiceSchema
+
+> `const` **ToolChoiceSchema**: `ZodObject`\<\{ `mode`: `ZodOptional`\<`ZodEnum`\<\[`"auto"`, `"required"`, `"none"`\]\>\>; \}, `"passthrough"`, `ZodTypeAny`, `objectOutputType`\<\{ `mode`: `ZodOptional`\<`ZodEnum`\<\[`"auto"`, `"required"`, `"none"`\]\>\>; \}, `ZodTypeAny`, `"passthrough"`\>, `objectInputType`\<\{ `mode`: `ZodOptional`\<`ZodEnum`\<\[`"auto"`, `"required"`, `"none"`\]\>\>; \}, `ZodTypeAny`, `"passthrough"`\>\>
+
+Defined in: [protocol/sampling.ts:323](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/protocol/sampling.ts#L323)
+
+`ToolChoice` — controls the model's tool-use behavior during sampling. (§21.2.5)
+
+`mode` is OPTIONAL; the default when omitted is `{ "mode": "auto" }`.
+(R-21.2.4-p) `"required"` means the model MUST use at least one tool before
+completing (R-21.2.5-a); `"none"` means the model MUST NOT use any tools.
+(R-21.2.5-b)

@@ -1,0 +1,27 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / parseRoot
+
+# Function: parseRoot()
+
+> **parseRoot**(`value`): `SafeParseReturnType`\<`unknown`, `objectOutputType`\<\{ `uri`: `ZodEffects`\<`ZodString`, `string`, `string`\>; `name`: `ZodOptional`\<`ZodString`\>; `_meta`: `ZodOptional`\<`ZodRecord`\<`ZodString`, `ZodUnknown`\>\>; \}, `ZodTypeAny`, `"passthrough"`\>\>
+
+Defined in: [protocol/roots.ts:364](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/protocol/roots.ts#L364)
+
+Validates a single `Root`, enforcing the §21.1 `uri` constraints. (§21.1.5;
+AC-32.11, AC-32.13)
+
+A missing, non-`file`, or malformed `uri` fails; a present string `name` and
+unrecognized `_meta` members are accepted. (R-21.1.5-b, -d, -e, -f)
+
+## Parameters
+
+### value
+
+`unknown`
+
+## Returns
+
+`SafeParseReturnType`\<`unknown`, `objectOutputType`\<\{ `uri`: `ZodEffects`\<`ZodString`, `string`, `string`\>; `name`: `ZodOptional`\<`ZodString`\>; `_meta`: `ZodOptional`\<`ZodRecord`\<`ZodString`, `ZodUnknown`\>\>; \}, `ZodTypeAny`, `"passthrough"`\>\>

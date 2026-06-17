@@ -1,0 +1,18 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / recommendedLocalBindAddress
+
+# Function: recommendedLocalBindAddress()
+
+> **recommendedLocalBindAddress**(): `"127.0.0.1"`
+
+Defined in: [transport/http/responses.ts:510](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/transport/http/responses.ts#L510)
+
+Returns the address a locally-run server SHOULD bind its MCP endpoint to:
+the loopback interface, never all interfaces. (R-9.11-d)
+
+## Returns
+
+`"127.0.0.1"`

@@ -1,0 +1,13 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / TOOLS\_LIST\_METHOD
+
+# Variable: TOOLS\_LIST\_METHOD
+
+> `const` **TOOLS\_LIST\_METHOD**: `"tools/list"`
+
+Defined in: [protocol/tools.ts:64](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/protocol/tools.ts#L64)
+
+Method name of the paginated tool-discovery request. (§16.2, R-16.2-a)

@@ -1,0 +1,17 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / requiredClientRequestMetaKeys
+
+# Function: requiredClientRequestMetaKeys()
+
+> **requiredClientRequestMetaKeys**(): readonly `string`[]
+
+Defined in: [protocol/registries.ts:400](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/protocol/registries.ts#L400)
+
+Returns the reserved keys (Appendix C rows) that are REQUIRED on a client request. (R-AppC-b … d)
+
+## Returns
+
+readonly `string`[]

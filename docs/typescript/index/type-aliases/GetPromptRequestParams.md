@@ -1,0 +1,11 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / GetPromptRequestParams
+
+# Type Alias: GetPromptRequestParams
+
+> **GetPromptRequestParams** = `z.infer`\<*typeof* [`GetPromptRequestParamsSchema`](../variables/GetPromptRequestParamsSchema.md)\>
+
+Defined in: [protocol/prompts.ts:420](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/protocol/prompts.ts#L420)

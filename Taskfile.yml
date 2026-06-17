@@ -271,6 +271,49 @@ tasks:
       - dotnet format Stackific.Mcp.slnx
       - dotnet format csharp-mcp-client/csharp-mcp-client.csproj
 
+  # ── Docs (auto-generate Markdown API docs for the three SDKs into docs/<lang>) ──
+  docs:
+    desc: Generate Markdown API docs for all three SDKs into docs/ (TypeScript, Python, C#)
+    cmds:
+      - task: docs:ts
+      - task: docs:py
+      - task: docs:csharp
+
+  docs:ts:
+    desc: 'Generate the ts-sdk API docs (TypeDoc → docs/typescript/)'
+    dir: ts-sdk
+    cmds:
+      # typedoc.json pins the entry points + Markdown plugin and writes to ../docs/typescript.
+      - pnpm exec typedoc
+
+  docs:py:
+    desc: 'Generate the py-sdk (stackific.mcp) API docs (pydoc-markdown → docs/python/)'
+    dir: py-sdk
+    cmds:
+      - mkdir -p ../docs/python
+      # pydoc-markdown does not recurse our PEP 420 namespace package on its own, so we
+      # enumerate every module under stackific.mcp (dotted names) and render one combined
+      # document with a table of contents.
+      - |
+        mods=$(cd src && find stackific/mcp -name '*.py' -not -path '*/__pycache__/*' \
+          | sed -E 's#/__init__\.py$##; s#\.py$##; s#/#.#g' | sort -u)
+        args=""; for m in $mods; do args="$args -m $m"; done
+        uvx --from pydoc-markdown==4.8.2 pydoc-markdown -I src $args --render-toc > ../docs/python/stackific.mcp.md
+
+  docs:csharp:
+    desc: 'Generate the Stackific.Mcp SDK API docs (xmldocmd → docs/csharp/)'
+    cmds:
+      - dotnet build csharp-sdk/Stackific.Mcp.csproj --nologo
+      - dotnet tool install --global xmldocmd --version 2.9.0 2>/dev/null || true
+      - mkdir -p docs/csharp
+      # xmldocmd ships for net6.0; run it on the installed .NET 10 runtime via a roll-forward
+      # runtimeconfig that also loads the ASP.NET Core shared framework the SDK references
+      # (otherwise reflecting over Stackific.Mcp.dll fails to resolve Http.Abstractions, etc.).
+      - |
+        TOOLDLL=$(find "$HOME/.dotnet/tools/.store/xmldocmd" -name xmldocmd.dll -path '*/tools/*' | head -1)
+        dotnet exec --runtimeconfig scripts/xmldocmd.runtimeconfig.json "$TOOLDLL" \
+          csharp-sdk/bin/Debug/net10.0/Stackific.Mcp.dll docs/csharp --visibility public --clean
+
   # ── Quality gate (lint / dead code / pre-push) ─────────────────────────────────
   prepush:
     desc: Run the full pre-push gate (lint → format → build → test) via lefthook

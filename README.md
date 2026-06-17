@@ -29,7 +29,7 @@ configuration.
 ## Repository layout
 
 ```
-docs/                The full MCP V2 RC specification (model-context-protocol.md)
+docs/                The MCP V2 RC specification + auto-generated SDK API docs (see docs/README.md)
 demo/                @stackific/mcp-demo — shared Vite + TanStack Router + shadcn-style SPA (:8000), the language switcher
 ts-sdk/              @stackific/mcp-sdk — the MCP SDK (client + server runtimes)
 ts-mcp-client/       @stackific/mcp-client-demo — TypeScript MCP client host (Hono, :8002), full implementation
@@ -129,6 +129,7 @@ task test         # run every stack's test suite (ts-sdk + ts-mcp-client, py-*, 
 task lint         # lint every stack (Prettier check for JS/TS, Ruff for Python, dotnet format --verify for C#)
 task deadcode     # find dead/unused code (Knip for TS, Vulture for Python, Roslyn analyzers for C#)
 task format       # format every stack (Prettier for JS/TS/JSON/Markdown, dotnet format for C#)
+task docs         # auto-generate Markdown API docs for all three SDKs into docs/ (see docs/README.md)
 ```
 
 ## License

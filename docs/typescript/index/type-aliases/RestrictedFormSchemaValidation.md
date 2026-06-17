@@ -1,0 +1,13 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / RestrictedFormSchemaValidation
+
+# Type Alias: RestrictedFormSchemaValidation
+
+> **RestrictedFormSchemaValidation** = \{ `valid`: `true`; `schema`: [`RequestedSchema`](RequestedSchema.md); \} \| \{ `valid`: `false`; `errors`: [`RestrictedFormSchemaError`](../interfaces/RestrictedFormSchemaError.md)[]; \}
+
+Defined in: [protocol/elicitation-form.ts:470](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/protocol/elicitation-form.ts#L470)
+
+Outcome of [validateRestrictedFormSchema](../functions/validateRestrictedFormSchema.md).

@@ -1,0 +1,26 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / isResourceSubscribeRequestMethod
+
+# Function: isResourceSubscribeRequestMethod()
+
+> **isResourceSubscribeRequestMethod**(`_method`): `boolean`
+
+Defined in: [protocol/resources-read.ts:530](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/protocol/resources-read.ts#L530)
+
+Returns `true` if `method` is a (non-existent) per-resource subscribe/
+unsubscribe request — it ALWAYS returns `false`, because no such method
+exists; opting in/out is done through the §10 filter, not a request.
+(§17.7, R-17.7-a)
+
+## Parameters
+
+### \_method
+
+`string`
+
+## Returns
+
+`boolean`

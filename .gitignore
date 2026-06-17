@@ -4,6 +4,9 @@ node_modules
 dist
 .DS_Store
 *.log
+
+# IDEs
+.idea/
 .env
 .env.*
 !.env.example

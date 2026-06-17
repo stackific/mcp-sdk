@@ -1,0 +1,23 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [index](../README.md) / isParamHeader
+
+# Function: isParamHeader()
+
+> **isParamHeader**(`name`): `boolean`
+
+Defined in: [transport/http/headers.ts:82](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/transport/http/headers.ts#L82)
+
+Returns `true` when `name` is an `Mcp-Param-*` header (case-insensitive).
+
+## Parameters
+
+### name
+
+`string`
+
+## Returns
+
+`boolean`

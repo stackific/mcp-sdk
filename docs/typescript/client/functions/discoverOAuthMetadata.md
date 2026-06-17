@@ -1,0 +1,34 @@
+[**@stackific/mcp-sdk**](../../README.md)
+
+***
+
+[@stackific/mcp-sdk](../../README.md) / [client](../README.md) / discoverOAuthMetadata
+
+# Function: discoverOAuthMetadata()
+
+> **discoverOAuthMetadata**(`options`): `Promise`\<[`DiscoveredOAuthMetadata`](../interfaces/DiscoveredOAuthMetadata.md)\>
+
+Defined in: [client/oauth.ts:67](https://github.com/stackific/mcp-sdk-v2/blob/main/ts-sdk/src/client/oauth.ts#L67)
+
+Discovers protected-resource metadata (RFC 9728) then authorization-server
+metadata (RFC 8414). (§23.2–§23.3)
+
+## Parameters
+
+### options
+
+#### resource
+
+`string`
+
+#### resourceMetadataUrl?
+
+`string`
+
+#### fetch?
+
+(`input`, `init?`) => `Promise`\<`Response`\>
+
+## Returns
+
+`Promise`\<[`DiscoveredOAuthMetadata`](../interfaces/DiscoveredOAuthMetadata.md)\>
