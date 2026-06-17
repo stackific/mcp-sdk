@@ -21,6 +21,11 @@ from main import app
 
 CAPS = {"elicitation": {"form": {}, "url": {}}, "sampling": {}, "roots": {}, "tasks": {}}
 
+# Every Client opened by make_client() is registered here so the module fixture can
+# close them at teardown — each holds a live Streamable HTTP transport (and listen
+# stream), and leaving them open surfaces as unclosed-socket ResourceWarnings.
+_clients: list[Client] = []
+
 
 def _free_port() -> int:
   s = socket.socket()
@@ -47,6 +52,13 @@ def base_url():
   else:
     raise RuntimeError("server did not start")
   yield url
+  # Close every client (and its transport sockets) before stopping the server.
+  for c in _clients:
+    try:
+      c.close()
+    except Exception:
+      pass
+  _clients.clear()
   server.should_exit = True
   thread.join(timeout=5)
 
@@ -57,6 +69,7 @@ def make_client(base_url: str) -> Client:
   c.set_request_handler("sampling/createMessage", lambda p: {"role": "assistant", "content": {"type": "text", "text": "ok"}, "model": "mock", "stopReason": "endTurn"})
   c.set_request_handler("roots/list", lambda p: {"roots": [{"uri": "file:///ws", "name": "ws"}]})
   c.discover()
+  _clients.append(c)
   return c
 
 

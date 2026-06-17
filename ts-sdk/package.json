@@ -1,6 +1,7 @@
 {
   "name": "@stackific/mcp-sdk",
   "version": "0.1.0",
+  "license": "AGPL-3.0-only",
   "description": "Model Context Protocol SDK for Node.js — specification-compliant implementation",
   "type": "module",
   "exports": {
@@ -54,6 +55,6 @@
     "typedoc-plugin-markdown": "^4.12.0",
     "typescript": "^5.6.0",
     "typescript-eslint": "^8.61.1",
-    "vitest": "^3.2.6"
+    "vitest": "^2.1.0"
   }
 }

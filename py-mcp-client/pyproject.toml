@@ -22,3 +22,11 @@ dev = ["pytest>=8.0", "httpx>=0.27"]
 addopts = "-q"
 testpaths = ["tests"]
 pythonpath = ["."]
+# Silence non-actionable third-party deprecations only (Python 3.14 + uvicorn[standard]/
+# websockets + starlette's TestClient). These originate in dependencies, not our code.
+filterwarnings = [
+  "ignore:'asyncio.iscoroutinefunction' is deprecated:DeprecationWarning",
+  "ignore:websockets.legacy is deprecated:DeprecationWarning",
+  "ignore:websockets.server.WebSocketServerProtocol is deprecated:DeprecationWarning",
+  "ignore:Using .httpx. with .starlette.testclient. is deprecated",
+]

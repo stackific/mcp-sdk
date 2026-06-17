@@ -20,7 +20,7 @@ vars:
   VULTURE: 'uvx vulture@2.16'
   # The Python stacks ruff/vulture operate over.
   PY_DIRS: 'py-sdk/src py-sdk/tests py-mcp-server py-mcp-client'
-  FRONTEND_PORT: 8000
+  DEMO_PORT: 8000
   TS_MCP_SERVER_PORT: 8001
   TS_MCP_CLIENT_PORT: 8002
   TS_AUTH_PORT: 8003
@@ -32,7 +32,7 @@ vars:
   CSHARP_AUTH_PORT: 8203
   # The full set of dev ports, derived from the above — consumed by `task stop`.
   ALL_PORTS: >-
-    {{.FRONTEND_PORT}} {{.TS_MCP_SERVER_PORT}} {{.TS_MCP_CLIENT_PORT}} {{.TS_AUTH_PORT}}
+    {{.DEMO_PORT}} {{.TS_MCP_SERVER_PORT}} {{.TS_MCP_CLIENT_PORT}} {{.TS_AUTH_PORT}}
     {{.PY_MCP_SERVER_PORT}} {{.PY_MCP_CLIENT_PORT}} {{.PY_AUTH_PORT}}
     {{.CSHARP_MCP_SERVER_PORT}} {{.CSHARP_MCP_CLIENT_PORT}} {{.CSHARP_AUTH_PORT}}
 
@@ -117,7 +117,7 @@ tasks:
   frontend:
     desc: Shared companion frontend (Vite, :8000)
     cmds:
-      - pnpm --filter @stackific/mcp-frontend-demo dev
+      - pnpm --filter @stackific/mcp-demo dev
 
   ts:server:
     desc: TypeScript MCP server + OAuth AS (:8001 / :8003)
@@ -133,7 +133,7 @@ tasks:
       BACKEND_PORT: '{{.TS_MCP_CLIENT_PORT}}'
       MCP_SERVER_URL: 'http://localhost:{{.TS_MCP_SERVER_PORT}}/mcp'
       AUTH_SERVER_URL: 'http://localhost:{{.TS_AUTH_PORT}}'
-      FRONTEND_URL: 'http://localhost:{{.FRONTEND_PORT}}'
+      DEMO_URL: 'http://localhost:{{.DEMO_PORT}}'
     cmds:
       - pnpm --filter @stackific/mcp-client-demo dev
 
@@ -143,7 +143,7 @@ tasks:
     env:
       PY_MCP_SERVER_PORT: '{{.PY_MCP_SERVER_PORT}}'
       PY_AUTH_PORT: '{{.PY_AUTH_PORT}}'
-      FRONTEND_URL: 'http://localhost:{{.FRONTEND_PORT}}'
+      DEMO_URL: 'http://localhost:{{.DEMO_PORT}}'
     cmds:
       - uv run python main.py
 
@@ -154,7 +154,7 @@ tasks:
       PY_MCP_CLIENT_PORT: '{{.PY_MCP_CLIENT_PORT}}'
       PY_MCP_SERVER_URL: 'http://localhost:{{.PY_MCP_SERVER_PORT}}'
       PY_AUTH_SERVER_URL: 'http://localhost:{{.PY_AUTH_PORT}}'
-      FRONTEND_URL: 'http://localhost:{{.FRONTEND_PORT}}'
+      DEMO_URL: 'http://localhost:{{.DEMO_PORT}}'
     cmds:
       - uv run python main.py
 
@@ -174,7 +174,7 @@ tasks:
       CSHARP_MCP_CLIENT_PORT: '{{.CSHARP_MCP_CLIENT_PORT}}'
       CSHARP_MCP_SERVER_URL: 'http://localhost:{{.CSHARP_MCP_SERVER_PORT}}'
       CSHARP_AUTH_SERVER_URL: 'http://localhost:{{.CSHARP_AUTH_PORT}}'
-      FRONTEND_URL: 'http://localhost:{{.FRONTEND_PORT}}'
+      DEMO_URL: 'http://localhost:{{.DEMO_PORT}}'
     cmds:
       - dotnet watch run
 

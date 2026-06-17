@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs';
 
 import { chromium } from 'playwright';
 
-const BASE = process.env.FRONTEND_URL || 'http://localhost:8000';
+const BASE = process.env.DEMO_URL || 'http://localhost:8000';
 const SHOT_DIR = process.env.SHOT_DIR || '/tmp/e2e';
 mkdirSync(SHOT_DIR, { recursive: true });
 

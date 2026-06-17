@@ -224,7 +224,7 @@ export function buildCompanionServer(): McpServer {
         mode: 'url',
         message: 'Please confirm your purchase in the opened page.',
         elicitationId,
-        url: `${(typeof process !== 'undefined' ? process.env.FRONTEND_URL : undefined) ?? 'http://localhost:8000'}/elicit/${elicitationId}`,
+        url: `${(typeof process !== 'undefined' ? process.env.DEMO_URL : undefined) ?? 'http://localhost:8000'}/elicit/${elicitationId}`,
       });
       return {
         content: [

@@ -17,7 +17,7 @@ export const PORT = Number(env('BACKEND_PORT') ?? 8002);
 // The app is MCP-server-agnostic: these point at any compliant server (see MCP_SERVER_REQUIREMENTS.md).
 export const MCP_SERVER_URL = env('MCP_SERVER_URL') ?? 'http://localhost:8001/mcp';
 export const AUTH_SERVER_URL = env('AUTH_SERVER_URL') ?? 'http://localhost:8003';
-export const FRONTEND_URL = env('FRONTEND_URL') ?? 'http://localhost:8000';
+export const DEMO_URL = env('DEMO_URL') ?? 'http://localhost:8000';
 
 export const DEEPSEEK_API_KEY = env('DEEPSEEK_API_KEY') ?? '';
 export const DEEPSEEK_BASE_URL = env('DEEPSEEK_BASE_URL') ?? 'https://api.deepseek.com/anthropic';

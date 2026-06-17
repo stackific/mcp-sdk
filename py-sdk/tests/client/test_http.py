@@ -76,6 +76,9 @@ def base_url():
     yield f"http://{host}:{port}/mcp"
   finally:
     httpd.shutdown()
+    # shutdown() only stops serve_forever(); server_close() releases the listening
+    # socket so it is not reported as an unclosed-socket ResourceWarning at teardown.
+    httpd.server_close()
 
 
 def _client(base_url: str) -> Client:
@@ -168,6 +171,8 @@ class _ProgrammableServer:
 
   def shutdown(self) -> None:
     self._httpd.shutdown()
+    # Release the listening socket too; shutdown() alone leaves it open (ResourceWarning).
+    self._httpd.server_close()
 
 
 @pytest.fixture

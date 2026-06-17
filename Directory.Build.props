@@ -9,6 +9,8 @@
 <Project>
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+    <!-- The whole monorepo is licensed under the GNU AGPL v3.0 (see /LICENSE). -->
+    <PackageLicenseExpression>AGPL-3.0-only</PackageLicenseExpression>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>

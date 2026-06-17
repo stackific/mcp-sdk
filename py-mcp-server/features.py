@@ -175,7 +175,7 @@ def build_companion_server() -> McpServer:
   )
 
   def confirm_purchase(args: dict, ctx: ToolContext) -> dict:
-    frontend = os.environ.get("FRONTEND_URL", "http://localhost:8000")
+    frontend = os.environ.get("DEMO_URL", "http://localhost:8000")
     elicitation_id = f"purchase-{int(time.time() * 1000)}"
     result = ctx.elicit_input(
       {

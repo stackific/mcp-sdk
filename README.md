@@ -30,7 +30,7 @@ configuration.
 
 ```
 docs/                The full MCP V2 RC specification (model-context-protocol.md)
-frontend/            @stackific/mcp-frontend-demo — shared Vite + TanStack Router + shadcn-style SPA (:8000), the language switcher
+demo/                @stackific/mcp-demo — shared Vite + TanStack Router + shadcn-style SPA (:8000), the language switcher
 ts-sdk/              @stackific/mcp-sdk — the MCP SDK (client + server runtimes)
 ts-mcp-client/       @stackific/mcp-client-demo — TypeScript MCP client host (Hono, :8002), full implementation
 ts-mcp-server/       @stackific/mcp-server-demo — TypeScript reference MCP server + OAuth AS (Hono, :8001 / :8003)
@@ -44,14 +44,14 @@ csharp-mcp-server/   C# reference MCP server + OAuth AS (.NET 10 Minimal API, :8
 Taskfile.yml         The single entrypoint that drives the whole monorepo
 ```
 
-Inside the TypeScript stack, only `ts-mcp-client/` and `frontend/` are pnpm workspace members; `ts-sdk/`
+Inside the TypeScript stack, only `ts-mcp-client/` and `demo/` are pnpm workspace members; `ts-sdk/`
 and `ts-mcp-server/` install standalone (so the SDK link stays explicit and the reference server is
 deletable). Nothing in the workspace imports `ts-mcp-server/`.
 
 ## Architecture (per language)
 
 ```
-frontend (shared SPA, :8000)
+demo (shared SPA, :8000)
    │  REST + SSE (the live wire stream) — base URL chosen by the language switch
    ▼
 <lang>-mcp-client  ── hosts the MCP *client*, taps every JSON-RPC frame to /debug/stream
@@ -130,3 +130,8 @@ task lint         # lint every stack (Prettier check for JS/TS, Ruff for Python,
 task deadcode     # find dead/unused code (Knip for TS, Vulture for Python, Roslyn analyzers for C#)
 task format       # format every stack (Prettier for JS/TS/JSON/Markdown, dotnet format for C#)
 ```
+
+## License
+
+This project — every stack (TypeScript, Python, C#) and the shared `demo` SPA — is licensed
+under the **GNU Affero General Public License v3.0** (`AGPL-3.0-only`). See [`LICENSE`](LICENSE).

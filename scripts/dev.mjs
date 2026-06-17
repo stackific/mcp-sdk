@@ -1,5 +1,5 @@
 // Runs the TypeScript stack in dev/live-reload: the workspace packages
-// (ts-mcp-client + frontend) AND the external `ts-mcp-server/` (which is
+// (ts-mcp-client + demo) AND the external `ts-mcp-server/` (which is
 // intentionally NOT a workspace member, so `pnpm -r` skips it). Forwards Ctrl+C to
 // every child so nothing lingers; `pnpm stop` is the belt-and-braces port cleanup.
 // NOTE: the root Taskfile is the primary monorepo entrypoint; this script remains
@@ -46,7 +46,7 @@ function shutdown(code) {
 process.on('SIGINT', () => shutdown(0));
 process.on('SIGTERM', () => shutdown(0));
 
-// Workspace packages (ts-mcp-client :8002 + frontend :8000) and the MCP server (:8001 + :8003).
+// Workspace packages (ts-mcp-client :8002 + demo :8000) and the MCP server (:8001 + :8003).
 start('workspace', 'pnpm', ['-r', '--parallel', '--stream', 'dev']);
 if (existsSync(mcpServerDir)) {
   start('ts-mcp-server', 'pnpm', ['--dir', 'ts-mcp-server', 'dev']);

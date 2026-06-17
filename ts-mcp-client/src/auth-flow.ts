@@ -21,12 +21,12 @@ import {
   verifyAuthorizationRedirect,
 } from '@stackific/mcp-sdk/client';
 
-import { AUTH_SERVER_URL, FRONTEND_URL } from './config.js';
+import { AUTH_SERVER_URL, DEMO_URL } from './config.js';
 import { bus } from './debug-bus.js';
 import { httpFetch } from './http.js';
 
 const PROTECTED_MCP = `${AUTH_SERVER_URL}/mcp`;
-const REDIRECT_URI = `${FRONTEND_URL}/oauth/callback`;
+const REDIRECT_URI = `${DEMO_URL}/oauth/callback`;
 
 export interface AuthStep {
   n: number;

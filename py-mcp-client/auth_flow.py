@@ -29,11 +29,11 @@ from stackific.mcp.client import (
   verify_authorization_redirect,
 )
 
-from config import AUTH_SERVER_URL, FRONTEND_URL
+from config import AUTH_SERVER_URL, DEMO_URL
 from debug_bus import bus
 
 PROTECTED_MCP = f"{AUTH_SERVER_URL}/mcp"
-REDIRECT_URI = f"{FRONTEND_URL}/oauth/callback"
+REDIRECT_URI = f"{DEMO_URL}/oauth/callback"
 
 
 def _mask(token: str | None) -> str:
