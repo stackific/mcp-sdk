@@ -14,7 +14,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.0",
     "@cfworker/json-schema": "^4.1.1",
-    "@hono/node-server": "^1.14.0",
+    "@hono/node-server": "^2.0.10",
     "@stackific/mcp-sdk": "link:../ts-sdk",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",

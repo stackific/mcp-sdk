@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@hono/node-server": "^1.14.0",
+    "@hono/node-server": "^2.0.10",
     "@stackific/mcp-sdk": "link:../ts-sdk",
     "hono": "^4.12.0"
   },
